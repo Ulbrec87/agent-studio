@@ -17,6 +17,8 @@ use as_core::overview::{
 };
 use as_core::paths::Paths;
 use as_core::sessions::{ClaudeProfile, ListSessionsOptions, SessionSummary};
+use as_core::usage::report::{UsageReport, UsageReportProvider};
+use as_core::usage::{UsagePeriod, UsageState, UsageSummary};
 use as_core::{AppConfig, CreateAgentPayload, ModelId, ProviderId, ProviderModelOption};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -466,6 +468,60 @@ impl DaemonClient {
             Response::AgentDetails(d) => Ok(d.map(|d| *d)),
             other => unexpected(other),
         }
+    }
+
+    pub async fn get_usage_state(&self) -> Result<UsageState> {
+        match self.request(Request::GetUsageState).await? {
+            Response::UsageState(s) => Ok(*s),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn get_usage_summary(
+        &self,
+        period: UsagePeriod,
+        project_key: Option<String>,
+    ) -> Result<UsageSummary> {
+        match self
+            .request(Request::GetUsageSummary {
+                period,
+                project_key,
+            })
+            .await?
+        {
+            Response::UsageSummary(s) => Ok(*s),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn get_usage_report(
+        &self,
+        provider: UsageReportProvider,
+        days: u32,
+    ) -> Result<UsageReport> {
+        match self
+            .request(Request::GetUsageReport { provider, days })
+            .await?
+        {
+            Response::UsageReport(r) => Ok(*r),
+            other => unexpected(other),
+        }
+    }
+
+    /// Scan the logs and poll the limits now; can take a few seconds.
+    pub async fn refresh_usage(&self) -> Result<UsageState> {
+        match self
+            .request_timeout(Request::RefreshUsage, Duration::from_secs(60))
+            .await?
+        {
+            Response::UsageState(s) => Ok(*s),
+            other => unexpected(other),
+        }
+    }
+
+    /// Tell the daemon this client shows a usage surface (faster limits polling).
+    pub async fn set_usage_visible(&self, visible: bool) -> Result<()> {
+        self.expect_ok(Request::UsageVisible(visible)).await
     }
 
     /// Report whether this client's terminal is focused (drives OS notifications).

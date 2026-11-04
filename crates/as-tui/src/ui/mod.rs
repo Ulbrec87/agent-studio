@@ -9,6 +9,7 @@ pub mod layout;
 pub mod overview;
 pub mod sidebar;
 pub mod toasts;
+pub mod usage;
 
 use as_core::ViewMode;
 use ratatui::Frame;
@@ -60,3 +61,5 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 mod overview_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod usage_tests;

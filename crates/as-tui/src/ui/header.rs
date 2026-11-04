@@ -5,6 +5,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
+use unicode_width::UnicodeWidthStr;
 
 use as_core::ViewMode;
 
@@ -80,6 +81,15 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         Style::default().fg(if running > 0 { t.running } else { t.text_muted }),
     ));
     right.push(Span::raw("  "));
+    let chip = crate::ui::usage::chip_spans(app);
+    let chip_w: usize = chip.iter().map(|s| s.content.width()).sum();
+    let left_w: usize = left.iter().map(|s| s.content.width()).sum();
+    let right_w: usize = right.iter().map(|s| s.content.width()).sum();
+    // The chip only shows when the whole bar still fits.
+    if chip_w > 0 && left_w + right_w + chip_w + 14 <= usize::from(area.width) {
+        right.extend(chip);
+        right.push(Span::raw("  "));
+    }
     if app.config.global_yolo {
         right.push(Span::styled(
             " YOLO ",

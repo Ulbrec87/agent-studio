@@ -11,6 +11,8 @@ use as_core::overview::{
 };
 use as_core::sessions::profiles::resolve_profile;
 use as_core::sessions::{ClaudeProfile, SessionSummary};
+use as_core::usage::report::UsageReport;
+use as_core::usage::{UsagePeriod, UsageState, UsageSummary};
 use as_core::{
     AgentState, AgentStatus, AppConfig, CreateAgentPayload, GridColumns, ProviderId,
     ProviderModelOption, ViewMode, get_default_model_for_provider,
@@ -33,6 +35,7 @@ use crate::suspend::ExternalCommand;
 use crate::term::{TerminalEmulator, Vt100Emulator, keys};
 use crate::theme::{ColorMode, Theme};
 use crate::ui::layout::{self, DEFAULT_SIDEBAR, LayoutParams, MAX_INPUT_LINES};
+use crate::usage::{UsageOverlay, UsageUi, Want};
 use crate::widgets::TextArea;
 
 /// Terminals kept subscribed (the selected one, the visible grid tiles and recently viewed ones).
@@ -140,6 +143,8 @@ pub enum Modal {
     Resume(Box<SessionPicker>),
     /// `prefix P`: Claude profile of a project.
     Profile(ProfileChooser),
+    /// `prefix u`: usage and limits report (P7).
+    Usage(UsageOverlay),
 }
 
 /// One entry of the profile chooser.
@@ -210,6 +215,23 @@ pub enum Effect {
     LoadOverviewWaits,
     /// Last message and tokens of an agent, for the details drawer.
     LoadAgentDetails(String),
+    /// Usage: the daemon's usage state.
+    LoadUsageState,
+    LoadUsageSummary {
+        period: UsagePeriod,
+        /// `""` = all projects.
+        project: String,
+    },
+    LoadUsageReport {
+        provider: as_core::usage::report::UsageReportProvider,
+        days: u32,
+    },
+    /// Scan the logs and poll the plan limits now.
+    RefreshUsage,
+    /// A usage surface is (not) on screen: the daemon polls the limits faster while one is.
+    UsageVisible(bool),
+    /// Merge a JSON patch into the daemon's config.
+    PatchConfig(serde_json::Value),
 }
 
 /// Results of asynchronous work, fed back into [`App::handle_msg`].
@@ -242,6 +264,14 @@ pub enum Msg {
     },
     /// The daemon could not answer an Overview request (an older daemon, for instance).
     OverviewFailed(String),
+    UsageState(Box<UsageState>),
+    UsageSummary {
+        project: String,
+        summary: Box<UsageSummary>,
+    },
+    UsageReport(Box<UsageReport>),
+    /// A usage request failed (an older daemon does not know usage).
+    UsageFailed(String),
 }
 
 pub enum SubState {
@@ -311,6 +341,8 @@ pub struct App {
     pub grid: GridState,
     /// Overview view state: snapshot, history, ledger, cards and drawer.
     pub overview: OverviewState,
+    /// Usage and limits: state, summaries, reports (P7).
+    pub usage: UsageUi,
     pub broadcast: TextArea,
     /// First visible line of the help overlay.
     pub help_scroll: usize,
@@ -364,6 +396,7 @@ impl App {
             view: ViewMode::Chat,
             grid: GridState::default(),
             overview: OverviewState::default(),
+            usage: UsageUi::default(),
             broadcast: TextArea::multi_line(),
             help_scroll: 0,
             user_bindings: Vec::new(),
@@ -393,6 +426,7 @@ impl App {
             Effect::SetFocus(self.terminal_focused),
             Effect::LoadProfiles,
             Effect::LoadOverview,
+            Effect::LoadUsageState,
         ];
         if self.view == ViewMode::Overview {
             self.overview.entered(self.wall_ms(), self.now);
@@ -628,6 +662,10 @@ impl App {
                 self.overview.set_snapshot(*snapshot);
                 self.dirty = true;
             }
+            Event::UsageChanged(state) => {
+                self.usage.set_state(*state);
+                self.dirty = true;
+            }
             Event::OverviewEvents(events) => {
                 let moved = self.overview.add_events(&events);
                 if moved && self.view == ViewMode::Overview {
@@ -645,6 +683,7 @@ impl App {
             NotificationKind::AgentIdle => ToastKind::Success,
             NotificationKind::AgentErrored => ToastKind::Error,
             NotificationKind::AgentStarted => ToastKind::Info,
+            NotificationKind::UsageLimit => ToastKind::Warn,
         };
         self.toasts.push(Toast {
             id: n.id.clone(),
@@ -780,6 +819,24 @@ impl App {
                 self.overview.set_error(error);
                 self.dirty = true;
             }
+            Msg::UsageState(state) => {
+                self.usage.set_state(*state);
+                self.usage.refreshing = false;
+                self.dirty = true;
+            }
+            Msg::UsageSummary { project, summary } => {
+                self.usage.set_summary(project, *summary);
+                self.dirty = true;
+            }
+            Msg::UsageReport(report) => {
+                self.usage.set_report(*report);
+                self.dirty = true;
+            }
+            Msg::UsageFailed(error) => {
+                tracing::debug!(%error, "usage request failed");
+                self.usage.failed(error);
+                self.dirty = true;
+            }
             Msg::Sessions { provider, result } => {
                 match &mut self.modal {
                     Some(Modal::Resume(picker)) => picker.set_sessions(provider, result),
@@ -892,7 +949,9 @@ impl App {
             Effect::SetFocus(self.terminal_focused),
             Effect::LoadProfiles,
             Effect::LoadOverview,
+            Effect::LoadUsageState,
         ];
+        self.usage.reset_connection();
         for (id, term) in &mut self.terms {
             term.emu = Box::new(Vt100Emulator::new(cols, rows));
             term.sub = SubState::Requested(Vec::new());
@@ -1549,6 +1608,14 @@ impl App {
                 Vec::new()
             }
             Command::OpenKeybindingsFile => self.open_keybindings_file(),
+            Command::UsageReport => self.open_usage_report(),
+            Command::RefreshUsage => self.refresh_usage(),
+            Command::ToggleUsageCosts => vec![Effect::PatchConfig(
+                serde_json::json!({ "usage": { "showCost": !self.config.usage.show_cost } }),
+            )],
+            Command::ToggleUsageAlerts => vec![Effect::PatchConfig(
+                serde_json::json!({ "usage": { "alertsEnabled": !self.config.usage.alerts_enabled } }),
+            )],
             Command::ToggleTileExpand
             | Command::Broadcast
             | Command::GridLeft
@@ -1773,6 +1840,7 @@ impl App {
                 self.modal = Some(Modal::Help);
                 Vec::new()
             }
+            Modal::Usage(overlay) => self.usage_overlay_key(overlay, key),
             Modal::Palette(mut palette) => match palette.handle_key(&key, PALETTE_PAGE) {
                 PaletteOutcome::None => {
                     self.modal = Some(Modal::Palette(palette));
@@ -1907,6 +1975,7 @@ impl App {
 }
 
 mod overview;
+mod usage_ui;
 mod view;
 
 #[cfg(test)]

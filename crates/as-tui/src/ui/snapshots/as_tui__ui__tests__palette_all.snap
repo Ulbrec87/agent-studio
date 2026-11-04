@@ -28,7 +28,7 @@ expression: text(&t)
              │  Broadcast to the Agents of the Tab                                     Ctrl+A b │
              │  Open Focused Tile in Chat                                                grid c │
              │  Move Tile Earlier                                             Ctrl+A Shift+Left │
-             │ 43 matches · ↑/↓ choose · Enter run · Esc close                                  │
+             │ 47 matches · ↑/↓ choose · Enter run · Esc close                                  │
              ╰──────────────────────────────────────────────────────────────────────────────────╯
                            │
  All Run Wait Idle Err     │

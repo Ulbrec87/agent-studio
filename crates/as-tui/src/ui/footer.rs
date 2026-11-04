@@ -51,6 +51,12 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
                 "j/k PgUp/PgDn scroll \u{00B7} g/G top/bottom \u{00B7} Esc closes".into(),
             );
         }
+        Some(Modal::Usage(_)) => {
+            return (
+                "USAGE",
+                "j/k scroll \u{00B7} \u{2190}/\u{2192} provider \u{00B7} d 7d/30d \u{00B7} f low/all \u{00B7} r refresh \u{00B7} Esc close".into(),
+            );
+        }
         Some(Modal::Palette(_)) => {
             return (
                 "PALETTE",

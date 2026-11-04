@@ -10,6 +10,7 @@ pub mod overview;
 pub mod paths;
 pub mod sessions;
 pub mod types;
+pub mod usage;
 pub mod usage_settings;
 pub mod util;
 pub mod workspace;

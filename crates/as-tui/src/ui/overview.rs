@@ -21,12 +21,11 @@ use crate::overview::model::{self, CountKind, SessionRow};
 use crate::overview::state::{Card, SessionsMode, WaitsTab};
 use crate::theme::Theme;
 use crate::ui::layout::Layout;
+use crate::ui::usage;
 
 /// Main-area width from which the cards go into two columns (a 28-column sidebar makes it ~140
 /// terminal columns).
 pub const WIDE: u16 = 110;
-/// Show the usage card slot (filled by a later phase).
-pub const SHOW_USAGE_SLOT: bool = false;
 
 const MAX_NEEDS: usize = 14;
 const MAX_SESSIONS: usize = 15;
@@ -200,6 +199,7 @@ fn natural_height(app: &App, card: Card, inner_w: u16, clock: &Clock) -> u16 {
                 16
             }
         }
+        Card::Usage => usize::from(usage::card_height(app, inner_w)),
     };
     u16::try_from(n).unwrap_or(u16::MAX)
 }
@@ -210,13 +210,17 @@ fn layout_cards(app: &App, width: u16, clock: &Clock) -> (Vec<Placed>, u16) {
     let height = |card: Card, w: u16| natural_height(app, card, w.saturating_sub(2), clock) + 2;
     if width >= WIDE {
         let half = width / 2;
-        let rows: [&[Card]; 5] = [
-            &[Card::Counts],
+        let mut rows: Vec<&[Card]> = Vec::new();
+        if usage::card_visible(app) {
+            rows.push(&[Card::Usage]);
+        }
+        rows.extend([
+            &[Card::Counts][..],
             &[Card::NeedsYou, Card::LastHour],
             &[Card::Sessions, Card::Events],
             &[Card::Timeline],
             &[Card::Waits],
-        ];
+        ]);
         for row in rows {
             let h = row
                 .iter()
@@ -241,7 +245,11 @@ fn layout_cards(app: &App, width: u16, clock: &Clock) -> (Vec<Placed>, u16) {
             y += h;
         }
     } else {
-        for card in [
+        let mut order = Vec::new();
+        if usage::card_visible(app) {
+            order.push(Card::Usage);
+        }
+        order.extend([
             Card::NeedsYou,
             Card::Counts,
             Card::Sessions,
@@ -249,7 +257,8 @@ fn layout_cards(app: &App, width: u16, clock: &Clock) -> (Vec<Placed>, u16) {
             Card::Events,
             Card::Timeline,
             Card::Waits,
-        ] {
+        ]);
+        for card in order {
             let h = height(card, width);
             placed.push(Placed {
                 card,
@@ -368,6 +377,7 @@ fn focus_cursor(app: &App) -> usize {
         Card::Events => o.events_cursor,
         Card::Timeline => o.timeline_scroll,
         Card::Waits => o.waits_scroll,
+        Card::Usage => 0,
         _ => 0,
     }
 }
@@ -485,6 +495,7 @@ fn render_card(app: &App, p: &Placed, clock: &Clock, page: &mut Buffer) {
                 }
             );
         }
+        Card::Usage => title = usage::card_title(app),
         _ => {}
     }
     let border = if focused {
@@ -523,6 +534,7 @@ fn render_card(app: &App, p: &Placed, clock: &Clock, page: &mut Buffer) {
         Card::Events => events_card(app, inner, clock, focused, page),
         Card::Timeline => timeline_card(app, inner, clock, focused, page),
         Card::Waits => waits_card(app, inner, clock, page),
+        Card::Usage => usage::card_body(app, inner, page),
     }
 }
 

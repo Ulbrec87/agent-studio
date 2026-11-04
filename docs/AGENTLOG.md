@@ -178,3 +178,29 @@ for the summary.
 Since P6 the daemon broadcasts `OverviewSnapshot`/`OverviewEvents` to every client, raw connections
 included, so a test reading "the next frame" can get an event instead of its response. Use the
 `next_response` helper in `crates/as-daemon/tests/daemon.rs`.
+
+## P7 (usage & limits) gotchas
+
+- **`reqwest` 0.13 feature names.** `default-features = false, features = ["blocking", "json", "rustls"]` is the OpenSSL-free set
+  (`rustls` = rustls + aws-lc-rs + the platform verifier). `rustls-no-provider` would need a crypto provider installed by hand.
+  `cargo add --features` merges with what is there, so check `Cargo.toml` after it. The blocking client is created lazily on the
+  first request and must be used from a blocking thread (`spawn_blocking`), never from async code. aws-lc-sys needs a C compiler
+  (fine on Linux/macOS; on Windows MSVC it may want NASM or cmake): switch to the `ring` provider if that bites.
+- **Never let a credential reach a formatter.** `credentials::Secret` has a redacted `Debug`; the HTTP request keeps the bearer in
+  one, errors from the transport carry no text (`HttpError` is a unit struct) and tests assert the token is absent from every
+  `Debug`/JSON of results, the cache and the logs. Keep new code that touches the token behind `Secret::expose()`.
+- **The OAuth usage endpoint answers both shapes.** `limits[]` (`kind`, `percent` integer 0-100: `1` is 1 %, a float strictly in
+  (0,1) is a fraction) and the legacy `five_hour`/`seven_day*` keys; parse `limits[]` first, legacy only when it yields nothing.
+  `~/.claude` with an old `expiresAt` simply reads "Sign-in expired" until a Claude agent runs in that profile (we never refresh).
+- **Usage rows are per profile, ordered like `list_profiles`.** With `CLAUDE_CONFIG_DIR` set (as in this repo's own shell), that
+  profile comes right after the default one. Not a bug.
+- **Daily totals are in the local zone; compare with the same zone.** A cross-check against `jq`/python must bucket by local
+  midnight (`astimezone()`), dedupe by `message.id:requestId` and skip `<synthetic>`; finished days then match to the token. Today's
+  figure keeps moving while a session writes logs.
+- **Hash a path for the Keychain service the way Claude Code does:** `Claude Code-credentials-<first 8 hex of sha256(configDir)>`
+  for non-default profiles (the default profile has no suffix).
+- **Snapshot tests of the usage overlay** share the Overview tests' fixed clock (`overview_tests::NOW`, UTC); fixtures live in
+  `as_tui::usage::model::fixtures` (`cfg(test)`). New insta snapshots land as `.snap.new`: review, then run once with
+  `INSTA_UPDATE=always` and delete leftover `.snap.new` files.
+- **Daemon tests must pin the usage sources.** `DaemonOptions::usage_options` (sources, profiles, http, credentials) keeps tests off
+  the real `~/.claude*`, `~/.codex` and the network; leave `sources: Some(vec![])` in new test harnesses.

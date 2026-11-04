@@ -439,7 +439,7 @@ impl App {
 
     // ── palette ─────────────────────────────────────────────────────────────
 
-    pub(super) fn run_palette_action(&mut self, action: PaletteAction) -> Vec<Effect> {
+    pub fn run_palette_action(&mut self, action: PaletteAction) -> Vec<Effect> {
         match action {
             PaletteAction::Command(cmd) => self.exec(cmd),
             PaletteAction::SwitchView(view) => self.set_view(view),

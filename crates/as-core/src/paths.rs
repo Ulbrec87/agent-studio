@@ -74,6 +74,10 @@ impl Paths {
     pub fn usage_cache_file(&self) -> PathBuf {
         self.root.join("usage-cache.json")
     }
+    /// Usage alerts already sent (so a restart does not repeat them).
+    pub fn usage_alerts_file(&self) -> PathBuf {
+        self.root.join("usage-alerts.json")
+    }
     pub fn manager_workspace_dir(&self) -> PathBuf {
         self.root.join("manager-workspace")
     }

@@ -20,7 +20,7 @@ use crate::overview::{Card, SessionsMode};
 use crate::theme::ColorMode;
 
 /// 2026-10-22 14:30:00 UTC.
-const NOW: i64 = 1_792_679_400_000;
+pub(super) const NOW: i64 = 1_792_679_400_000;
 const MIN: i64 = 60_000;
 
 fn agent(id: &str, name: &str, dir: &str, provider: ProviderId, status: AgentStatus) -> AgentState {
@@ -328,7 +328,7 @@ fn ledger() -> WaitLedgerData {
     }
 }
 
-fn app_with(width: u16, height: u16) -> App {
+pub(super) fn app_with(width: u16, height: u16) -> App {
     let mut app = App::new(
         AppConfig::default(),
         agents(),
@@ -347,20 +347,20 @@ fn app_with(width: u16, height: u16) -> App {
     app
 }
 
-fn overview_app(width: u16, height: u16) -> App {
+pub(super) fn overview_app(width: u16, height: u16) -> App {
     let mut app = app_with(width, height);
     app.set_view(ViewMode::Overview);
     app.overview.marker = None;
     app
 }
 
-fn draw(app: &mut App, w: u16, h: u16) -> Terminal<TestBackend> {
+pub(super) fn draw(app: &mut App, w: u16, h: u16) -> Terminal<TestBackend> {
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     terminal.draw(|f| super::draw(f, app)).unwrap();
     terminal
 }
 
-fn text(t: &Terminal<TestBackend>) -> String {
+pub(super) fn text(t: &Terminal<TestBackend>) -> String {
     let buf = t.backend().buffer();
     (0..buf.area.height)
         .map(|y| {
@@ -373,10 +373,10 @@ fn text(t: &Terminal<TestBackend>) -> String {
         .join("\n")
 }
 
-fn press(app: &mut App, code: KeyCode) -> Vec<Effect> {
+pub(super) fn press(app: &mut App, code: KeyCode) -> Vec<Effect> {
     app.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
 }
-fn ch(app: &mut App, c: char) -> Vec<Effect> {
+pub(super) fn ch(app: &mut App, c: char) -> Vec<Effect> {
     press(app, KeyCode::Char(c))
 }
 

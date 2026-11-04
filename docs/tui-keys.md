@@ -53,6 +53,7 @@ wins. `prefix g` / `prefix \` toggle Chat/Grid (Hydra `mod+\`), `prefix O` shows
 | `[` | `scroll-mode` | scroll mode (Chat view) |
 | `i` | `toggle-chat-input` | toggle the input bar |
 | `<` / `>` | `sidebar-narrower` / `sidebar-wider` | sidebar width |
+| `u` | `usage-dashboard` | usage report overlay (see below) |
 | `?` | `show-shortcuts` | help overlay |
 | `q` | `quit` | quit |
 
@@ -133,13 +134,27 @@ hour) · **Last hour** (12 bars of 5 min: needs-you amber / working green / idle
 ended sessions show 10 and "Show N more") · **Events** (newest first, `── new since 14:02 ──` marks what happened while
 you were elsewhere; it goes away after 10 s in view) · **Timeline** (one row per session, each cell a slice of the last
 hour) · **Waits** (today / 7 days totals, by-day bars, five longest waiters). Time is shown in local time. History and
-the wait ledger are refreshed when the view opens and every 30 s. The usage card slot arrives with P7.
+the wait ledger are refreshed when the view opens and every 30 s. The **Usage & limits** card is on top (once the daemon reported usage): plan limits left, tokens of Today/Week/Month with a daily bar chart right; `Tab` reaches it, `t` cycles its period, `Enter` / `u` open the report. It follows the project filter (`p`) for tokens; limits are per account.
 
 ## Command palette (`prefix p`, `prefix :`)
 
 Fuzzy list (nucleo) of every palette command with its key hint, `Switch view: Chat/Grid/Overview` and
 `Switch to agent: <name>` for every agent (project shown on the right). Type to filter, `Up`/`Down` (`Ctrl+N`/`Ctrl+P`),
 `PgUp`/`PgDn` move, `Enter` runs, `Esc` closes.
+
+## Usage chip and report (`prefix u`)
+
+The header chip reads `● 5h 42% · wk 18%` (the most used session and weekly window, green < 50 %, amber < 80 %, red from there,
+bold when high, dimmed when older than 15 min; the dot is the provider's color, Claude terracotta in every theme). Without limits it
+shows `12.3M today`, before any data `Usage`; it is left out when the header is too narrow. `usage.chipProvider` picks the provider.
+
+`prefix u` (command `usage-dashboard`, also in the palette) opens the overlay: **Plan limits** per account with reset times and
+bars (`f` All / Low = only windows over their alert level), **Tokens** Today / Week / Month per provider (+ API-equivalent cost and
+change vs the previous period), **Report** with `Claude | Codex | Both` (`1`/`2`/`3`, `Tab`, arrows), `d` 7 d / 30 d daily trend
+(cost, or tokens when costs are hidden) and per-model / per-project tables. `j/k`, `PgUp/PgDn`, `g/G` scroll, `r` refreshes (scan +
+limits poll), `Esc`/`q`/`u` close. Palette: *Usage Report*, *Refresh Usage*, *Show / Hide Usage Costs*, *Usage Alerts On / Off*.
+`usage.showCost=false` hides every dollar amount (chip, card, overlay, notifications). While the overlay or the Overview is shown
+the TUI tells the daemon (`UsageVisible`), which then polls the plan limits every 60 s instead of every 5 min.
 
 ## Help overlay (`prefix ?`)
 

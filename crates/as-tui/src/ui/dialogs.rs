@@ -103,6 +103,10 @@ pub fn render(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u16, u16
             None
         }
         Modal::Palette(p) => palette(&theme, p, visible, &mut canvas),
+        Modal::Usage(overlay) => {
+            crate::ui::usage::render_overlay(app, overlay, visible, &mut canvas);
+            None
+        }
         Modal::Resume(picker) => session_picker(&theme, picker, visible, &mut canvas),
         Modal::Profile(chooser) => {
             profile_chooser(&theme, chooser, canvas_screen, &mut canvas);

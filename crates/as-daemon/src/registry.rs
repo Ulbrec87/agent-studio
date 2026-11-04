@@ -17,6 +17,8 @@ struct Entry {
     subs: HashSet<String>,
     kick: CancellationToken,
     focused: bool,
+    /// The client shows a usage surface (report overlay, Overview).
+    usage_visible: bool,
 }
 
 #[derive(Default)]
@@ -35,6 +37,7 @@ impl Registry {
                 subs: HashSet::new(),
                 kick,
                 focused: false,
+                usage_visible: false,
             },
         );
         id
@@ -52,6 +55,17 @@ impl Registry {
         if let Some(e) = self.clients.lock().get_mut(&client) {
             e.focused = focused;
         }
+    }
+
+    pub fn set_usage_visible(&self, client: u64, visible: bool) {
+        if let Some(e) = self.clients.lock().get_mut(&client) {
+            e.usage_visible = visible;
+        }
+    }
+
+    /// True while some client shows a usage surface (a client that goes away stops counting).
+    pub fn any_usage_visible(&self) -> bool {
+        self.clients.lock().values().any(|e| e.usage_visible)
     }
 
     /// True while some client reports its terminal as focused.

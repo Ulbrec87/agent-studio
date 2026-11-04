@@ -42,6 +42,13 @@ fn options(backend: &FakePtyBackend) -> DaemonOptions {
         overview: true,
         // Never the developer's real Claude registry.
         overview_config_dirs: Some(Vec::new()),
+        // Never the developer's real logs, credentials or the network.
+        usage: true,
+        usage_options: as_daemon::UsageOptions {
+            sources: Some(Vec::new()),
+            profiles: Some(Vec::new()),
+            ..Default::default()
+        },
     }
 }
 

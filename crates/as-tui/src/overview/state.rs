@@ -33,6 +33,7 @@ pub enum Card {
     Events,
     Timeline,
     Waits,
+    Usage,
 }
 
 impl Card {
@@ -45,6 +46,7 @@ impl Card {
             Card::Events => "Events",
             Card::Timeline => "Timeline",
             Card::Waits => "Waits",
+            Card::Usage => "Usage & limits",
         }
     }
 }

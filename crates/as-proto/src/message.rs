@@ -6,6 +6,8 @@ use as_core::overview::{
     AgentDetails, HistoryResponse, OverviewEvent, OverviewSnapshot, WaitLedgerData,
 };
 use as_core::sessions::{ClaudeProfile, ListSessionsOptions, SessionSummary};
+use as_core::usage::report::{UsageReport, UsageReportProvider};
+use as_core::usage::{UsagePeriod, UsageState, UsageSummary};
 use as_core::{
     AgentStatus, AppConfig, CreateAgentPayload, ModelId, ProviderId, ProviderModelOption,
 };
@@ -160,6 +162,28 @@ pub enum Request {
     GetAgentDetails {
         agent_id: String,
     },
+    /// The usage service state: Claude plan limits per profile, Codex passive limits, indexing
+    /// progress, `data_version` (P7; Hydra `USAGE_STATE_GET`); answers `UsageState`.
+    GetUsageState,
+    /// Token summary of a period, optionally of one project directory (`USAGE_SUMMARY_GET`);
+    /// answers `UsageSummary`.
+    GetUsageSummary {
+        period: UsagePeriod,
+        #[serde(default)]
+        project_key: Option<String>,
+    },
+    /// Daily report of the last `days` local days (7-90), for one provider or all
+    /// (`USAGE_REPORT_GET`); answers `UsageReport`.
+    GetUsageReport {
+        #[serde(default)]
+        provider: UsageReportProvider,
+        days: u32,
+    },
+    /// Scan the logs and poll the plan limits now (`USAGE_REFRESH`); answers `UsageState`.
+    RefreshUsage,
+    /// This client shows (or stopped showing) a usage surface: the daemon polls the plan limits
+    /// every 60 s instead of every 5 min while any client does (`USAGE_VISIBILITY`).
+    UsageVisible(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -188,6 +212,9 @@ pub enum Response {
     OverviewWaits(Box<WaitLedgerData>),
     OverviewEvents(Vec<OverviewEvent>),
     AgentDetails(Option<Box<AgentDetails>>),
+    UsageState(Box<UsageState>),
+    UsageSummary(Box<UsageSummary>),
+    UsageReport(Box<UsageReport>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -244,6 +271,9 @@ pub enum Event {
     OverviewSnapshot(Box<OverviewSnapshot>),
     /// New Overview events of a poll, oldest first.
     OverviewEvents(Vec<OverviewEvent>),
+    /// The usage state changed (limits, indexing progress, new data); summaries are refetched
+    /// when `data_version` moved.
+    UsageChanged(Box<UsageState>),
 }
 
 /// Hydra `NotificationType` (agent part).
@@ -256,6 +286,8 @@ pub enum NotificationKind {
     AgentIdle,
     AgentErrored,
     AgentStarted,
+    /// A plan window or a daily budget is near its limit (opt-in, `usage.alertsEnabled`).
+    UsageLimit,
 }
 
 /// Hydra `HydraNotification`.
@@ -395,6 +427,21 @@ mod tests {
             Request::GetAgentDetails {
                 agent_id: "a".into(),
             },
+            Request::GetUsageState,
+            Request::GetUsageSummary {
+                period: UsagePeriod::Week,
+                project_key: Some("/p".into()),
+            },
+            Request::GetUsageSummary {
+                period: UsagePeriod::Today,
+                project_key: None,
+            },
+            Request::GetUsageReport {
+                provider: UsageReportProvider::Codex,
+                days: 30,
+            },
+            Request::RefreshUsage,
+            Request::UsageVisible(true),
         ];
         for r in all {
             round_trip(ClientMsg::Request { id: 1, req: r });
@@ -433,6 +480,19 @@ mod tests {
             Response::OverviewEvents(Vec::new()),
             Response::AgentDetails(Some(Box::new(AgentDetails::unavailable("x")))),
             Response::AgentDetails(None),
+            Response::UsageState(Box::default()),
+            Response::UsageSummary(Box::new(as_core::usage::summary::summarize(
+                &[],
+                UsagePeriod::Today,
+                &chrono::Utc::now(),
+                None,
+            ))),
+            Response::UsageReport(Box::new(as_core::usage::report::build_usage_report(
+                &[],
+                7,
+                UsageReportProvider::All,
+                &chrono::Utc::now(),
+            ))),
             Response::Status(DaemonStatus {
                 pid: 1,
                 version: "v".into(),
@@ -467,6 +527,7 @@ mod tests {
             Event::DaemonShuttingDown,
             Event::OverviewSnapshot(Box::default()),
             Event::OverviewEvents(Vec::new()),
+            Event::UsageChanged(Box::default()),
             Event::Notification(StudioNotification {
                 id: "n1".into(),
                 kind: NotificationKind::AgentWaiting,
@@ -478,6 +539,36 @@ mod tests {
         ] {
             round_trip(ServerMsg::Event(e));
         }
+    }
+
+    #[test]
+    fn usage_requests_have_a_stable_encoding() {
+        assert_eq!(
+            serde_json::to_value(Request::GetUsageReport {
+                provider: UsageReportProvider::Claude,
+                days: 30
+            })
+            .unwrap(),
+            json!({"type":"get_usage_report","payload":{"provider":"claude","days":30}})
+        );
+        assert_eq!(
+            serde_json::to_value(Request::UsageVisible(true)).unwrap(),
+            json!({"type":"usage_visible","payload":true})
+        );
+        // `project_key` and `provider` may be left out.
+        let r: Request = serde_json::from_value(
+            json!({"type":"get_usage_summary","payload":{"period":"month"}}),
+        )
+        .unwrap();
+        assert_eq!(
+            r,
+            Request::GetUsageSummary {
+                period: UsagePeriod::Month,
+                project_key: None
+            }
+        );
+        let n = serde_json::to_value(NotificationKind::UsageLimit).unwrap();
+        assert_eq!(n, json!("usage_limit"));
     }
 
     #[test]

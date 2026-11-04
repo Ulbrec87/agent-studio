@@ -343,6 +343,75 @@ impl Io {
                     }
                 });
             }
+            Effect::LoadUsageState => {
+                tokio::spawn(async move {
+                    match client.get_usage_state().await {
+                        Ok(state) => {
+                            let _ = tx.send(Msg::UsageState(Box::new(state)));
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Msg::UsageFailed(format!("{err:#}")));
+                        }
+                    }
+                });
+            }
+            Effect::LoadUsageSummary { period, project } => {
+                tokio::spawn(async move {
+                    let key = Some(project.clone()).filter(|p| !p.is_empty());
+                    match client.get_usage_summary(period, key).await {
+                        Ok(summary) => {
+                            let _ = tx.send(Msg::UsageSummary {
+                                project,
+                                summary: Box::new(summary),
+                            });
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Msg::UsageFailed(format!("{err:#}")));
+                        }
+                    }
+                });
+            }
+            Effect::LoadUsageReport { provider, days } => {
+                tokio::spawn(async move {
+                    match client.get_usage_report(provider, days).await {
+                        Ok(report) => {
+                            let _ = tx.send(Msg::UsageReport(Box::new(report)));
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Msg::UsageFailed(format!("{err:#}")));
+                        }
+                    }
+                });
+            }
+            Effect::RefreshUsage => {
+                tokio::spawn(async move {
+                    match client.refresh_usage().await {
+                        Ok(state) => {
+                            let _ = tx.send(Msg::UsageState(Box::new(state)));
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Msg::UsageFailed(format!("{err:#}")));
+                        }
+                    }
+                });
+            }
+            Effect::UsageVisible(visible) => {
+                tokio::spawn(async move {
+                    if let Err(err) = client.set_usage_visible(visible).await {
+                        tracing::debug!(%err, "usage visibility not reported");
+                    }
+                });
+            }
+            Effect::PatchConfig(patch) => {
+                tokio::spawn(async move {
+                    match client.update_config(patch).await {
+                        Ok(config) => {
+                            let _ = tx.send(Msg::Config(Box::new(config)));
+                        }
+                        Err(err) => failure(&client, &tx, &err),
+                    }
+                });
+            }
             // Handled by the runner (needs the terminal).
             Effect::Quit | Effect::Bell | Effect::Suspend(_) => {}
         }

@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use as_core::sessions::profiles;
+use as_core::usage::report::{REPORT_MAX_DAYS, REPORT_MIN_DAYS};
 use as_core::{AgentManager, MAX_CONCURRENT_AGENTS_HARD_LIMIT, ProviderId};
 use as_proto::message::PROTOCOL_VERSION;
 use as_proto::{DaemonStatus, HelloInfo, ProviderPreflight, Request, Response};
@@ -227,6 +228,48 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
                     .await
                     .map_err(|e| format!("agent details failed: {e}"))?;
             Ok(Response::AgentDetails(details.map(Box::new)))
+        }
+        Request::GetUsageState => Ok(Response::UsageState(Box::new(daemon.usage.state()))),
+        Request::GetUsageSummary {
+            period,
+            project_key,
+        } => {
+            if project_key.as_ref().is_some_and(|k| k.len() > 4096) {
+                return Err("project_key is too long".into());
+            }
+            let daemon = daemon.clone();
+            let summary = tokio::task::spawn_blocking(move || {
+                daemon
+                    .usage
+                    .summary(period, project_key.as_deref().filter(|k| !k.is_empty()))
+            })
+            .await
+            .map_err(|e| format!("usage summary failed: {e}"))?;
+            Ok(Response::UsageSummary(Box::new(summary)))
+        }
+        Request::GetUsageReport { provider, days } => {
+            if !(REPORT_MIN_DAYS..=REPORT_MAX_DAYS).contains(&days) {
+                return Err(format!(
+                    "days must be an integer from {REPORT_MIN_DAYS} to {REPORT_MAX_DAYS}"
+                ));
+            }
+            let daemon = daemon.clone();
+            let report = tokio::task::spawn_blocking(move || daemon.usage.report(days, provider))
+                .await
+                .map_err(|e| format!("usage report failed: {e}"))?;
+            Ok(Response::UsageReport(Box::new(report)))
+        }
+        Request::RefreshUsage => {
+            let daemon = daemon.clone();
+            let state = tokio::task::spawn_blocking(move || daemon.usage.refresh())
+                .await
+                .map_err(|e| format!("usage refresh failed: {e}"))?;
+            Ok(Response::UsageState(Box::new(state)))
+        }
+        Request::UsageVisible(visible) => {
+            daemon.registry.set_usage_visible(client, visible);
+            daemon.sync_usage_visible();
+            Ok(Response::Ok)
         }
         Request::Shutdown { stop_agents } => {
             if !stop_agents && m.active_count() > 0 {

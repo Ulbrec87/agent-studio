@@ -36,14 +36,16 @@
     `ListSessions(ListSessionsOptions)`, `HideSession { session_id, hidden }`, `ListClaudeProfiles`,
     `SetProjectProfile { project_dir, config_dir }`, `ListProviderModels { provider }` (P4, see *Sessions* below),
     `GetOverview`, `GetOverviewHistory { since_ms }`, `GetOverviewWaits`, `GetOverviewEvents { since_ms, limit }`,
-    `GetAgentDetails { agent_id }` (P6, see *Overview* below).
+    `GetAgentDetails { agent_id }` (P6, see *Overview* below),
+    `GetUsageState`, `GetUsageSummary { period, project_key }`, `GetUsageReport { provider, days }` (7-90), `RefreshUsage`,
+    `UsageVisible(bool)` (P7, see *Usage* below).
   * `Response`: `Ok`, `Pong`, `Flag(bool)`, `Hello(HelloInfo)`, `Agents`, `Agent(Option)`, `Ids`, `Buffer { data }`,
     `Config`, `Preflight`, `Status`, `Sessions`, `Profiles`, `Models` (P4), `Overview`, `OverviewHistory`,
-    `OverviewWaits`, `OverviewEvents`, `AgentDetails(Option)` (P6).
+    `OverviewWaits`, `OverviewEvents`, `AgentDetails(Option)` (P6), `UsageState`, `UsageSummary`, `UsageReport` (P7).
   * `Event`: `AgentOutput { agent_id, data }`, `AgentStatus { agent_id, status, session_id, model }`, `AgentWaiting`,
     `AgentsChanged`, `ConfigChanged`, `DaemonShuttingDown`, `Notification(StudioNotification)` (P3),
-    `OverviewSnapshot`, `OverviewEvents` (P6). New phases add variants only. A client that talks to an older daemon
-    gets an error for the Overview requests; the TUI then shows "The overview is not available" and keeps working.
+    `OverviewSnapshot`, `OverviewEvents` (P6), `UsageChanged(UsageState)` (P7). New phases add variants only. A client that talks to an older daemon
+    gets an error for the Overview and Usage requests; the TUI then shows "The overview is not available" and keeps working.
 * **Sessions (P4)**: `ListSessions` returns `SessionSummary`s (camelCase like Hydra's `ClaudeSessionSummary`, plus
   `provider` and `hidden`) newest first; the daemon scans off the async runtime (`spawn_blocking`) and adds the config's
   `hiddenSessionIds` (hidden sessions are left out unless `includeHidden`). Filters: provider, `limit`, `maxAgeDays`,
@@ -73,6 +75,38 @@
   silence notification (`AgentWaiting`) is suppressed for a Claude agent the tracker matched to a registry entry and kept
   for Codex, OpenCode and unmatched Claude agents (the `AgentWaiting` event itself still goes to the clients for the
   sidebar flag).
+* **Usage (P7, `as_core::usage` + `as-daemon::services`)**: one `UsageService` in the daemon, all of it synchronous and run from
+  `spawn_blocking` (`usage_loop` calls `tick()` every 5 s, the service decides what is due).
+  * *Tokens*: `UsageStore` scans `~/.claude*/projects/**/*.jsonl` (also `subagents/`) and `$CODEX_HOME|~/.codex/{sessions,archived_sessions}`
+    incrementally: per file it remembers size, mtime, inode and the byte offset of the last complete line (a partial last line waits, a
+    file that shrank or changed inode is forgotten and re-read, a deleted file keeps what it added). Claude lines count once per
+    `message.id:requestId`, Codex lines per session id + the `(total, last)` usage signature (resumed/forked files replay history),
+    uncarried Codex compactions are billed once the file is quiet for 10 min. Buckets are per (UTC hour, provider, model, project)
+    and kept 400 days; cost is the "API-equivalent" estimate of `pricing::SPECS` (unknown models are tokens only, the total says `>=`).
+    Day/week (from Monday)/month windows use the local zone (`chrono::Local`). Cache: `usage-cache.json` (mode 600, atomic, at most
+    every 30 s and on shutdown; a version or pricing-version change means one full rescan); it holds counts, models, project paths and
+    timestamps, never message text or credentials. Rescan every 60 s (cheap: only appended bytes), first full index of ~1 GB of
+    logs takes ~20 s in a debug build and is shown as "Indexing usage... 40 %".
+  * *Plan limits*: Claude per profile through `GET https://api.anthropic.com/api/oauth/usage` (`Authorization: Bearer`,
+    `anthropic-beta: oauth-2025-04-20`, 15 s timeout, blocking `reqwest` + rustls behind the `HttpClient` trait). The token comes from
+    `<configDir>/.credentials.json` or, on macOS, the Keychain item `Claude Code-credentials[-<sha256(configDir)[..8]]` through
+    `security find-generic-password -w`; it is **never refreshed** (that rotates the refresh token), never logged, never cached, never
+    sent to a client: it lives in a `Secret` (redacted `Debug`) from the credential reader to the request and `UsageState` only has
+    percentages, reset times and labels. 401/403 = "sign-in expired" (last values kept, the rejected token is not sent again), 429/5xx/
+    network errors back off 60 s, 2 min, 5 min, 10 min (a larger `Retry-After` wins), a denied Keychain is not asked again for 24 h,
+    two profiles signed in to one account are shown once. Codex limits are passive: the newest `rate_limits` of any rollout line
+    (`ESTIMATED`, with its age). Cadence: every 5 min, every 60 s while any client reported `UsageVisible(true)` (a per-connection flag,
+    cleared when the client disconnects), and once more (throttled to 60 s) after a Claude agent goes working -> idle.
+  * *Alerts* (`usage.alertsEnabled`, default off): once per (provider, account, window, resetsAt, threshold) when a window passes the
+    session/weekly alert level (default 80 % / 90 %, other windows 85 %); windows without a reset time, already reset, from a Claude
+    account that is not `ok` or from a Codex line older than 30 min never alert. The config's soft daily budgets
+    (`usageDailyTokenBudget`, `usageDailyCostBudgetUsd`, `usageBudgetWarningThresholdPct`, default 80 %) alert once at the warning
+    level and once at 100 % per local day (the cost budget is skipped while `usage.showCost` is false). Sent keys are kept in
+    `usage-alerts.json` (pruned when the window resets / the day ends) so a restart repeats nothing. Delivery is the normal
+    notification path: `Event::Notification` with `NotificationKind::UsageLimit` (toast + OS notification when no client is focused).
+    Alerts are re-evaluated on every usage change and when the config changes.
+  * *Client*: the TUI holds `state` (pushed by `UsageChanged`), summaries per (period, project) and reports per provider, and asks
+    again only when `data_version` moved; old values stay on screen meanwhile.
 * **Overview history (`<root>/overview-history/v1-YYYY-MM-DD.jsonl`, mode 600, folder 700)**: one writer (the daemon).
   Lines: `{"start":<ms>}` (each daemon start; time between the last point and the next one is *unmeasured*),
   `{"point":[at,needsYou,working,idle,total,{agentId:status}]}` every 5 s (a trailing `1` marks a delta line: only the
@@ -125,6 +159,8 @@
 | `logs/` | `tracing` JSONL logs, daily rotation |
 | `headless-runs/` | one JSONL log per headless run + index |
 | `overview-history/` | overview events and samples (8 days, ≤ 20 MB) |
+| `usage-cache.json` | usage store: file offsets, hourly buckets, dedupe keys, newest Codex limits (mode 600) |
+| `usage-alerts.json` | usage alerts already sent (key + when it stops mattering) |
 | `manager-workspace/` | cwd of the MCP manager agent (`.mcp.json`, `CLAUDE.md`) |
 
 ## External files read (never written, except skill toggles)
@@ -133,8 +169,8 @@
 |------|----------|
 | `~/.claude*/projects/<slug>/<session>.jsonl` (+ `$CLAUDE_CONFIG_DIR`, optional `sessions-index.json`) | session catalog (P4), resume, usage, transcript history |
 | `~/.claude*/sessions/<pid>.json` | live status / "needs you" (undocumented) |
-| `~/.claude*/.credentials.json` / macOS keychain | OAuth token for plan-limits endpoint |
-| `~/.codex/sessions/**/rollout-*.jsonl` (`$CODEX_HOME`) | Codex session catalog (P4) + usage |
+| `~/.claude*/.credentials.json` / macOS keychain (`security`) | OAuth token for the plan-limits endpoint (read-only, never refreshed, never logged) |
+| `~/.codex/{sessions,archived_sessions}/**/rollout-*.jsonl` (`$CODEX_HOME`) | Codex session catalog (P4) + usage (tokens and passive limits) |
 | `~/.claude/settings.json`, `~/.claude/plugins`, `~/.codex/skills` | skills tab |
 
 ## Crates

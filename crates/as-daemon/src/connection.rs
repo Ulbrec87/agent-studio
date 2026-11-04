@@ -69,6 +69,7 @@ where
     }
 
     daemon.registry.remove(client);
+    daemon.sync_usage_visible();
     drop(tx);
     // Flush what is already queued (the last response), but never hang on a dead peer.
     let _ = tokio::time::timeout(Duration::from_secs(2), writer).await;

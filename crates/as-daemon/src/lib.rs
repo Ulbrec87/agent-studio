@@ -42,6 +42,19 @@ impl SessionCatalogs {
     }
 }
 
+/// What the usage service reads and calls out to. `None` = the real thing.
+#[derive(Default)]
+pub struct UsageOptions {
+    /// Log folders to scan (every Claude profile and `~/.codex` by default).
+    pub sources: Option<Vec<as_core::usage::store::UsageSource>>,
+    /// Claude profiles whose plan limits are polled (every `~/.claude*` by default).
+    pub profiles: Option<Vec<as_core::usage::limits_client::ClientProfile>>,
+    /// The HTTP client of the limits poll (real `reqwest` by default; tests never hit the network).
+    pub http: Option<Arc<dyn as_core::usage::limits_client::HttpClient>>,
+    /// Where OAuth sign-ins come from (`.credentials.json` / Keychain by default).
+    pub credentials: Option<Arc<dyn as_core::usage::limits_client::CredentialReader>>,
+}
+
 /// Knobs that tests override; `Default` is the production setup.
 pub struct DaemonOptions {
     pub manager: ManagerOptions,
@@ -61,6 +74,9 @@ pub struct DaemonOptions {
     /// Claude config dirs the tracker reads `sessions/<pid>.json` from; `None` discovers them
     /// (every `~/.claude*` profile and `$CLAUDE_CONFIG_DIR`).
     pub overview_config_dirs: Option<Vec<std::path::PathBuf>>,
+    /// Run the usage service (log scanner, plan limits, alerts).
+    pub usage: bool,
+    pub usage_options: UsageOptions,
 }
 
 impl Default for DaemonOptions {
@@ -75,6 +91,8 @@ impl Default for DaemonOptions {
             os_notifications: true,
             overview: true,
             overview_config_dirs: None,
+            usage: true,
+            usage_options: UsageOptions::default(),
         }
     }
 }

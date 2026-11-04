@@ -22,6 +22,7 @@ pub mod suspend;
 pub mod term;
 pub mod theme;
 pub mod ui;
+pub mod usage;
 pub mod widgets;
 
 pub use runner::{TuiOptions, run, run_with};

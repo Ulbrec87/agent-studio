@@ -7,21 +7,23 @@ use crate::overview::state::Card;
 use crate::overview::{SessionsMode, WaitsTab};
 
 /// The order `Tab` walks the cards (Counts is informational).
-pub const FOCUS_ORDER: [Card; 6] = [
+pub const FOCUS_ORDER: [Card; 7] = [
     Card::NeedsYou,
     Card::Sessions,
     Card::Events,
     Card::LastHour,
     Card::Timeline,
     Card::Waits,
+    Card::Usage,
 ];
 
 impl App {
     /// Time-driven work of the Overview (history/ledger refresh every 30 s, the drawer every 2 s,
     /// the one-second redraw of the timers). Call it every frame.
     pub fn poll_effects(&mut self, now: Instant) -> Vec<Effect> {
+        let mut fx = self.usage_effects();
         if self.view != ViewMode::Overview {
-            return Vec::new();
+            return fx;
         }
         let ticks = self
             .overview
@@ -29,7 +31,6 @@ impl App {
         if ticks.redraw {
             self.dirty = true;
         }
-        let mut fx = Vec::new();
         if let Some(since) = ticks.history_since {
             fx.push(Effect::LoadOverviewHistory(since));
         }
@@ -62,12 +63,21 @@ impl App {
     }
 
     fn step_card(&mut self, delta: isize) {
-        let at = FOCUS_ORDER
+        let n = FOCUS_ORDER.len() as isize;
+        let mut at = FOCUS_ORDER
             .iter()
             .position(|c| *c == self.overview.focus)
-            .unwrap_or(0);
-        let next = (at as isize + delta).rem_euclid(FOCUS_ORDER.len() as isize) as usize;
-        self.overview.focus = FOCUS_ORDER[next];
+            .unwrap_or(0) as isize;
+        for _ in 0..n {
+            at = (at + delta).rem_euclid(n);
+            let card = FOCUS_ORDER[at as usize];
+            // The usage card only exists once the daemon has said something about usage.
+            if card == Card::Usage && self.usage.state.is_none() {
+                continue;
+            }
+            self.overview.focus = card;
+            return;
+        }
     }
 
     /// Move the cursor (or the scroll) of the focused card.
@@ -96,7 +106,7 @@ impl App {
             Card::Waits => {
                 self.overview.waits_scroll = step(self.overview.waits_scroll, 5);
             }
-            Card::Counts | Card::LastHour => {
+            Card::Counts | Card::LastHour | Card::Usage => {
                 self.overview.scroll = step(self.overview.scroll, usize::MAX / 2);
             }
         }
@@ -135,12 +145,16 @@ impl App {
                 self.overview.focus = Card::Sessions;
             }
             KeyCode::Char('p') => self.overview.cycle_project(),
+            KeyCode::Char('t') if self.overview.focus == Card::Usage => {
+                self.usage.card_period = self.usage.card_period.next();
+            }
             KeyCode::Char('t') => {
                 self.overview.waits_tab = match self.overview.waits_tab {
                     WaitsTab::Today => WaitsTab::Week,
                     WaitsTab::Week => WaitsTab::Today,
                 };
             }
+            KeyCode::Char('u') => return self.open_usage_report(),
             KeyCode::Char('d' | ' ') => return self.card_details(),
             KeyCode::Enter => return self.card_enter(),
             KeyCode::Esc => {
@@ -208,6 +222,7 @@ impl App {
                 }
             }
             Card::Sessions | Card::Events => self.card_details(),
+            Card::Usage => self.open_usage_report(),
             _ => Vec::new(),
         }
     }

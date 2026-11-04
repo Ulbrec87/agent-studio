@@ -2,10 +2,11 @@
 //! event dispatching, debounced persistence and the shutdown sequence.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use as_core::AgentStatus;
 use as_core::agents::env::{EnvOverrides, process_env};
 use as_core::agents::shell::{Os, ShellConfig, fixed_path};
 use as_core::agents::{ProviderModelCatalog, SessionLocator};
@@ -16,6 +17,16 @@ use as_core::paths::Paths;
 use as_core::sessions::{
     CatalogSessionLocator, ListSessionsOptions, SessionSummary, profiles::make_resolver,
 };
+use as_core::usage::alerts::{
+    AlertConfig, Budgets, TodayUsage, UsageAlert, UsageAlerts, UsageAlertsOptions,
+};
+use as_core::usage::limits_client::{
+    ClaudeLimitsClient, ClaudeLimitsClientOptions, ClientProfile, ReqwestHttp,
+    SystemCredentialReader,
+};
+use as_core::usage::service::{UsageService, UsageServiceOptions};
+use as_core::usage::store::{UsageStore, UsageStoreOptions, default_usage_sources_from_env};
+use as_core::usage::{UsagePeriod, UsageProvider};
 use as_core::{
     AgentEvent, AgentManager, ConfigStore, ProviderId, WorkspaceStore,
     get_default_model_for_provider,
@@ -39,6 +50,8 @@ const OVERVIEW_STATUS_DEBOUNCE: Duration = Duration::from_millis(100);
 const HISTORY_FLUSH: Duration = Duration::from_secs(5);
 /// What `GetOverviewHistory` returns without `since_ms`.
 const HISTORY_DEFAULT_WINDOW_MS: i64 = 6 * 60 * 60 * 1000;
+/// How often the usage service looks at what is due (scan every 60 s, limits every 5 min / 60 s).
+const USAGE_TICK: Duration = Duration::from_secs(5);
 
 /// Messages for the dispatcher task, which owns the ordering of output events.
 pub enum Control {
@@ -62,6 +75,11 @@ pub struct Daemon {
     pub overview: Arc<Mutex<OverviewTracker>>,
     pub history: Arc<Mutex<HistoryStore>>,
     overview_kick: Notify,
+    /// Usage: log scanner, Claude plan limits, scheduling (see `as_core::usage::service`).
+    pub usage: Arc<UsageService>,
+    usage_alerts: OnceLock<Arc<UsageAlerts>>,
+    usage_kick: Notify,
+    usage_idle: AtomicBool,
     pub started: Instant,
     pub preflight_on_create: bool,
     os_notifications: bool,
@@ -126,6 +144,8 @@ impl Daemon {
         }
         let overview = Arc::new(Mutex::new(OverviewTracker::new(deps)));
 
+        let usage = Arc::new(build_usage_service(&paths, options.usage_options));
+
         let (control, control_rx) = mpsc::unbounded_channel();
         let daemon = Arc::new(Self {
             paths,
@@ -139,6 +159,10 @@ impl Daemon {
             overview,
             history,
             overview_kick: Notify::new(),
+            usage,
+            usage_alerts: OnceLock::new(),
+            usage_kick: Notify::new(),
+            usage_idle: AtomicBool::new(false),
             started: Instant::now(),
             preflight_on_create: options.preflight_on_create,
             os_notifications: options.os_notifications,
@@ -149,8 +173,12 @@ impl Daemon {
             control,
         });
         daemon.spawn_tasks(control_rx);
+        daemon.install_usage_hooks();
         if options.overview {
             tokio::spawn(overview_loop(daemon.clone()));
+        }
+        if options.usage {
+            tokio::spawn(usage_loop(daemon.clone()));
         }
         if options.import_sessions {
             daemon.spawn_session_import();
@@ -243,6 +271,9 @@ impl Daemon {
                 let cfg = rx.borrow_and_update().clone();
                 this.registry
                     .broadcast(&Event::ConfigChanged(Box::new(cfg)));
+                // Alert settings and budgets may have changed.
+                let alerts = this.clone();
+                let _ = tokio::task::spawn_blocking(move || alerts.evaluate_usage_alerts()).await;
             }
         });
     }
@@ -302,6 +333,7 @@ impl Daemon {
         tracing::info!(stop_agents, "stopping services");
         self.persist(true);
         self.history.lock().stop();
+        self.usage.stop(); // flushes the usage cache
         if stop_agents {
             self.manager.kill_all();
             if !self.manager.wait_all_stopped(STOP_AGENTS_TIMEOUT).await {
@@ -331,6 +363,22 @@ impl Daemon {
     /// for Claude agents that just started waiting.
     fn publish_overview(&self, poll: PollResult) {
         if !poll.events.is_empty() {
+            // A Claude agent that goes working -> idle has just written a transcript and moved the
+            // plan limits (Hydra `notifyAgentIdle`).
+            let claude_went_idle = poll.events.iter().any(|e| {
+                e.kind == EventKind::Status
+                    && e.from == Some(OverviewStatus::Working)
+                    && e.to == Some(OverviewStatus::Idle)
+                    && poll
+                        .snapshot
+                        .sessions
+                        .iter()
+                        .any(|s| s.agent_id == e.agent_id && s.provider == ProviderId::Claude)
+            });
+            if claude_went_idle {
+                self.usage_idle.store(true, Ordering::SeqCst);
+                self.usage_kick.notify_one();
+            }
             for event in &poll.events {
                 if event.kind != EventKind::Status || event.to != Some(OverviewStatus::NeedsYou) {
                     continue;
@@ -357,6 +405,89 @@ impl Daemon {
             self.registry
                 .broadcast(&Event::OverviewSnapshot(Box::new(poll.snapshot)));
         }
+    }
+
+    /// A client started or stopped showing a usage surface.
+    pub fn sync_usage_visible(&self) {
+        let visible = self.registry.any_usage_visible();
+        let was = self.usage.is_visible();
+        self.usage.set_visible(visible);
+        if visible && !was {
+            // Poll the limits now instead of at the next 5 min mark.
+            self.usage_kick.notify_one();
+        }
+    }
+
+    fn running_agents(&self, provider: UsageProvider) -> usize {
+        let provider = match provider {
+            UsageProvider::Claude => ProviderId::Claude,
+            UsageProvider::Codex => ProviderId::Codex,
+        };
+        self.manager
+            .list()
+            .iter()
+            .filter(|a| {
+                a.provider == provider
+                    && matches!(a.status, AgentStatus::Running | AgentStatus::Starting)
+            })
+            .count()
+    }
+
+    /// Push usage changes to the clients and evaluate the alerts on every change.
+    fn install_usage_hooks(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        let alerts = {
+            let (w_config, w_notify, w_run) = (weak.clone(), weak.clone(), weak.clone());
+            Arc::new(UsageAlerts::new(UsageAlertsOptions {
+                file: self.paths.usage_alerts_file(),
+                config: Box::new(move || {
+                    let config = w_config.upgrade().map(|d| d.config.get());
+                    match config {
+                        Some(c) => AlertConfig {
+                            settings: c.usage.clone(),
+                            budgets: Budgets {
+                                daily_tokens: c.usage_daily_token_budget,
+                                daily_cost_usd: c.usage_daily_cost_budget_usd,
+                                warning_pct: c.usage_budget_warning_threshold_pct,
+                            },
+                        },
+                        None => AlertConfig {
+                            settings: as_core::UsageSettings::default(),
+                            budgets: Budgets::default(),
+                        },
+                    }
+                }),
+                notify: Box::new(move |alert: UsageAlert| {
+                    if let Some(d) = w_notify.upgrade() {
+                        d.notify(usage_notification(alert));
+                    }
+                }),
+                running_agents: Some(Box::new(move |p| {
+                    w_run.upgrade().map_or(0, |d| d.running_agents(p))
+                })),
+                now: Box::new(|| chrono::Utc::now().timestamp_millis()),
+            }))
+        };
+        let _ = self.usage_alerts.set(alerts);
+        self.usage.on_changed(Arc::new(move |state| {
+            if let Some(d) = weak.upgrade() {
+                d.registry
+                    .broadcast(&Event::UsageChanged(Box::new(state.clone())));
+                d.evaluate_usage_alerts();
+            }
+        }));
+    }
+
+    /// Low-limit and budget alerts for the current usage state (blocking: reads/writes a file).
+    pub fn evaluate_usage_alerts(&self) {
+        let Some(alerts) = self.usage_alerts.get() else {
+            return;
+        };
+        let today = TodayUsage::from_summary(
+            &self.usage.summary(UsagePeriod::Today, None),
+            &chrono::Local::now(),
+        );
+        alerts.evaluate(&self.usage.state(), Some(&today));
     }
 
     /// Poll the tracker off the async threads and publish the result.
@@ -442,6 +573,83 @@ async fn overview_loop(daemon: Arc<Daemon>) {
         }
         daemon.poll_overview().await;
     }
+}
+
+/// Runs what the usage service has due every few seconds, off the async threads: the first tick
+/// scans the logs and polls the limits (a big first index never delays a client), a client that
+/// shows a usage surface or an agent that just finished a turn wakes it early.
+async fn usage_loop(daemon: Arc<Daemon>) {
+    let d = daemon.clone();
+    let _ = tokio::task::spawn_blocking(move || d.usage.start()).await;
+    let mut tick = tokio::time::interval(USAGE_TICK);
+    loop {
+        tokio::select! {
+            _ = tick.tick() => {}
+            () = daemon.usage_kick.notified() => {}
+        }
+        if daemon.services_stopped.load(Ordering::SeqCst) {
+            break;
+        }
+        let d = daemon.clone();
+        let idle = daemon.usage_idle.swap(false, Ordering::SeqCst);
+        let _ = tokio::task::spawn_blocking(move || {
+            if idle {
+                d.usage.notify_agent_idle();
+            }
+            d.usage.tick();
+        })
+        .await;
+    }
+}
+
+fn usage_notification(alert: UsageAlert) -> as_proto::StudioNotification {
+    as_proto::StudioNotification {
+        id: uuid::Uuid::new_v4().simple().to_string()[..12].to_string(),
+        kind: as_proto::NotificationKind::UsageLimit,
+        title: alert.title,
+        body: alert.body,
+        agent_id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
+/// The store (log scanner), the limits client and the service that schedules them.
+fn build_usage_service(paths: &Paths, options: crate::UsageOptions) -> UsageService {
+    let sources = options.sources;
+    let store = UsageStore::new(UsageStoreOptions::new(
+        paths.usage_cache_file(),
+        move || {
+            sources
+                .clone()
+                .unwrap_or_else(default_usage_sources_from_env)
+        },
+    ));
+    let profiles = options.profiles;
+    let limits = ClaudeLimitsClient::new(ClaudeLimitsClientOptions {
+        profiles: Box::new(move || {
+            profiles.clone().unwrap_or_else(|| {
+                as_core::sessions::profiles::list_profiles_from_env()
+                    .into_iter()
+                    .map(|p| ClientProfile {
+                        config_dir: p.config_dir,
+                        label: p.label,
+                        is_default: p.is_default,
+                    })
+                    .collect()
+            })
+        }),
+        http: options.http.unwrap_or_else(|| Arc::new(ReqwestHttp::new())),
+        credentials: options
+            .credentials
+            .unwrap_or_else(|| Arc::new(SystemCredentialReader)),
+        now: Box::new(|| chrono::Utc::now().timestamp_millis()),
+        version: Some(as_core::VERSION.to_string()),
+    });
+    UsageService::new(UsageServiceOptions {
+        store: Arc::new(store),
+        limits: Arc::new(limits),
+        now: Box::new(|| chrono::Utc::now().timestamp_millis()),
+    })
 }
 
 async fn dispatch_loop(
