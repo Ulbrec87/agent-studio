@@ -7,12 +7,17 @@
 //! * [`client`] — effects -> daemon requests; [`runner`] — event loop and terminal lifecycle.
 
 pub mod app;
+pub mod bindings_file;
 pub mod client;
+pub mod grid;
 pub mod keymap;
 pub mod new_agent;
+pub mod palette;
 pub mod runner;
 pub mod sessions;
 pub mod sidebar;
+pub mod state;
+pub mod suspend;
 pub mod term;
 pub mod theme;
 pub mod ui;

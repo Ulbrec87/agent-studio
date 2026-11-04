@@ -11,23 +11,24 @@ use as_proto::{DaemonClient, Event};
 use futures::StreamExt;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::crossterm::event::{
-    DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
-    EnableFocusChange, EnableMouseCapture, Event as TermEvent, EventStream,
-};
-use ratatui::crossterm::terminal::{
-    BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
-    SetTitle, disable_raw_mode, enable_raw_mode,
-};
-use ratatui::crossterm::{cursor, execute};
+use ratatui::crossterm::event::{Event as TermEvent, EventStream};
+use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate, SetTitle};
 use tokio::sync::mpsc;
 
 use crate::app::{App, Effect, Msg, ToastKind};
+use crate::bindings_file::Watcher;
 use crate::client::Io;
+use crate::state::TuiState;
+use crate::suspend::{
+    ExternalCommand, enter_terminal, restore_terminal, run_blocking, run_on_terminal,
+};
 use crate::theme::ColorMode;
 use crate::ui;
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(33);
+/// How often the keybindings file and the UI state are checked.
+const HOUSEKEEPING_INTERVAL: Duration = Duration::from_secs(1);
 const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -52,22 +53,8 @@ struct TerminalGuard {
 
 impl TerminalGuard {
     fn enter(mouse: bool) -> Result<Self> {
-        enable_raw_mode().context("enabling raw mode")?;
-        let guard = Self { mouse };
-        let mut out = io::stdout();
-        execute!(
-            out,
-            EnterAlternateScreen,
-            EnableBracketedPaste,
-            EnableFocusChange
-        )?;
-        if mouse {
-            execute!(out, EnableMouseCapture)?;
-        }
-        // Save the window title (xterm title stack) so it can be restored on exit.
-        out.write_all(b"\x1b[22;0t")?;
-        out.flush()?;
-        Ok(guard)
+        enter_terminal(mouse)?;
+        Ok(Self { mouse })
     }
 }
 
@@ -75,24 +62,6 @@ impl Drop for TerminalGuard {
     fn drop(&mut self) {
         restore_terminal(self.mouse);
     }
-}
-
-/// Best-effort restore; safe to call twice.
-fn restore_terminal(mouse: bool) {
-    let mut out = io::stdout();
-    if mouse {
-        let _ = execute!(out, DisableMouseCapture);
-    }
-    let _ = out.write_all(b"\x1b[23;0t");
-    let _ = execute!(
-        out,
-        DisableFocusChange,
-        DisableBracketedPaste,
-        LeaveAlternateScreen,
-        cursor::Show
-    );
-    let _ = disable_raw_mode();
-    let _ = out.flush();
 }
 
 fn install_panic_hook(mouse: bool) {
@@ -179,6 +148,12 @@ async fn run_async(paths: Paths, options: TuiOptions) -> Result<()> {
     let agents = client.list_agents().await.context("listing the agents")?;
     let cwd = std::env::current_dir().unwrap_or_default();
     let mut app = App::new(config, agents, ColorMode::detect(), cwd);
+    let state_path = paths.tui_state_file();
+    let mut saved_state = TuiState::load(&state_path);
+    app.restore_state(saved_state.clone());
+    app.set_keybindings_path(paths.keybindings_file());
+    let mut bindings = Watcher::new(paths.keybindings_file());
+    app.apply_keybindings(bindings.read().as_deref(), false);
 
     install_panic_hook(options.mouse);
     let _guard = TerminalGuard::enter(options.mouse)?;
@@ -188,7 +163,8 @@ async fn run_async(paths: Paths, options: TuiOptions) -> Result<()> {
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel::<Msg>();
     let (conn_tx, mut conn_rx) = mpsc::unbounded_channel::<ConnEvent>();
     let mut io = Some(Io::new(client, msg_tx.clone()));
-    let mut term_events = EventStream::new();
+    let mut term_events = Some(EventStream::new());
+    let mut last_housekeeping = Instant::now();
     let mut tick = tokio::time::interval(FRAME_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut shutdown = Box::pin(termination());
@@ -204,7 +180,7 @@ async fn run_async(paths: Paths, options: TuiOptions) -> Result<()> {
     loop {
         let mut effects = Vec::new();
         tokio::select! {
-            event = term_events.next() => match event {
+            event = next_terminal_event(&mut term_events) => match event {
                 Some(Ok(event)) => effects = handle_terminal_event(&mut app, event),
                 Some(Err(err)) => {
                     tracing::error!(%err, "terminal event stream failed");
@@ -234,11 +210,36 @@ async fn run_async(paths: Paths, options: TuiOptions) -> Result<()> {
                     effects = app.on_reconnected();
                 }
             },
-            _ = tick.tick() => app.tick(Instant::now()),
+            _ = tick.tick() => {
+                let now = Instant::now();
+                app.tick(now);
+                if now.duration_since(last_housekeeping) >= HOUSEKEEPING_INTERVAL {
+                    last_housekeeping = now;
+                    housekeeping(&mut app, &mut bindings, &state_path, &mut saved_state);
+                }
+            }
             () = &mut shutdown => break,
         }
+        let (suspends, effects): (Vec<_>, Vec<_>) = effects
+            .into_iter()
+            .partition(|e| matches!(e, Effect::Suspend(_)));
         if execute_effects(&mut app, io.as_ref(), effects) {
             break;
+        }
+        for effect in suspends {
+            if let Effect::Suspend(cmd) = effect {
+                run_external(
+                    &mut app,
+                    &mut terminal,
+                    options.mouse,
+                    &mut term_events,
+                    &cmd,
+                );
+                // The editor may have changed the keybindings: apply them now.
+                if let Some(text) = bindings.poll() {
+                    app.apply_keybindings(text.as_deref(), true);
+                }
+            }
         }
         if app.dirty {
             app.dirty = false;
@@ -252,7 +253,65 @@ async fn run_async(paths: Paths, options: TuiOptions) -> Result<()> {
             }
         }
     }
+    housekeeping(&mut app, &mut bindings, &state_path, &mut saved_state);
     Ok(())
+}
+
+/// Hot-reload `keybindings.json` and persist the UI state when it changed.
+fn housekeeping(
+    app: &mut App,
+    bindings: &mut Watcher,
+    state_path: &std::path::Path,
+    saved: &mut TuiState,
+) {
+    if let Some(text) = bindings.poll() {
+        app.apply_keybindings(text.as_deref(), true);
+    }
+    let snapshot = app.state_snapshot();
+    if snapshot != *saved {
+        match snapshot.save(state_path) {
+            Ok(()) => *saved = snapshot,
+            Err(err) => tracing::warn!(%err, "could not save the UI state"),
+        }
+    }
+}
+
+/// Run an external program (the editor) on the real terminal, then redraw the TUI.
+fn run_external(
+    app: &mut App,
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    mouse: bool,
+    term_events: &mut Option<EventStream>,
+    cmd: &ExternalCommand,
+) {
+    // Stop reading the keyboard so the program gets every key.
+    *term_events = None;
+    std::thread::sleep(Duration::from_millis(150));
+    let result = run_on_terminal(mouse, || run_blocking(cmd));
+    *term_events = Some(EventStream::new());
+    // A fresh terminal object forgets what it believes is on screen, so the next frame repaints
+    // everything on the new alternate screen (`Terminal::clear` asks the terminal for the cursor
+    // position instead, which fights with the event reader).
+    if let Ok(fresh) = Terminal::new(CrosstermBackend::new(io::stdout())) {
+        *terminal = fresh;
+    }
+    app.dirty = true;
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(why)) => app.toast(ToastKind::Error, "Editor", &why),
+        Err(err) => {
+            app.toast(ToastKind::Error, "Terminal", &format!("{err:#}"));
+        }
+    }
+}
+
+async fn next_terminal_event(
+    events: &mut Option<EventStream>,
+) -> Option<std::io::Result<TermEvent>> {
+    match events {
+        Some(stream) => stream.next().await,
+        None => std::future::pending().await,
+    }
 }
 
 async fn recv_daemon(events: &mut Option<mpsc::UnboundedReceiver<Event>>) -> Option<Event> {

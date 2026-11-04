@@ -85,7 +85,8 @@
 | File | Content |
 |------|---------|
 | `config.json` | `AppConfig` (Hydra `shared/types.ts` `AppConfig`, camelCase keys, defaults filled in) |
-| `keybindings.json` | user overrides `[{ "command": "...", "keys": "..." }]` |
+| `keybindings.json` | user overrides `[{ "command": "...", "keys": "..." }]`, keys in TUI syntax (see `docs/tui-keys.md`); polled by the TUI every second |
+| `tui-state.json` | UI state of the TUI: last view, selected agent, sidebar width/sort/status chip, grid tab, expanded tile, tile order, running-only toggle (written by the TUI only, tolerant load) |
 | `workspace.json` | persisted agents, restored at daemon start |
 | `daemon.lock`, `daemon.sock` | daemon single instance + socket |
 | `logs/` | `tracing` JSONL logs, daily rotation |

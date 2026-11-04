@@ -2,7 +2,7 @@
 source: crates/as-tui/src/ui/tests.rs
 expression: text(&t)
 ---
- Agent Studio   Chat                                                        ● 4/6 running  YOLO off
+ Agent Studio   Chat  Grid  Overview                                        ● 4/6 running  YOLO off
  ▾ ★ manager 1             │ manager · claude · sonnet · ● running · /work/hub
    ● manager       running │ attaching…
  ▾ /work/api 3             │
@@ -29,6 +29,6 @@ expression: text(&t)
                            │                            ╰──────────────────────────────────────────╯
                            │                            ╭──────────────────────────────────────────╮
                            │                            │✖ Agent Error                             │
-                           │                            │ui-fix encountered an error               │
- / filter…                 │                            ╰──────────────────────────────────────────╯
- PREFIX  Ctrl+A … n new · o resume · x kill · R restart · d remove · r rename · y yolo · j/k agents
+ All Run Wait Idle Err     │                            │ui-fix encountered an error               │
+ / search…        ↕created │                            ╰──────────────────────────────────────────╯
+ PREFIX  Ctrl+A … n new · g grid · p palette · b broadcast · o resume · x kill · R restart · d remov

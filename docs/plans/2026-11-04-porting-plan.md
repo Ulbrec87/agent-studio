@@ -13,7 +13,7 @@ Tick a phase when it is pushed to `origin/main` with fmt + clippy + tests green.
 - [x] P2 Daemon + protocol
 - [x] P3 TUI MVP
 - [x] P4 Sessions
-- [ ] P5 Grid + broadcast + palette
+- [x] P5 Grid + broadcast + palette
 - [ ] P6 Overview
 - [ ] P7 Usage & limits
 - [ ] P8 MCP manager + headless

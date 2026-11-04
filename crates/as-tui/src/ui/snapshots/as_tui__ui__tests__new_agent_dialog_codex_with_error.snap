@@ -2,7 +2,7 @@
 source: crates/as-tui/src/ui/tests.rs
 expression: text(&t)
 ---
- Agent Studio   Chat                                                        ● 0/0 running  YOLO off
+ Agent Studio   Chat  Grid  Overview                                        ● 0/0 running  YOLO off
  No agents yet             │ Agent Studio
                            │
                            │
@@ -35,6 +35,6 @@ expression: text(&t)
                            │
                            │
                            │
-                           │
- / filter…                 │
+ All Run Wait Idle Err     │
+ / search…        ↕created │
  NEW AGENT  Tab/↓ next · Shift+Tab prev · ←/→ change · Enter create · Esc cancel

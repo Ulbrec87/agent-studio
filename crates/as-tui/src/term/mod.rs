@@ -43,4 +43,18 @@ pub trait TerminalEmulator: Send {
     /// Whether the app rang the bell since the last call.
     fn take_bell(&mut self) -> bool;
     fn render(&self, area: Rect, buf: &mut Buffer, palette: TermPalette);
+    /// Like [`render`](Self::render) for the part of the screen starting at `(row_off, col_off)`.
+    fn render_region(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        palette: TermPalette,
+        row_off: u16,
+        col_off: u16,
+    );
+    /// Rows of the live screen that matter: up to the last non-blank row or the cursor row,
+    /// whichever is lower (at least 1).
+    fn content_rows(&self) -> u16;
+    /// Cursor `(col, row)` even when the application hides it.
+    fn cursor_raw(&self) -> (u16, u16);
 }

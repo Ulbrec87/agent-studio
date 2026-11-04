@@ -201,6 +201,7 @@ dependencies = [
  "insta",
  "nucleo-matcher",
  "ratatui",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

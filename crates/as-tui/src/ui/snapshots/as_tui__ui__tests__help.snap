@@ -2,33 +2,33 @@
 source: crates/as-tui/src/ui/tests.rs
 expression: text(&t)
 ---
- Agent Studio   Chat                                                        ● 4/6 running  YOLO off
- ▾ ★ manager 1             │ manager · claude · sonnet · ● running · /work/hub
-   ● manager       running │ attaching…
- ▾ /work/api 3             │
-   ● api-refactor  running │
-   ● tests ! ╭ Key bindings ──────────────────────────────────────────────────────────╮
-   ○ migratio│ Prefix: Ctrl+A  then a key (all other keys go to the agent):           │
- ▾ /work/web │                                                                        │
-   ✖ ui-fix  │  Ctrl+A Ctrl+A / a    send the prefix key to the agent                 │
-   ◌ boot    │  Ctrl+A n             new agent                                        │
-             │  Ctrl+A o             resume session…                                  │
-             │  Ctrl+A P             Claude profile of the project                    │
-             │  Ctrl+A x             kill agent (stop its process)                    │
-             │  Ctrl+A R             restart agent                                    │
-             │  Ctrl+A d / Del       remove agent                                     │
-             │  Ctrl+A r             rename agent                                     │
-             │  Ctrl+A y             toggle YOLO for this agent                       │
-             │  Ctrl+A Y             toggle global YOLO                               │
-             │  Ctrl+A j / Down      next agent                                       │
-             │  Ctrl+A k / Up        previous agent                                   │
-             │  Ctrl+A 1-9           jump to agent 1                                  │
-             │  Ctrl+A s             focus the sidebar                                │────────────╮
-             │  Ctrl+A [             scroll mode (scrollback)                         │            │
-             │  Ctrl+A i             toggle the input bar                             │put         │
-             │  Ctrl+A <             narrower sidebar                                 │────────────╯
-             │  Ctrl+A >             wider sidebar                                    │────────────╮
-             │  Ctrl+A Esc           dismiss notifications                            │            │
-             │  Ctrl+A ?             this help                                        │            │
- / filter…   │  Ctrl+A q             quit                                             │────────────╯
- HELP  any ke│                                                                        │
+ Agent Studio   Chat  Grid  Overview                                        ● 4/6 running  YOLO off
+╭ Key bindings ────────────────────────────────────────────────────────────────────────────────────╮
+│ Prefix: Ctrl+A  then a key; every other key goes to the agent                                    │
+│ Keys without a prefix work in the sidebar, grid and scroll mode as named below.                  │
+│                                                                                                  │
+│ Navigation                                                                                       │
+│  Ctrl+A g  Ctrl+A \                            Toggle Chat / Grid View                           │
+│  Ctrl+A O                                      Show Overview                                     │
+│  Ctrl+A v                                      Cycle Chat / Grid / Overview                      │
+│  Ctrl+A 1-9                                    Switch to agent by index                          │
+│  Ctrl+A j  Ctrl+A Down                         Next Agent                                        │
+│  Ctrl+A k  Ctrl+A Up                           Previous Agent                                    │
+│  Ctrl+A s  grid Tab                            Focus Sidebar                                     │
+│  Ctrl+A /  sidebar /                           Focus Sidebar Search                              │
+│  sidebar Esc  sidebar Tab                      Back to the Terminal / Grid                       │
+│                                                                                                  │
+│ Agents                                                                                           │
+│  Ctrl+A n  sidebar n                           New Agent                                         │
+│  Ctrl+A o  sidebar o                           Resume Session…                                   │
+│  Ctrl+A P  sidebar P                           Claude Profile of the Project                     │
+│  Ctrl+A x  sidebar x                           Stop Selected Agent                               │
+│  Ctrl+A R  sidebar R                           Restart Selected Agent                            │
+│  Ctrl+A d  Ctrl+A Del  sidebar d  sidebar Del  Remove Selected Agent                             │
+│  Ctrl+A r  sidebar r                           Rename Selected Agent                             │
+│  Ctrl+A y  sidebar y                           Toggle YOLO for Selected Agent                    │
+│  Ctrl+A Y  sidebar Y                           Toggle Global YOLO                                │
+│                                                                                                  │
+│ j/k PgUp/PgDn g/G scroll · Esc close · 1-25 of 74                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ HELP  j/k PgUp/PgDn scroll · g/G top/bottom · Esc closes

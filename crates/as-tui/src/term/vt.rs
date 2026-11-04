@@ -125,6 +125,39 @@ impl TerminalEmulator for Vt100Emulator {
     fn render(&self, area: Rect, buf: &mut Buffer, palette: TermPalette) {
         render::render_screen(self.parser.screen(), area, buf, palette);
     }
+
+    fn render_region(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        palette: TermPalette,
+        row_off: u16,
+        col_off: u16,
+    ) {
+        render::render_region(self.parser.screen(), area, buf, palette, row_off, col_off);
+    }
+
+    fn content_rows(&self) -> u16 {
+        let screen = self.parser.screen();
+        let (rows, cols) = screen.size();
+        let (cursor_row, _) = screen.cursor_position();
+        for row in (0..rows.get()).rev() {
+            if row < cursor_row {
+                break;
+            }
+            let blank =
+                (0..cols.get()).all(|col| screen.cell(row, col).is_none_or(|c| !c.has_contents()));
+            if !blank {
+                return row + 1;
+            }
+        }
+        cursor_row + 1
+    }
+
+    fn cursor_raw(&self) -> (u16, u16) {
+        let (row, col) = self.parser.screen().cursor_position();
+        (col, row)
+    }
 }
 
 #[cfg(test)]
@@ -152,6 +185,23 @@ mod tests {
         assert_eq!(emu.cursor(), Some((2, 0)));
         emu.process(b"\x1b[?25l");
         assert_eq!(emu.cursor(), None);
+    }
+
+    #[test]
+    fn content_rows_follow_the_text_and_the_cursor() {
+        let mut emu = Vt100Emulator::new(20, 10);
+        assert_eq!(emu.content_rows(), 1);
+        emu.process(b"one\r\ntwo\r\nthree");
+        assert_eq!(emu.content_rows(), 3);
+        emu.process(b"\x1b[8;1Hlow");
+        assert_eq!(emu.content_rows(), 8);
+        emu.process(b"\x1b[2J\x1b[5;3H");
+        assert_eq!(
+            emu.content_rows(),
+            5,
+            "the cursor row counts on a blank screen"
+        );
+        assert_eq!(emu.cursor_raw(), (2, 4));
     }
 
     #[test]

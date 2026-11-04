@@ -455,3 +455,246 @@ fn profile_chooser_and_sidebar_chip() {
     let t = draw(&mut app, 100, 24);
     insta::assert_snapshot!("profile_chooser", text(&t));
 }
+
+// ── P5: grid, palette, help, overview ───────────────────────────────────────────────────
+
+fn grid_agents(n: usize) -> Vec<AgentState> {
+    (0..n)
+        .map(|i| {
+            let status = match i % 4 {
+                0 | 1 => AgentStatus::Running,
+                2 => AgentStatus::Idle,
+                _ => AgentStatus::Errored,
+            };
+            let mut a = agent(
+                &format!("t{i}"),
+                &format!("task-{i}"),
+                "/work/api",
+                status,
+                1 + u32::try_from(i).unwrap_or(0),
+            );
+            a.config.yolo = i == 1;
+            a
+        })
+        .collect()
+}
+
+/// Give every attached terminal some Claude-like output.
+fn feed_all(app: &mut App) {
+    let ids: Vec<String> = app.terms.keys().cloned().collect();
+    for id in ids {
+        let name = app.agent(&id).map(|a| a.name.clone()).unwrap_or_default();
+        let term = app.terms.get_mut(&id).unwrap();
+        term.sub = SubState::Live;
+        let mut out = String::new();
+        for line in 0..40 {
+            out.push_str(&format!("{name}: line {line}\r\n"));
+        }
+        out.push_str("\x1b[1m> run the tests\x1b[0m\r\n\x1b[2m  ? for shortcuts\x1b[0m");
+        term.emu.process(out.as_bytes());
+    }
+}
+
+/// An app without the age limit of the grid (the fixtures are dated, the clock must not matter).
+fn timeless_app(agents: Vec<AgentState>, w: u16, h: u16) -> App {
+    let config = AppConfig {
+        session_max_age_days: 0,
+        ..AppConfig::default()
+    };
+    let mut app = App::new(config, agents, ColorMode::TrueColor, PathBuf::from("/tmp"));
+    app.on_resize(w, h);
+    app.start();
+    app
+}
+
+fn grid_screen(n: usize, w: u16, h: u16) -> (App, Terminal<TestBackend>) {
+    let mut app = timeless_app(grid_agents(n), w, h);
+    app.exec(crate::keymap::Command::ToggleView);
+    feed_all(&mut app);
+    let t = draw(&mut app, w, h);
+    (app, t)
+}
+
+#[test]
+fn grid_with_two_tiles() {
+    let (_, t) = grid_screen(2, 130, 30);
+    insta::assert_snapshot!(text(&t));
+}
+
+#[test]
+fn grid_with_four_tiles() {
+    let (_, t) = grid_screen(4, 130, 36);
+    insta::assert_snapshot!(text(&t));
+}
+
+#[test]
+fn grid_with_seven_tiles() {
+    let (app, t) = grid_screen(7, 130, 36);
+    assert_eq!(app.grid.visible.len(), 7);
+    insta::assert_snapshot!(text(&t));
+}
+
+#[test]
+fn grid_with_an_expanded_tile() {
+    let (mut app, _) = grid_screen(4, 130, 30);
+    app.handle_key(key(KeyCode::Char('l')));
+    app.handle_key(key(KeyCode::Char('z')));
+    feed_all(&mut app);
+    let t = draw(&mut app, 130, 30);
+    insta::assert_snapshot!(text(&t));
+}
+
+#[test]
+fn grid_running_tab_shows_the_project_of_every_agent() {
+    let mut list = grid_agents(3);
+    let mut web = agent("w1", "web-ui", "/work/web", AgentStatus::Running, 20);
+    web.started_at = Some("2026-11-04T10:00:00Z".into());
+    list.push(web);
+    let mut app = timeless_app(list, 130, 30);
+    app.exec(crate::keymap::Command::ToggleView);
+    app.handle_key(key(KeyCode::Char('[')));
+    assert_eq!(app.grid.tab, crate::grid::RUNNING_TAB);
+    feed_all(&mut app);
+    let t = draw(&mut app, 130, 30);
+    insta::assert_snapshot!(text(&t));
+}
+
+#[test]
+fn grid_attached_tile_shows_the_typing_marker_and_the_cursor() {
+    let (mut app, _) = grid_screen(2, 130, 30);
+    app.handle_key(key(KeyCode::Enter));
+    let t = draw(&mut app, 130, 30);
+    let screen = text(&t);
+    assert!(screen.contains("typing"));
+    assert!(screen.contains("TILE"));
+    let pos = t.backend().cursor_position();
+    let tile = app.grid_layout().tiles[0].rect;
+    assert!(tile.contains(pos), "cursor {pos:?} outside {tile:?}");
+}
+
+#[test]
+fn grid_tile_shows_the_bottom_of_the_agent_screen() {
+    // The agent's screen is much taller than the tile: the prompt at the bottom stays visible.
+    let (_, t) = grid_screen(1, 130, 24);
+    let screen = text(&t);
+    assert!(screen.contains("> run the tests"), "{screen}");
+    assert!(screen.contains("? for shortcuts"));
+    assert!(
+        !screen.contains("task-0: line 0\n"),
+        "the top scrolls out of the window"
+    );
+}
+
+#[test]
+fn grid_empty_state_and_broadcast_bar() {
+    let mut app = new_app(Vec::new(), 100, 24);
+    app.exec(crate::keymap::Command::ToggleView);
+    let t = draw(&mut app, 100, 24);
+    assert!(text(&t).contains("No agents yet"));
+
+    let (mut app, _) = grid_screen(3, 130, 30);
+    app.handle_key(key(KeyCode::Char('b')));
+    for c in "ship it".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let t = draw(&mut app, 130, 30);
+    insta::assert_snapshot!(text(&t));
+}
+
+#[test]
+fn grid_survives_tiny_screens() {
+    for (w, h) in [(1, 1), (20, 5), (60, 8), (61, 12), (90, 14)] {
+        let (mut app, _) = grid_screen(5, 130, 40);
+        app.on_resize(w, h);
+        app.handle_key(key(KeyCode::Char('b')));
+        app.handle_key(key(KeyCode::Char('z')));
+        let _ = draw(&mut app, w, h);
+    }
+}
+
+#[test]
+fn command_palette_snapshots() {
+    let mut app = new_app(mixed_agents(), 110, 32);
+    app.exec(crate::keymap::Command::CommandPalette);
+    let t = draw(&mut app, 110, 32);
+    insta::assert_snapshot!("palette_all", text(&t));
+    for c in "grid".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let t = draw(&mut app, 110, 32);
+    insta::assert_snapshot!("palette_filtered", text(&t));
+}
+
+#[test]
+fn help_overlay_is_grouped_by_category_and_scrolls() {
+    let mut app = new_app(mixed_agents(), 110, 36);
+    app.exec(crate::keymap::Command::Help);
+    let t = draw(&mut app, 110, 36);
+    let first = text(&t);
+    assert!(
+        first.contains("Navigation") && first.contains("Ctrl+A g"),
+        "{first}"
+    );
+    insta::assert_snapshot!("help_overlay_top", first);
+    for _ in 0..30 {
+        app.handle_key(key(KeyCode::Char('j')));
+    }
+    let t = draw(&mut app, 110, 36);
+    let scrolled = text(&t);
+    assert_ne!(first, scrolled);
+    insta::assert_snapshot!("help_overlay_scrolled", scrolled);
+    // Far past the end it stops at the last line.
+    app.handle_key(key(KeyCode::Char('G')));
+    let _ = draw(&mut app, 110, 36);
+    let end = app.help_scroll;
+    let _ = draw(&mut app, 110, 36);
+    assert_eq!(app.help_scroll, end);
+}
+
+#[test]
+fn help_overlay_shows_user_overrides_and_unbound_commands() {
+    let mut app = new_app(mixed_agents(), 110, 60);
+    app.apply_keybindings(
+        Some(r#"[{"command":"new-agent","keys":"alt+n"},{"command":"quit","keys":"none"}]"#),
+        false,
+    );
+    app.exec(crate::keymap::Command::Help);
+    let screen = text(&draw(&mut app, 110, 60));
+    assert!(screen.contains("Alt+n"), "{screen}");
+    app.handle_key(key(KeyCode::Char('G')));
+    let screen = text(&draw(&mut app, 110, 60));
+    assert!(screen.contains("(unbound)"), "{screen}");
+}
+
+#[test]
+fn overview_placeholder_and_header_tabs() {
+    let mut app = new_app(mixed_agents(), 100, 20);
+    let header = text(&draw(&mut app, 100, 20));
+    assert!(
+        header
+            .lines()
+            .next()
+            .unwrap()
+            .contains("Chat  Grid  Overview")
+    );
+    app.exec(crate::keymap::Command::ShowOverview);
+    let t = draw(&mut app, 100, 20);
+    insta::assert_snapshot!(text(&t));
+}
+
+#[test]
+fn sidebar_chips_and_sort_label() {
+    let mut app = new_app(mixed_agents(), 100, 24);
+    app.exec(crate::keymap::Command::CycleSidebarStatus);
+    app.exec(crate::keymap::Command::CycleSidebarSort);
+    let t = draw(&mut app, 100, 24);
+    let screen = text(&t);
+    assert!(screen.contains("All Run Wait Idle Err"), "{screen}");
+    assert!(screen.contains("\u{2195}recent"));
+    // The active chip is highlighted.
+    let buf = t.backend().buffer();
+    let accent = app.theme.accent;
+    let hit = (0..buf.area.height)
+        .any(|y| (0..28).any(|x| buf[(x, y)].symbol() == "R" && buf[(x, y)].bg == accent));
+    assert!(hit, "the Run chip is highlighted");
+}

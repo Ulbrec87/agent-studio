@@ -3,11 +3,13 @@
 pub mod chat;
 pub mod dialogs;
 pub mod footer;
+pub mod grid;
 pub mod header;
 pub mod layout;
 pub mod sidebar;
 pub mod toasts;
 
+use as_core::ViewMode;
 use ratatui::Frame;
 use ratatui::style::Style;
 use ratatui::widgets::Block;
@@ -29,10 +31,16 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         if let Some(side) = l.sidebar {
             sidebar::render(app, side, buf);
         }
-        chat::render_title(app, l.title, buf);
-        cursor = cursor.or(chat::render_terminal(app, l.terminal, buf));
-        if let Some(input) = l.input {
-            cursor = chat::render_input(app, input, buf).or(cursor);
+        match app.view {
+            ViewMode::Chat => {
+                chat::render_title(app, l.title, buf);
+                cursor = cursor.or(chat::render_terminal(app, l.terminal, buf));
+                if let Some(input) = l.input {
+                    cursor = chat::render_input(app, input, buf).or(cursor);
+                }
+            }
+            ViewMode::Grid => cursor = grid::render(app, &l, buf),
+            ViewMode::Overview => grid::render_overview_placeholder(app, &l, buf),
         }
         footer::render(app, l.footer, buf);
         toasts::render(app, area, buf);

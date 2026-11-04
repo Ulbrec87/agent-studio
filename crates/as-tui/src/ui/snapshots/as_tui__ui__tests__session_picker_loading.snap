@@ -2,7 +2,7 @@
 source: crates/as-tui/src/ui/tests.rs
 expression: text(&t)
 ---
- Agent Studio   Chat                                                                  ● 4/6 running  YOLO off
+ Agent Studio   Chat  Grid  Overview                                                  ● 4/6 running  YOLO off
  ▾ ★ manager 1             │ manager · claude · sonnet · ● running · /work/hub
    ╭ Resume session · Claude ─────────────────────────────────────────────────────────────────────────────╮
  ▾ │ / fuzzy filter over project and prompt (/)                            ≤ 7d  all projects  hidden off │
@@ -25,6 +25,6 @@ expression: text(&t)
    │                                                                                                      │
    │                                                                                                      │
    │ Enter resume · / filter · a/p/s toggles · h hide · r reload · Tab provider · Esc     0 of 0 sessions │
-   ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
- / filter…                 │
+ Al╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ / search…        ↕created │
  RESUME  j/k move · Enter pick · / filter · a ages · p project · s hidden · h hide · Esc close

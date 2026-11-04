@@ -692,11 +692,29 @@ fn focus_events_are_reported() {
 }
 
 #[test]
-fn help_dialog_closes_on_any_key() {
+fn help_dialog_scrolls_and_closes_with_escape() {
     let mut app = two_agents();
     prefix(&mut app, '?');
     assert!(matches!(app.modal, Some(Modal::Help)));
+    app.handle_key(chr('j'));
+    app.handle_key(chr('j'));
+    assert_eq!(app.help_scroll, 2);
+    app.handle_key(chr('k'));
+    assert_eq!(app.help_scroll, 1);
+    app.handle_key(key(KeyCode::PageDown));
+    assert_eq!(app.help_scroll, 11);
+    app.handle_key(chr('g'));
+    assert_eq!(app.help_scroll, 0);
     app.handle_key(chr('x'));
+    assert!(
+        matches!(app.modal, Some(Modal::Help)),
+        "other keys are ignored"
+    );
+    app.handle_key(key(KeyCode::Esc));
+    assert!(app.modal.is_none());
+    prefix(&mut app, '?');
+    assert_eq!(app.help_scroll, 0, "reopening starts at the top");
+    app.handle_key(chr('q'));
     assert!(app.modal.is_none());
 }
 

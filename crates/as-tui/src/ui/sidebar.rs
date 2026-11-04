@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
 use crate::app::{App, Focus};
-use crate::sidebar::{self, Row, RowKey};
+use crate::sidebar::{self, Row, RowKey, SortKey, StatusChip};
 
 /// First visible row so that the cursor row stays on screen.
 pub fn scroll_offset(cursor: Option<usize>, height: u16) -> usize {
@@ -15,6 +15,11 @@ pub fn scroll_offset(cursor: Option<usize>, height: u16) -> usize {
         Some(c) => (c + 1).saturating_sub(usize::from(height.max(1))),
         None => 0,
     }
+}
+
+/// Rows below the agent list: status chips and the search line (just the search line when tiny).
+pub fn footer_height(sidebar_height: u16) -> u16 {
+    if sidebar_height >= 5 { 2 } else { 1 }
 }
 
 pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
@@ -43,14 +48,15 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     if inner.height == 0 || inner.width == 0 {
         return;
     }
-    let list_h = inner.height - 1;
+    let footer_h = footer_height(inner.height);
+    let list_h = inner.height - footer_h;
     let rows = app.sidebar_rows();
     let cursor = app.sidebar_cursor_index(&rows);
     let offset = scroll_offset(cursor, list_h);
     let sidebar_focused = app.focus == Focus::App;
 
     if rows.is_empty() {
-        let msg = if app.sidebar.filter.is_empty() {
+        let msg = if app.sidebar.filter.is_empty() && app.sidebar.status == StatusChip::All {
             "No agents yet"
         } else {
             "No match"
@@ -167,12 +173,37 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         line.render(line_area, buf);
     }
 
-    // Filter line at the bottom.
+    // Status chips (when there is room) above the search line.
+    if footer_h == 2 {
+        let chips_area = Rect {
+            y: inner.bottom() - 2,
+            height: 1,
+            ..inner
+        };
+        let mut spans = vec![Span::raw(" ")];
+        for chip in StatusChip::ALL {
+            let active = chip == app.sidebar.status;
+            let style = if active {
+                Style::default()
+                    .fg(t.accent_text)
+                    .bg(t.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(t.text_muted)
+            };
+            spans.push(Span::styled(chip.short().to_string(), style));
+            spans.push(Span::raw(" "));
+        }
+        Line::from(spans).style(base).render(chips_area, buf);
+    }
+    // Search line at the bottom, with the sort order on the right.
     let filter_area = Rect {
         y: inner.bottom() - 1,
         height: 1,
         ..inner
     };
+    let sort_label = format!("\u{2195}{} ", app.sidebar.sort.label());
+    let sort_w = u16::try_from(sort_label.chars().count()).unwrap_or(0);
     let filter_line = if app.sidebar.filtering || !app.sidebar.filter.is_empty() {
         let cursor = if app.sidebar.filtering {
             "\u{2588}"
@@ -187,9 +218,23 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             ),
         ])
     } else {
-        Line::styled(" / filter\u{2026}", Style::default().fg(t.text_muted))
+        Line::styled(" / search\u{2026}", Style::default().fg(t.text_muted))
     };
     filter_line.style(base).render(filter_area, buf);
+    if inner.width > sort_w + 14 {
+        buf.set_string(
+            inner.right() - sort_w,
+            filter_area.y,
+            sort_label,
+            Style::default()
+                .fg(if app.sidebar.sort == SortKey::Created {
+                    t.text_muted
+                } else {
+                    t.accent
+                })
+                .bg(t.sidebar),
+        );
+    }
 }
 
 fn fill(buf: &mut Buffer, area: Rect, style: Style) {

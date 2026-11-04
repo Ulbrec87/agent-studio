@@ -39,6 +39,19 @@ pub fn cell_style(cell: &vt100::Cell, palette: TermPalette) -> Style {
 /// Fill `area` with the screen (at its current scrollback offset); cells outside the screen get
 /// the default background.
 pub fn render_screen(screen: &vt100::Screen, area: Rect, buf: &mut Buffer, palette: TermPalette) {
+    render_region(screen, area, buf, palette, 0, 0);
+}
+
+/// Like [`render_screen`], but shows the part of the screen that starts at `(row_off, col_off)`
+/// (what a grid tile does when the agent's screen is bigger than the tile).
+pub fn render_region(
+    screen: &vt100::Screen,
+    area: Rect,
+    buf: &mut Buffer,
+    palette: TermPalette,
+    row_off: u16,
+    col_off: u16,
+) {
     let blank = Style::default().fg(palette.fg).bg(palette.bg);
     for row in 0..area.height {
         let y = area.y + row;
@@ -48,7 +61,7 @@ pub fn render_screen(screen: &vt100::Screen, area: Rect, buf: &mut Buffer, palet
             let Some(target) = buf.cell_mut((x, y)) else {
                 break;
             };
-            match screen.cell(row, col) {
+            match screen.cell(row + row_off, col + col_off) {
                 Some(cell) if !cell.is_wide_continuation() => {
                     let text = cell.contents();
                     target.set_symbol(if text.is_empty() { " " } else { text });

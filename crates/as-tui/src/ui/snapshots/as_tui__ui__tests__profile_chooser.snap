@@ -2,7 +2,7 @@
 source: crates/as-tui/src/ui/tests.rs
 expression: text(&t)
 ---
- Agent Studio   Chat                                                        ● 4/6 running  YOLO off
+ Agent Studio   Chat  Grid  Overview                                        ● 4/6 running  YOLO off
  ▾ ★ manager 1             │ manager · claude · sonnet · ● running · /work/hub
    ● manager       running │ attaching…
  ▾ /work/api [work] 3      │
@@ -23,6 +23,6 @@ expression: text(&t)
              │  inherit the daemon's environment (no mapping)                         │
              │  default (/h/.claude)                                                  │
              │  work (/h/.claude-work)                                                │
-             │                                                                        │
- / filter…   │ Enter apply · Esc cancel · new agents of the project use this profile  │
+ All Run Wait│                                                                        │
+ / search…   │ Enter apply · Esc cancel · new agents of the project use this profile  │
  PROFILE  ↑/↓╰────────────────────────────────────────────────────────────────────────╯

@@ -5,6 +5,7 @@
 
 pub mod agents;
 pub mod config;
+pub mod keybindings;
 pub mod paths;
 pub mod sessions;
 pub mod types;

@@ -2,7 +2,7 @@
 source: crates/as-tui/src/ui/tests.rs
 expression: text(&t)
 ---
- Agent Studio   Chat                                              ● 4/6 running  YOLO off
+ Agent Studio   Chat  Grid  Overview                              ● 4/6 running  YOLO off
  ▾ ★ manager 1             │ manager · claude · sonnet · ● running · /work/hub
    ● manager       running │ attaching…
  ▾ /work/api 3             │
@@ -19,6 +19,6 @@ expression: text(&t)
                            │
                            │
                            │
-                           │── Enter send · Alt+Enter newline · Esc terminal ─────────────
- / filter…                 │› run the tests
+ All Run Wait Idle Err     │── Enter send · Alt+Enter newline · Esc terminal ─────────────
+ / search…        ↕created │› run the tests
  INPUT  Enter send · Alt+Enter newline · Esc terminal

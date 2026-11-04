@@ -7,7 +7,7 @@ Update the row (and add new rows) in the same commit that ports the code.
 |--------------|-------------|-------|--------|
 | `shared/types.ts` (Agent*, Provider*, AppConfig, DEFAULT_CONFIG) | `as-core::types`, `as-core::usage_settings` | P1 | done (minus Electron-only terminal keys, plus `prefixKey`) |
 | `electron/config/ConfigStore.ts` | `as-core::config::ConfigStore` | P1 | done |
-| `electron/config/KeybindingStore.ts`, `shared/keybindings.ts` | `as-core::keybindings` (+ TUI key parsing in `as-tui::keymap`) | P5 | todo |
+| `electron/config/KeybindingStore.ts`, `shared/keybindings.ts`, `useKeybindings.ts` | `as-core::keybindings` (catalog, defaults in TUI syntax, merge, tolerant parse), `as-tui::{keymap (parse, tables, conflicts), bindings_file (mtime polling)}` | P5 | done (no `mod+` syntax: keys are `prefix x` / `ctrl+x`; commands of later phases are in the catalog but unbound) |
 | `electron/agents/providers.ts` | `as-core::agents::providers` | P1 | done |
 | `electron/agents/ProviderModelCatalog.ts` | `as-core::agents::model_catalog` (+ `ListProviderModels`) | P4 | done (discovered list replaces the built-in one, which stays the fallback; failures cached 30 s) |
 | `electron/agents/shellWrapper.ts` | `as-core::agents::shell` | P1 | done |
@@ -24,8 +24,10 @@ Update the row (and add new rows) in the same commit that ports the code.
 | `electron/sessions/SessionCatalog.ts`, `CodexSessionCatalog.ts`, `TranscriptReader.ts` | `as-core::sessions::{claude, codex, transcript}` (+ `locator` = `probeSessionIdFromCatalog`) | P4 | done (per-file mtime/size cache on top of the 5 s snapshot; sidechains and duplicate session files left out) |
 | `electron/sessions/claudeProfiles.ts`, `shared/claudeProfiles.ts` | `as-core::sessions::profiles` | P4 | done |
 | session/config handlers of `electron/ipc/handlers.ts`, startup import in `electron/daemon/index.ts` | `as-proto` requests `ListSessions`/`HideSession`/`ListClaudeProfiles`/`SetProjectProfile`/`ListProviderModels`, `as-daemon::{handler, services}` | P4 | done (startup import also honours `sessionMaxAgeDays`) |
-| `src/components/GridView/*` | `as-tui::views::grid` | P5 | todo |
-| `src/components/CommandPalette`, `Shortcuts` | `as-tui::views::{palette,help}` | P5 | todo |
+| `src/components/GridView/{GridView,TerminalTile,BroadcastBar}.tsx`, `src/hooks/{useTileOrder,useViewMode}.ts`, `Header/ViewSwitcher.tsx` | `as-tui::{grid (tabs, tile order, layout math), app::view, ui::grid}` | P5 | done (tiles show a window of the agent's screen instead of a full xterm; drag-and-drop = `<`/`>`; broadcast sends `SendInput` per running agent) |
+| `src/components/CommandPalette`, `Shortcuts`, `src/lib/fuzzy.ts` | `as-tui::palette` (nucleo), `ui::dialogs::{help_lines,help,palette}` | P5 | done |
+| `src/components/Sidebar/{FilterChips,SortDropdown,FilterDropdown,SearchBar}.tsx`, `useFilterSort.ts` | `as-tui::sidebar` (`StatusChip`, `SortKey`, `ViewOpts`), `ui::sidebar` | P5 | done (single status chip All/Running/Waiting/Idle/Errored + sort created/recent/name/status/provider + search; Hydra's provider/yolo/age dropdown filters not ported) |
+| `localStorage` UI state (view, tile order, expanded tile, ...) | `as-tui::state` (`<root>/tui-state.json`) | P5 | done |
 | `electron/overview/*`, `shared/overview/*` | `as-core::overview` | P6 | todo |
 | `src/components/Overview/*` | `as-tui::views::overview` | P6 | todo |
 | `electron/usage/*`, `shared/usage/*` | `as-core::usage` | P7 | todo |

@@ -5,11 +5,12 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use as_core::keybindings::KeybindingRule;
 use as_core::sessions::profiles::resolve_profile;
 use as_core::sessions::{ClaudeProfile, SessionSummary};
 use as_core::{
-    AgentState, AgentStatus, AppConfig, CreateAgentPayload, ProviderId, ProviderModelOption,
-    get_default_model_for_provider,
+    AgentState, AgentStatus, AppConfig, CreateAgentPayload, GridColumns, ProviderId,
+    ProviderModelOption, ViewMode, get_default_model_for_provider,
 };
 use as_proto::{Event, NotificationKind, StudioNotification};
 use ratatui::crossterm::event::{
@@ -17,20 +18,27 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::Rect;
 
+use crate::grid::{self, TileOrder};
 use crate::keymap::{Command, KeyChord, Keymap};
 use crate::new_agent::{FormAction, NewAgentForm};
+use crate::palette::{Palette, PaletteAction, PaletteOutcome};
 use crate::sessions::{PickerAction, PickerOrigin, SessionPicker};
-use crate::sidebar::{self, Row, RowKey};
+use crate::sidebar::{self, Row, RowKey, SortKey, StatusChip, ViewOpts};
+use crate::state::TuiState;
+use crate::suspend::ExternalCommand;
 use crate::term::{TerminalEmulator, Vt100Emulator, keys};
 use crate::theme::{ColorMode, Theme};
 use crate::ui::layout::{self, DEFAULT_SIDEBAR, LayoutParams, MAX_INPUT_LINES};
 use crate::widgets::TextArea;
 
-/// Terminals kept subscribed (the selected one plus recently viewed ones).
+/// Terminals kept subscribed (the selected one, the visible grid tiles and recently viewed ones).
+/// Equals the daemon's hard limit of agents with a process.
 pub const MAX_LIVE_TERMS: usize = 10;
 pub const TOAST_TTL: Duration = Duration::from_secs(5);
 pub const MAX_TOASTS: usize = 5;
 const WHEEL_LINES: usize = 3;
+/// Rows a PgUp/PgDn moves in the palette.
+pub const PALETTE_PAGE: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -40,6 +48,10 @@ pub enum Focus {
     App,
     /// The input bar.
     Input,
+    /// Grid view: tile navigation.
+    Grid,
+    /// Grid view: the broadcast bar.
+    Broadcast,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,6 +128,8 @@ pub enum Modal {
         stopping: bool,
     },
     Help,
+    /// `prefix p`: fuzzy command palette.
+    Palette(Box<Palette>),
     /// `prefix o`: pick a session and resume it.
     Resume(Box<SessionPicker>),
     /// `prefix P`: Claude profile of a project.
@@ -179,6 +193,10 @@ pub enum Effect {
     /// Leave the TUI (detach).
     Quit,
     Bell,
+    /// Hand the terminal to an external program (editor), then come back.
+    Suspend(ExternalCommand),
+    /// Persist `gridColumns` in the config.
+    SetGridColumns(GridColumns),
 }
 
 /// Results of asynchronous work, fed back into [`App::handle_msg`].
@@ -221,10 +239,31 @@ pub struct Term {
 #[derive(Debug, Clone, Default)]
 pub struct SidebarState {
     pub collapsed: HashSet<String>,
+    /// Search text (name, project, provider, model, status).
     pub filter: String,
-    /// Typing into the filter.
+    /// Typing into the search field.
     pub filtering: bool,
     pub cursor: Option<RowKey>,
+    pub status: StatusChip,
+    pub sort: SortKey,
+}
+
+/// Grid view state.
+#[derive(Debug, Clone, Default)]
+pub struct GridState {
+    /// [`grid::RUNNING_TAB`] or a project directory; empty until the first refresh picks one.
+    pub tab: String,
+    pub expanded: Option<String>,
+    pub only_running: bool,
+    pub first_row: u16,
+    pub order: TileOrder,
+    /// Agent ids of the tab in display order (refreshed by `grid_refresh`).
+    pub tiles: Vec<String>,
+    /// Ids of the tiles on screen (they hold a subscription).
+    pub visible: Vec<String>,
+    refreshing: bool,
+    /// The selection changed on purpose: the grid may switch to the agent's project tab.
+    follow: bool,
 }
 
 pub struct App {
@@ -246,6 +285,13 @@ pub struct App {
     pub modal: Option<Modal>,
     pub sidebar: SidebarState,
     pub sidebar_width: u16,
+    pub view: ViewMode,
+    pub grid: GridState,
+    pub broadcast: TextArea,
+    /// First visible line of the help overlay.
+    pub help_scroll: usize,
+    /// The user's keybinding overrides (kept to rebuild the keymap when the prefix changes).
+    pub user_bindings: Vec<KeybindingRule>,
     pub input_visible: bool,
     pub input: TextArea,
     pub terms: HashMap<String, Term>,
@@ -259,6 +305,10 @@ pub struct App {
     pub now: Instant,
     pub quit: bool,
     pub dirty: bool,
+    /// Agent to select at start (from the saved UI state).
+    restored_selection: Option<String>,
+    /// `keybindings.json`, for "Open keybindings file".
+    keybindings_path: Option<PathBuf>,
     next_toast: u64,
 }
 
@@ -287,6 +337,11 @@ impl App {
             modal: None,
             sidebar: SidebarState::default(),
             sidebar_width: DEFAULT_SIDEBAR,
+            view: ViewMode::Chat,
+            grid: GridState::default(),
+            broadcast: TextArea::multi_line(),
+            help_scroll: 0,
+            user_bindings: Vec::new(),
             input_visible: false,
             input: TextArea::multi_line(),
             terms: HashMap::new(),
@@ -299,6 +354,8 @@ impl App {
             now: Instant::now(),
             quit: false,
             dirty: true,
+            restored_selection: None,
+            keybindings_path: None,
             next_toast: 0,
         };
         app.agents = agents;
@@ -311,10 +368,19 @@ impl App {
             Effect::SetFocus(self.terminal_focused),
             Effect::LoadProfiles,
         ];
-        if let Some(i) = sidebar::agent_order(&self.agents, "").first() {
-            let id = self.agents[*i].id.clone();
+        let restored = self
+            .restored_selection
+            .take()
+            .filter(|id| self.agent(id).is_some());
+        let first = restored.or_else(|| {
+            sidebar::agent_order(&self.agents, "")
+                .first()
+                .map(|i| self.agents[*i].id.clone())
+        });
+        if let Some(id) = first {
             fx.extend(self.select(&id));
         }
+        fx.extend(self.enter_view());
         fx
     }
 
@@ -345,7 +411,8 @@ impl App {
         }
     }
 
-    pub fn input_lines(&self) -> u16 {
+    /// Lines of the chat input bar (0 when hidden).
+    fn chat_input_lines(&self) -> u16 {
         if self.input_visible {
             u16::try_from(self.input.line_count())
                 .unwrap_or(MAX_INPUT_LINES)
@@ -355,27 +422,58 @@ impl App {
         }
     }
 
+    /// Lines of the bar at the bottom of the main area: the chat input, or in the grid the
+    /// broadcast bar while it is open.
+    pub fn input_lines(&self) -> u16 {
+        match self.view {
+            ViewMode::Chat => self.chat_input_lines(),
+            ViewMode::Grid if self.broadcast_open() => u16::try_from(self.broadcast.line_count())
+                .unwrap_or(MAX_INPUT_LINES)
+                .clamp(1, MAX_INPUT_LINES),
+            _ => 0,
+        }
+    }
+
     pub fn layout(&self) -> layout::Layout {
+        self.layout_with(self.input_lines())
+    }
+
+    fn layout_with(&self, input_lines: u16) -> layout::Layout {
         layout::compute(
             self.screen,
             LayoutParams {
                 sidebar_width: self.sidebar_width,
-                input_lines: self.input_lines(),
+                input_lines,
             },
         )
     }
 
-    /// Size the selected agent's terminal should have.
+    /// Size every agent terminal (and PTY) has: the chat pane, whatever the view. The grid shows
+    /// a window of these screens instead of resizing the PTYs to the tiles, so switching views
+    /// never reflows an agent's UI.
     pub fn pane_size(&self) -> (u16, u16) {
         if self.screen.width == 0 || self.screen.height == 0 {
             return (80, 24);
         }
-        let t = self.layout().terminal;
+        let t = self.layout_with(self.chat_input_lines()).terminal;
         (t.width.max(2), t.height.max(2))
     }
 
+    pub fn broadcast_open(&self) -> bool {
+        matches!(self.focus, Focus::Broadcast)
+    }
+
+    pub fn view_opts(&self) -> ViewOpts<'_> {
+        ViewOpts {
+            search: &self.sidebar.filter,
+            status: self.sidebar.status,
+            sort: self.sidebar.sort,
+            waiting: Some(&self.waiting),
+        }
+    }
+
     pub fn sidebar_rows(&self) -> Vec<Row> {
-        sidebar::rows(&self.agents, &self.sidebar.collapsed, &self.sidebar.filter)
+        sidebar::rows_with(&self.agents, &self.sidebar.collapsed, &self.view_opts())
     }
 
     /// Label of the Claude profile a project is mapped to, unless it is the default one.
@@ -448,6 +546,9 @@ impl App {
                 }
                 self.waiting.remove(&agent_id);
                 self.dirty = true;
+                if self.view == ViewMode::Grid {
+                    fx.extend(self.grid_refresh());
+                }
             }
             Event::AgentWaiting { agent_id } => {
                 if self.agent(&agent_id).is_some() {
@@ -456,7 +557,10 @@ impl App {
                 }
             }
             Event::AgentsChanged => fx.push(Effect::Refresh),
-            Event::ConfigChanged(config) => self.apply_config(*config),
+            Event::ConfigChanged(config) => {
+                self.apply_config(*config);
+                fx.extend(self.grid_refresh_if_open());
+            }
             Event::DaemonShuttingDown => {
                 self.toast(ToastKind::Warn, "Daemon", "The daemon is shutting down");
             }
@@ -492,7 +596,8 @@ impl App {
 
     fn apply_config(&mut self, config: AppConfig) {
         if config.prefix_key != self.config.prefix_key {
-            self.keymap = Keymap::from_prefix_key(&config.prefix_key);
+            let (keymap, _) = Keymap::from_user_rules(&config.prefix_key, &self.user_bindings);
+            self.keymap = keymap;
         }
         self.theme = Theme::new(config.theme, self.color_mode);
         self.config = config;
@@ -521,17 +626,29 @@ impl App {
             }
             SubState::Failed => {}
         }
-        if self.selected.as_deref() == Some(agent_id) {
+        if self.is_on_screen(agent_id) {
             self.dirty = true;
         }
         fx
+    }
+
+    /// Whether output of this agent changes what is drawn.
+    fn is_on_screen(&self, agent_id: &str) -> bool {
+        match self.view {
+            ViewMode::Grid => self.grid.visible.iter().any(|v| v == agent_id),
+            ViewMode::Chat => self.selected.as_deref() == Some(agent_id),
+            ViewMode::Overview => false,
+        }
     }
 
     pub fn handle_msg(&mut self, msg: Msg) -> Vec<Effect> {
         let mut fx = Vec::new();
         match msg {
             Msg::Agents(agents) => fx.extend(self.set_agents(agents)),
-            Msg::Config(config) => self.apply_config(*config),
+            Msg::Config(config) => {
+                self.apply_config(*config);
+                fx.extend(self.grid_refresh_if_open());
+            }
             Msg::Created(Ok(agent)) => {
                 let id = agent.id.clone();
                 if self.agent(&id).is_none() {
@@ -655,6 +772,7 @@ impl App {
         {
             self.sidebar.cursor = self.selected.clone().map(RowKey::Agent);
         }
+        fx.extend(self.grid_refresh_if_open());
         self.dirty = true;
         fx
     }
@@ -697,18 +815,22 @@ impl App {
     pub fn on_resize(&mut self, width: u16, height: u16) -> Vec<Effect> {
         self.screen = Rect::new(0, 0, width, height);
         self.dirty = true;
-        self.sync_layout()
+        let mut fx = self.sync_layout();
+        fx.extend(self.grid_refresh_if_open());
+        fx
     }
 
-    /// Keep the selected terminal and its PTY at the pane size.
+    /// Keep every attached terminal and its PTY at the pane size (see [`pane_size`](Self::pane_size)).
     pub fn sync_layout(&mut self) -> Vec<Effect> {
         let mut fx = Vec::new();
-        let Some(id) = self.selected.clone() else {
-            return fx;
-        };
         let (cols, rows) = self.pane_size();
         let known = self.screen.width > 0;
-        if let Some(term) = self.terms.get_mut(&id) {
+        let mut ids: Vec<String> = self.terms.keys().cloned().collect();
+        ids.sort();
+        for id in ids {
+            let Some(term) = self.terms.get_mut(&id) else {
+                continue;
+            };
             if term.emu.size() != (cols, rows) {
                 term.emu.resize(cols, rows);
                 self.dirty = true;
@@ -745,11 +867,12 @@ impl App {
             fx.push(Effect::Subscribe(id.to_string()));
         }
         while self.terms.len() > MAX_LIVE_TERMS {
-            let Some(pos) = self
-                .view_order
-                .iter()
-                .position(|v| self.selected.as_deref() != Some(v.as_str()) && v != id)
-            else {
+            let pinned = |v: &String| {
+                self.view == ViewMode::Grid && self.grid.visible.iter().any(|g| g == v)
+            };
+            let Some(pos) = self.view_order.iter().position(|v| {
+                self.selected.as_deref() != Some(v.as_str()) && v != id && !pinned(v)
+            }) else {
                 break;
             };
             let old = self.view_order.remove(pos);
@@ -772,13 +895,19 @@ impl App {
         }
         let mut fx = self.attach_term(id);
         fx.extend(self.sync_layout());
+        if self.view == ViewMode::Grid && !self.grid.refreshing {
+            if changed {
+                self.grid.follow = true;
+            }
+            fx.extend(self.grid_refresh());
+        }
         self.dirty = true;
         fx
     }
 
     /// Move through agents in sidebar order (wraps around).
     fn step_agent(&mut self, delta: isize) -> Vec<Effect> {
-        let order = sidebar::agent_order(&self.agents, &self.sidebar.filter);
+        let order = sidebar::agent_order_with(&self.agents, &self.view_opts());
         if order.is_empty() {
             return Vec::new();
         }
@@ -796,7 +925,7 @@ impl App {
     }
 
     fn jump_agent(&mut self, n: u8) -> Vec<Effect> {
-        let order = sidebar::agent_order(&self.agents, &self.sidebar.filter);
+        let order = sidebar::agent_order_with(&self.agents, &self.view_opts());
         match order.get(usize::from(n).saturating_sub(1)) {
             Some(i) => {
                 let id = self.agents[*i].id.clone();
@@ -856,6 +985,11 @@ impl App {
         if self.modal.is_some() {
             return self.modal_key(key);
         }
+        if !self.prefix_pending
+            && let Some(cmd) = self.keymap.direct(&key)
+        {
+            return self.exec(cmd);
+        }
         if self.scroll_mode {
             return match self.keymap.in_scroll_mode(&key) {
                 Some(cmd) => self.exec(cmd),
@@ -877,10 +1011,15 @@ impl App {
             Focus::Terminal => self.terminal_key(key),
             Focus::App => self.app_key(key),
             Focus::Input => self.input_key(key),
+            Focus::Grid => self.grid_key(key),
+            Focus::Broadcast => self.broadcast_key(key),
         }
     }
 
     fn terminal_key(&mut self, key: KeyEvent) -> Vec<Effect> {
+        if self.view == ViewMode::Overview {
+            return Vec::new();
+        }
         let Some(id) = self.selected.clone() else {
             return Vec::new();
         };
@@ -993,6 +1132,10 @@ impl App {
                 input.insert_str(text);
                 return Vec::new();
             }
+            Some(Modal::Palette(palette)) => {
+                palette.handle_paste(text);
+                return Vec::new();
+            }
             Some(_) => return Vec::new(),
             None => {}
         }
@@ -1001,6 +1144,11 @@ impl App {
                 self.input.insert_str(text);
                 self.sync_layout()
             }
+            Focus::Broadcast => {
+                self.broadcast.insert_str(text);
+                self.sync_layout()
+            }
+            Focus::Grid => Vec::new(),
             Focus::App => {
                 if self.sidebar.filtering {
                     self.sidebar.filter.push_str(text.trim());
@@ -1025,7 +1173,7 @@ impl App {
         let at = ratatui::layout::Position::new(mouse.column, mouse.row);
         match mouse.kind {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-                if layout.terminal.contains(at) =>
+                if layout.terminal.contains(at) && self.view == ViewMode::Chat =>
             {
                 if self.modal.is_some() || self.selected.is_none() {
                     return Vec::new();
@@ -1047,7 +1195,9 @@ impl App {
                         return Vec::new();
                     }
                     let rows = self.sidebar_rows();
-                    let list_h = side.height.saturating_sub(1);
+                    let list_h = side
+                        .height
+                        .saturating_sub(crate::ui::sidebar::footer_height(side.height));
                     let offset =
                         crate::ui::sidebar::scroll_offset(self.sidebar_cursor_index(&rows), list_h);
                     let idx = usize::from(mouse.row.saturating_sub(side.y)) + offset;
@@ -1072,7 +1222,14 @@ impl App {
                             };
                         }
                     }
-                } else if layout.terminal.contains(at) && self.modal.is_none() {
+                } else if self.modal.is_some() {
+                    // Modals own the screen.
+                } else if self.view == ViewMode::Grid
+                    && (layout.terminal.contains(at) || layout.title.contains(at))
+                {
+                    self.dirty = true;
+                    return self.grid_click(mouse.column, mouse.row);
+                } else if layout.terminal.contains(at) && self.view == ViewMode::Chat {
                     self.focus = Focus::Terminal;
                     self.dirty = true;
                 }
@@ -1189,13 +1346,21 @@ impl App {
                 Vec::new()
             }
             Command::FocusTerminal => {
-                self.focus = Focus::Terminal;
                 self.sidebar.filtering = false;
+                self.focus = self.home_focus();
                 Vec::new()
             }
             Command::ScrollMode => {
-                if self.selected.is_some() {
-                    self.scroll_mode = true;
+                if self.view == ViewMode::Chat {
+                    if self.selected.is_some() {
+                        self.scroll_mode = true;
+                    }
+                } else {
+                    self.toast(
+                        ToastKind::Info,
+                        "Scroll mode",
+                        "Open the agent in the Chat view to scroll its output",
+                    );
                 }
                 Vec::new()
             }
@@ -1209,6 +1374,7 @@ impl App {
                 self.sync_layout()
             }
             Command::Help => {
+                self.help_scroll = 0;
                 self.modal = Some(Modal::Help);
                 Vec::new()
             }
@@ -1226,6 +1392,9 @@ impl App {
             }
             Command::ClearToasts => {
                 self.toasts.clear();
+                if self.view == ViewMode::Grid && self.focus == Focus::Terminal {
+                    self.focus = Focus::Grid;
+                }
                 Vec::new()
             }
             Command::Activate => {
@@ -1240,9 +1409,65 @@ impl App {
                 Vec::new()
             }
             Command::FilterSidebar => {
+                self.focus = Focus::App;
                 self.sidebar.filtering = true;
+                if self.sidebar.cursor.is_none() {
+                    self.sidebar.cursor = selected.map(RowKey::Agent);
+                }
                 Vec::new()
             }
+            Command::CycleSidebarStatus => {
+                self.sidebar.status = self.sidebar.status.next();
+                Vec::new()
+            }
+            Command::CycleSidebarSort => {
+                self.sidebar.sort = self.sidebar.sort.next();
+                Vec::new()
+            }
+            Command::ToggleView => {
+                let next = if self.view == ViewMode::Grid {
+                    ViewMode::Chat
+                } else {
+                    ViewMode::Grid
+                };
+                self.set_view(next)
+            }
+            Command::ShowOverview => {
+                let next = if self.view == ViewMode::Overview {
+                    ViewMode::Chat
+                } else {
+                    ViewMode::Overview
+                };
+                self.set_view(next)
+            }
+            Command::CycleView => {
+                let next = match self.view {
+                    ViewMode::Chat => ViewMode::Grid,
+                    ViewMode::Grid => ViewMode::Overview,
+                    ViewMode::Overview => ViewMode::Chat,
+                };
+                self.set_view(next)
+            }
+            Command::CommandPalette => {
+                let entries = crate::palette::build_entries(&self.keymap, &self.agents, self.view);
+                self.modal = Some(Modal::Palette(Box::new(Palette::new(entries))));
+                Vec::new()
+            }
+            Command::OpenKeybindingsFile => self.open_keybindings_file(),
+            Command::ToggleTileExpand
+            | Command::Broadcast
+            | Command::GridLeft
+            | Command::GridRight
+            | Command::GridUp
+            | Command::GridDown
+            | Command::GridAttach
+            | Command::GridOpenChat
+            | Command::GridMovePrev
+            | Command::GridMoveNext
+            | Command::GridPrevTab
+            | Command::GridNextTab
+            | Command::GridCycleColumns
+            | Command::GridOnlyRunning => self.grid_command(command),
             Command::ScrollUp => self.scroll_by(1, false),
             Command::ScrollDown => self.scroll_by(-1, false),
             Command::ScrollPageUp => self.scroll_by(1, true),
@@ -1437,7 +1662,30 @@ impl App {
                 });
                 Vec::new()
             }
-            Modal::Help => Vec::new(),
+            Modal::Help => {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q' | '?') => return Vec::new(),
+                    KeyCode::Down | KeyCode::Char('j') => self.help_scroll += 1,
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.help_scroll = self.help_scroll.saturating_sub(1);
+                    }
+                    KeyCode::PageDown | KeyCode::Char(' ') => self.help_scroll += 10,
+                    KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(10),
+                    KeyCode::Home | KeyCode::Char('g') => self.help_scroll = 0,
+                    KeyCode::End | KeyCode::Char('G') => self.help_scroll = usize::MAX / 2,
+                    _ => {}
+                }
+                self.modal = Some(Modal::Help);
+                Vec::new()
+            }
+            Modal::Palette(mut palette) => match palette.handle_key(&key, PALETTE_PAGE) {
+                PaletteOutcome::None => {
+                    self.modal = Some(Modal::Palette(palette));
+                    Vec::new()
+                }
+                PaletteOutcome::Close => Vec::new(),
+                PaletteOutcome::Run(action) => self.run_palette_action(action),
+            },
         }
     }
 
@@ -1563,5 +1811,9 @@ impl App {
     }
 }
 
+mod view;
+
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod view_tests;

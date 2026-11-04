@@ -180,13 +180,26 @@ fn render_empty_state(app: &App, area: Rect, buf: &mut Buffer) {
 pub fn render_input(app: &mut App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
     let t = app.theme;
     let focused = app.focus == Focus::Input;
+    let modal = app.modal.is_some();
+    let hint = " Enter send \u{00B7} Alt+Enter newline \u{00B7} Esc terminal ";
+    render_bar(&t, &mut app.input, area, buf, focused && !modal, hint)
+}
+
+/// A rule with a hint on top and a text area below (chat input, broadcast bar).
+pub fn render_bar(
+    t: &crate::theme::Theme,
+    input: &mut crate::widgets::TextArea,
+    area: Rect,
+    buf: &mut Buffer,
+    focused: bool,
+    hint: &str,
+) -> Option<(u16, u16)> {
     let rule_style = Style::default()
         .fg(if focused { t.accent } else { t.border })
         .bg(t.bg);
-    let hint = " Enter send \u{00B7} Alt+Enter newline \u{00B7} Esc terminal ";
     let rule: String = "\u{2500}".repeat(usize::from(area.width));
     buf.set_string(area.x, area.y, &rule, rule_style);
-    if focused && area.width as usize > hint.len() + 4 {
+    if focused && area.width as usize > hint.chars().count() + 4 {
         buf.set_string(
             area.x + 2,
             area.y,
@@ -214,12 +227,6 @@ pub fn render_input(app: &mut App, area: Rect, buf: &mut Buffer) -> Option<(u16,
             }
         }
     }
-    let cursor = app
-        .input
-        .render(text_area, buf, Style::default().fg(t.text).bg(t.input_bg));
-    if focused && app.modal.is_none() {
-        cursor
-    } else {
-        None
-    }
+    let cursor = input.render(text_area, buf, Style::default().fg(t.text).bg(t.input_bg));
+    if focused { cursor } else { None }
 }

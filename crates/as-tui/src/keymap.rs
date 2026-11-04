@@ -1,9 +1,12 @@
 //! Key chords, commands and the data-driven binding tables.
 //!
-//! Three tables, all plain `Vec<(KeyChord, Command)>` so P5 can load user overrides:
+//! Tables, all plain `Vec<(KeyChord, Command)>`, built from the command catalog
+//! (`as_core::keybindings`: defaults + the user's `keybindings.json`):
 //! * `prefix` — keys after the prefix key (tmux style), valid in every focus;
-//! * `app` — keys while the sidebar/app has focus (no prefix needed);
-//! * `scroll` — keys in scroll mode.
+//! * `app` — keys while the sidebar has focus (no prefix needed);
+//! * `grid` — keys while the grid has focus (tile navigation);
+//! * `scroll` — keys in scroll mode;
+//! * `direct` — chords that run a command in every focus (e.g. `alt+1`), user-defined only.
 
 use std::fmt;
 
@@ -179,7 +182,7 @@ pub enum Command {
     /// App focus: move the sidebar cursor over every row.
     CursorDown,
     CursorUp,
-    /// 1-based position in the sidebar.
+    /// 1-based position in the sidebar (`JumpAgent(0)` is the catalog placeholder for the range).
     JumpAgent(u8),
     FocusSidebar,
     FocusTerminal,
@@ -189,11 +192,36 @@ pub enum Command {
     Quit,
     SidebarNarrower,
     SidebarWider,
+    /// Dismiss toasts; in the grid with nothing to dismiss, return to tile navigation.
     ClearToasts,
     /// App focus: attach the agent under the cursor / toggle the project.
     Activate,
     ToggleCollapse,
+    /// Focus the sidebar search field.
     FilterSidebar,
+    CycleSidebarStatus,
+    CycleSidebarSort,
+    // Views.
+    ToggleView,
+    ShowOverview,
+    CycleView,
+    CommandPalette,
+    OpenKeybindingsFile,
+    // Grid.
+    ToggleTileExpand,
+    Broadcast,
+    GridLeft,
+    GridRight,
+    GridUp,
+    GridDown,
+    GridAttach,
+    GridOpenChat,
+    GridMovePrev,
+    GridMoveNext,
+    GridPrevTab,
+    GridNextTab,
+    GridCycleColumns,
+    GridOnlyRunning,
     // Scroll mode.
     ScrollUp,
     ScrollDown,
@@ -204,48 +232,174 @@ pub enum Command {
     ExitScroll,
 }
 
+/// Every command once (`JumpAgent(0)` stands for the whole range).
+pub const ALL_COMMANDS: &[Command] = &[
+    Command::SendPrefix,
+    Command::NewAgent,
+    Command::ResumeSession,
+    Command::SetProfile,
+    Command::KillAgent,
+    Command::RestartAgent,
+    Command::RemoveAgent,
+    Command::RenameAgent,
+    Command::ToggleYolo,
+    Command::ToggleGlobalYolo,
+    Command::NextAgent,
+    Command::PrevAgent,
+    Command::CursorDown,
+    Command::CursorUp,
+    Command::JumpAgent(0),
+    Command::FocusSidebar,
+    Command::FocusTerminal,
+    Command::ScrollMode,
+    Command::ToggleInputBar,
+    Command::Help,
+    Command::Quit,
+    Command::SidebarNarrower,
+    Command::SidebarWider,
+    Command::ClearToasts,
+    Command::Activate,
+    Command::ToggleCollapse,
+    Command::FilterSidebar,
+    Command::CycleSidebarStatus,
+    Command::CycleSidebarSort,
+    Command::ToggleView,
+    Command::ShowOverview,
+    Command::CycleView,
+    Command::CommandPalette,
+    Command::OpenKeybindingsFile,
+    Command::ToggleTileExpand,
+    Command::Broadcast,
+    Command::GridLeft,
+    Command::GridRight,
+    Command::GridUp,
+    Command::GridDown,
+    Command::GridAttach,
+    Command::GridOpenChat,
+    Command::GridMovePrev,
+    Command::GridMoveNext,
+    Command::GridPrevTab,
+    Command::GridNextTab,
+    Command::GridCycleColumns,
+    Command::GridOnlyRunning,
+    Command::ScrollUp,
+    Command::ScrollDown,
+    Command::ScrollPageUp,
+    Command::ScrollPageDown,
+    Command::ScrollTop,
+    Command::ScrollBottom,
+    Command::ExitScroll,
+];
+
 impl Command {
+    /// Id in the catalog (`as_core::keybindings`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Command::SendPrefix => "send-prefix",
+            Command::NewAgent => "new-agent",
+            Command::ResumeSession => "resume-session",
+            Command::SetProfile => "set-profile",
+            Command::KillAgent => "close-agent",
+            Command::RestartAgent => "restart-agent",
+            Command::RemoveAgent => "remove-agent",
+            Command::RenameAgent => "rename-agent",
+            Command::ToggleYolo => "toggle-yolo",
+            Command::ToggleGlobalYolo => "toggle-global-yolo",
+            Command::NextAgent => "next-agent",
+            Command::PrevAgent => "prev-agent",
+            Command::CursorDown => "cursor-down",
+            Command::CursorUp => "cursor-up",
+            Command::JumpAgent(_) => "switch-agent-by-index",
+            Command::FocusSidebar => "focus-sidebar",
+            Command::FocusTerminal => "focus-terminal",
+            Command::ScrollMode => "scroll-mode",
+            Command::ToggleInputBar => "toggle-chat-input",
+            Command::Help => "show-shortcuts",
+            Command::Quit => "quit",
+            Command::SidebarNarrower => "sidebar-narrower",
+            Command::SidebarWider => "sidebar-wider",
+            Command::ClearToasts => "close-dialogs",
+            Command::Activate => "activate",
+            Command::ToggleCollapse => "toggle-collapse",
+            Command::FilterSidebar => "focus-sidebar-search",
+            Command::CycleSidebarStatus => "cycle-sidebar-status",
+            Command::CycleSidebarSort => "cycle-sidebar-sort",
+            Command::ToggleView => "toggle-view",
+            Command::ShowOverview => "show-overview",
+            Command::CycleView => "cycle-view",
+            Command::CommandPalette => "command-palette",
+            Command::OpenKeybindingsFile => "open-keybindings-file",
+            Command::ToggleTileExpand => "toggle-tile-expand",
+            Command::Broadcast => "broadcast",
+            Command::GridLeft => "grid-left",
+            Command::GridRight => "grid-right",
+            Command::GridUp => "grid-up",
+            Command::GridDown => "grid-down",
+            Command::GridAttach => "grid-attach",
+            Command::GridOpenChat => "grid-open-chat",
+            Command::GridMovePrev => "grid-move-prev",
+            Command::GridMoveNext => "grid-move-next",
+            Command::GridPrevTab => "grid-prev-tab",
+            Command::GridNextTab => "grid-next-tab",
+            Command::GridCycleColumns => "grid-cycle-columns",
+            Command::GridOnlyRunning => "grid-only-running",
+            Command::ScrollUp => "scroll-up",
+            Command::ScrollDown => "scroll-down",
+            Command::ScrollPageUp => "scroll-page-up",
+            Command::ScrollPageDown => "scroll-page-down",
+            Command::ScrollTop => "scroll-top",
+            Command::ScrollBottom => "scroll-bottom",
+            Command::ExitScroll => "scroll-exit",
+        }
+    }
+
+    /// The command of a catalog id (`None` for commands of later phases).
+    pub fn from_id(id: &str) -> Option<Command> {
+        ALL_COMMANDS.iter().copied().find(|c| c.id() == id)
+    }
+
     pub fn description(self) -> String {
         match self {
-            Command::SendPrefix => "send the prefix key to the agent".into(),
-            Command::NewAgent => "new agent".into(),
-            Command::ResumeSession => "resume session\u{2026}".into(),
-            Command::SetProfile => "Claude profile of the project".into(),
-            Command::KillAgent => "kill agent (stop its process)".into(),
-            Command::RestartAgent => "restart agent".into(),
-            Command::RemoveAgent => "remove agent".into(),
-            Command::RenameAgent => "rename agent".into(),
-            Command::ToggleYolo => "toggle YOLO for this agent".into(),
-            Command::ToggleGlobalYolo => "toggle global YOLO".into(),
-            Command::NextAgent => "next agent".into(),
-            Command::PrevAgent => "previous agent".into(),
-            Command::CursorDown => "cursor down".into(),
-            Command::CursorUp => "cursor up".into(),
-            Command::JumpAgent(n) => format!("jump to agent {n}"),
-            Command::FocusSidebar => "focus the sidebar".into(),
-            Command::FocusTerminal => "focus the terminal".into(),
-            Command::ScrollMode => "scroll mode (scrollback)".into(),
-            Command::ToggleInputBar => "toggle the input bar".into(),
-            Command::Help => "this help".into(),
-            Command::Quit => "quit".into(),
-            Command::SidebarNarrower => "narrower sidebar".into(),
-            Command::SidebarWider => "wider sidebar".into(),
-            Command::ClearToasts => "dismiss notifications".into(),
-            Command::Activate => "attach the agent / toggle the project".into(),
-            Command::ToggleCollapse => "collapse / expand the project".into(),
-            Command::FilterSidebar => "filter the sidebar".into(),
-            Command::ScrollUp => "scroll up a line".into(),
-            Command::ScrollDown => "scroll down a line".into(),
-            Command::ScrollPageUp => "scroll up a page".into(),
-            Command::ScrollPageDown => "scroll down a page".into(),
-            Command::ScrollTop => "oldest output".into(),
-            Command::ScrollBottom => "latest output".into(),
-            Command::ExitScroll => "leave scroll mode".into(),
+            Command::JumpAgent(n) if n > 0 => format!("jump to agent {n}"),
+            other => as_core::keybindings::command_def(other.id())
+                .map_or_else(|| other.id().to_string(), |d| d.label.to_string()),
         }
     }
 }
 
 pub type Bindings = Vec<(KeyChord, Command)>;
+
+/// Where a binding applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Scope {
+    Prefix,
+    App,
+    Grid,
+    Scroll,
+    /// A chord that works in every focus without the prefix.
+    Direct,
+}
+
+impl Scope {
+    fn parse(word: &str) -> Option<Scope> {
+        match word {
+            "prefix" => Some(Scope::Prefix),
+            "app" => Some(Scope::App),
+            "grid" => Some(Scope::Grid),
+            "scroll" => Some(Scope::Scroll),
+            _ => None,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Scope::Prefix | Scope::Direct => "",
+            Scope::App => "sidebar ",
+            Scope::Grid => "grid ",
+            Scope::Scroll => "scroll ",
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Keymap {
@@ -254,107 +408,239 @@ pub struct Keymap {
     pub prefix_bindings: Bindings,
     /// Keys in App (sidebar) focus.
     pub app_bindings: Bindings,
+    /// Keys in grid focus (tile navigation).
+    pub grid_bindings: Bindings,
     /// Keys in scroll mode.
     pub scroll_bindings: Bindings,
+    /// Chords that run in every focus.
+    pub direct_bindings: Bindings,
+    /// Display strings of the bindings per command id, for the help overlay and palette hints.
+    labels: Vec<(&'static str, Vec<String>)>,
 }
 
 fn lookup(table: &Bindings, chord: KeyChord) -> Option<Command> {
     table.iter().find(|(c, _)| *c == chord).map(|(_, cmd)| *cmd)
 }
 
+/// One parsed alternative of a `keys` string.
+struct Parsed {
+    scope: Scope,
+    chords: Vec<KeyChord>,
+    label: String,
+}
+
+/// Parse `prefix g`, `app j`, `ctrl+g`, `alt+1-9`, `prefix prefix` ...
+fn parse_binding(alt: &str, prefix: KeyChord, command: Command) -> Result<Parsed, String> {
+    let alt = alt.trim();
+    let (scope, rest) = match alt.split_once(' ') {
+        Some((word, rest)) => match Scope::parse(word) {
+            Some(scope) => (scope, rest.trim()),
+            None => return Err(format!("unknown scope \"{word}\"")),
+        },
+        None => (Scope::Direct, alt),
+    };
+    if rest.is_empty() {
+        return Err("missing key".into());
+    }
+    if scope == Scope::Prefix && rest == "prefix" {
+        return Ok(Parsed {
+            scope,
+            chords: vec![prefix],
+            label: format!("{prefix} {prefix}"),
+        });
+    }
+    let prefix_label = |chord: &str| match scope {
+        Scope::Prefix => format!("{prefix} {chord}"),
+        other => format!("{}{chord}", other.label()),
+    };
+    // Digit range: `1-9`, `alt+1-9`.
+    if let Some(mods) = rest.strip_suffix("1-9")
+        && (mods.is_empty() || mods.ends_with('+'))
+    {
+        if !matches!(command, Command::JumpAgent(_)) {
+            return Err("a 1-9 range only works for switch-agent-by-index".into());
+        }
+        let mut chords = Vec::new();
+        for n in 1..=9u8 {
+            let text = format!("{mods}{n}");
+            chords.push(KeyChord::parse(&text).ok_or_else(|| format!("bad key \"{rest}\""))?);
+        }
+        let shown = chords[0].to_string();
+        let shown = shown.trim_end_matches('1');
+        return Ok(Parsed {
+            scope,
+            chords,
+            label: prefix_label(&format!("{shown}1-9")),
+        });
+    }
+    let chord = KeyChord::parse(rest).ok_or_else(|| format!("bad key \"{rest}\""))?;
+    if scope == Scope::Direct && chord == prefix {
+        return Err("that is the prefix key".into());
+    }
+    Ok(Parsed {
+        scope,
+        chords: vec![chord],
+        label: prefix_label(&chord.to_string()),
+    })
+}
+
 impl Keymap {
     /// Defaults for a given prefix chord.
     pub fn with_prefix(prefix: KeyChord) -> Self {
-        let mut prefix_bindings: Bindings = vec![
-            (prefix, Command::SendPrefix),
-            (KeyChord::plain('n'), Command::NewAgent),
-            (KeyChord::plain('o'), Command::ResumeSession),
-            (KeyChord::plain('P'), Command::SetProfile),
-            (KeyChord::plain('x'), Command::KillAgent),
-            (KeyChord::plain('R'), Command::RestartAgent),
-            (KeyChord::plain('d'), Command::RemoveAgent),
-            (KeyChord::key(KeyCode::Delete), Command::RemoveAgent),
-            (KeyChord::plain('r'), Command::RenameAgent),
-            (KeyChord::plain('y'), Command::ToggleYolo),
-            (KeyChord::plain('Y'), Command::ToggleGlobalYolo),
-            (KeyChord::plain('j'), Command::NextAgent),
-            (KeyChord::key(KeyCode::Down), Command::NextAgent),
-            (KeyChord::plain('k'), Command::PrevAgent),
-            (KeyChord::key(KeyCode::Up), Command::PrevAgent),
-            (KeyChord::plain('s'), Command::FocusSidebar),
-            (KeyChord::plain('['), Command::ScrollMode),
-            (KeyChord::plain('i'), Command::ToggleInputBar),
-            (KeyChord::plain('?'), Command::Help),
-            (KeyChord::plain('q'), Command::Quit),
-            (KeyChord::plain('<'), Command::SidebarNarrower),
-            (KeyChord::plain('>'), Command::SidebarWider),
-            (KeyChord::key(KeyCode::Esc), Command::ClearToasts),
-        ];
-        if prefix == KeyChord::ctrl('a') {
-            prefix_bindings.push((KeyChord::plain('a'), Command::SendPrefix));
-        }
-        for n in 1..=9u8 {
-            prefix_bindings.push((KeyChord::plain(char::from(b'0' + n)), Command::JumpAgent(n)));
-        }
-        let app_bindings: Bindings = vec![
-            (KeyChord::key(KeyCode::Down), Command::CursorDown),
-            (KeyChord::plain('j'), Command::CursorDown),
-            (KeyChord::key(KeyCode::Up), Command::CursorUp),
-            (KeyChord::plain('k'), Command::CursorUp),
-            (KeyChord::key(KeyCode::Enter), Command::Activate),
-            (KeyChord::key(KeyCode::Right), Command::Activate),
-            (KeyChord::plain('l'), Command::Activate),
-            (KeyChord::plain(' '), Command::ToggleCollapse),
-            (KeyChord::key(KeyCode::Left), Command::ToggleCollapse),
-            (KeyChord::plain('h'), Command::ToggleCollapse),
-            (KeyChord::plain('/'), Command::FilterSidebar),
-            (KeyChord::key(KeyCode::Esc), Command::FocusTerminal),
-            (KeyChord::key(KeyCode::Tab), Command::FocusTerminal),
-            (KeyChord::plain('n'), Command::NewAgent),
-            (KeyChord::plain('o'), Command::ResumeSession),
-            (KeyChord::plain('P'), Command::SetProfile),
-            (KeyChord::plain('x'), Command::KillAgent),
-            (KeyChord::plain('R'), Command::RestartAgent),
-            (KeyChord::plain('d'), Command::RemoveAgent),
-            (KeyChord::key(KeyCode::Delete), Command::RemoveAgent),
-            (KeyChord::plain('r'), Command::RenameAgent),
-            (KeyChord::plain('y'), Command::ToggleYolo),
-            (KeyChord::plain('Y'), Command::ToggleGlobalYolo),
-            (KeyChord::plain('['), Command::ScrollMode),
-            (KeyChord::plain('i'), Command::ToggleInputBar),
-            (KeyChord::plain('?'), Command::Help),
-            (KeyChord::plain('q'), Command::Quit),
-            (KeyChord::plain('<'), Command::SidebarNarrower),
-            (KeyChord::plain('>'), Command::SidebarWider),
-        ];
-        let scroll_bindings: Bindings = vec![
-            (KeyChord::key(KeyCode::Up), Command::ScrollUp),
-            (KeyChord::plain('k'), Command::ScrollUp),
-            (KeyChord::key(KeyCode::Down), Command::ScrollDown),
-            (KeyChord::plain('j'), Command::ScrollDown),
-            (KeyChord::key(KeyCode::PageUp), Command::ScrollPageUp),
-            (KeyChord::ctrl('b'), Command::ScrollPageUp),
-            (KeyChord::key(KeyCode::PageDown), Command::ScrollPageDown),
-            (KeyChord::ctrl('f'), Command::ScrollPageDown),
-            (KeyChord::plain('g'), Command::ScrollTop),
-            (KeyChord::key(KeyCode::Home), Command::ScrollTop),
-            (KeyChord::plain('G'), Command::ScrollBottom),
-            (KeyChord::key(KeyCode::End), Command::ScrollBottom),
-            (KeyChord::key(KeyCode::Esc), Command::ExitScroll),
-            (KeyChord::plain('q'), Command::ExitScroll),
-        ];
-        Self {
-            prefix,
-            prefix_bindings,
-            app_bindings,
-            scroll_bindings,
-        }
+        Self::build(prefix, &[]).0
     }
 
     /// Build from the config's `prefixKey` (falls back to Ctrl+A on garbage).
     pub fn from_prefix_key(prefix_key: &str) -> Self {
+        Self::from_user_rules(prefix_key, &[]).0
+    }
+
+    pub fn from_user_rules(
+        prefix_key: &str,
+        rules: &[as_core::keybindings::KeybindingRule],
+    ) -> (Self, Vec<String>) {
         let prefix = KeyChord::parse(prefix_key).unwrap_or_else(|| KeyChord::ctrl('a'));
-        Self::with_prefix(prefix)
+        Self::build(prefix, rules)
+    }
+
+    /// Defaults merged with the user's overrides. The second value lists problems (bad keys,
+    /// conflicts); a command whose override is broken keeps its default.
+    pub fn build(
+        prefix: KeyChord,
+        user: &[as_core::keybindings::KeybindingRule],
+    ) -> (Self, Vec<String>) {
+        use as_core::keybindings::{COMMANDS, split_keys};
+        let mut problems = Vec::new();
+        let mut km = Keymap {
+            prefix,
+            prefix_bindings: Vec::new(),
+            app_bindings: Vec::new(),
+            grid_bindings: Vec::new(),
+            scroll_bindings: Vec::new(),
+            direct_bindings: Vec::new(),
+            labels: Vec::new(),
+        };
+        // The last override of a command wins; user commands are placed before the defaults so
+        // that a conflict is always decided in the user's favour.
+        let mut overrides: Vec<(&str, &str)> = Vec::new();
+        for rule in user {
+            let keys = rule.keys.trim();
+            if keys.is_empty() {
+                continue;
+            }
+            match overrides.iter_mut().find(|(c, _)| *c == rule.command) {
+                Some(e) => e.1 = keys,
+                None => overrides.push((rule.command.as_str(), keys)),
+            }
+        }
+        // (table scope, chord) -> (command, from the user)
+        let mut owners: Vec<((Scope, KeyChord), (Command, bool))> = Vec::new();
+        let mut plan: Vec<(Command, &str, bool)> = Vec::new();
+        for (id, keys) in &overrides {
+            if let Some(cmd) = Command::from_id(id) {
+                plan.push((cmd, keys, true));
+            }
+        }
+        for def in COMMANDS {
+            let Some(cmd) = Command::from_id(def.id) else {
+                continue;
+            };
+            if overrides.iter().any(|(id, _)| *id == def.id) {
+                continue;
+            }
+            plan.push((cmd, def.default_keys, false));
+        }
+        for (cmd, keys, from_user) in plan {
+            let mut parsed = Vec::new();
+            for alt in split_keys(keys) {
+                match parse_binding(alt, prefix, cmd) {
+                    Ok(p) => parsed.push(p),
+                    Err(why) => {
+                        problems.push(format!(
+                            "{}: invalid keys \"{alt}\" ({why}); using the defaults",
+                            cmd.id()
+                        ));
+                        parsed.clear();
+                        // Fall back to the catalog default of this command.
+                        let default = as_core::keybindings::command_def(cmd.id())
+                            .map_or("", |d| d.default_keys);
+                        parsed.extend(
+                            split_keys(default)
+                                .into_iter()
+                                .filter_map(|a| parse_binding(a, prefix, cmd).ok()),
+                        );
+                        break;
+                    }
+                }
+            }
+            let mut shown = Vec::new();
+            for p in parsed {
+                let mut placed = false;
+                for chord in &p.chords {
+                    let command = match cmd {
+                        Command::JumpAgent(_) => match chord.code {
+                            KeyCode::Char(c) if c.is_ascii_digit() => {
+                                Command::JumpAgent(c as u8 - b'0')
+                            }
+                            _ => cmd,
+                        },
+                        other => other,
+                    };
+                    match owners.iter().find(|(k, _)| *k == (p.scope, *chord)) {
+                        Some((_, (other, other_user))) if *other != command => {
+                            if from_user {
+                                problems.push(format!(
+                                    "{} is bound to both {} and {}; keeping {}",
+                                    p.label,
+                                    other.id(),
+                                    cmd.id(),
+                                    other.id()
+                                ));
+                            } else if *other_user {
+                                problems.push(format!(
+                                    "{} now runs {} (yours); {} lost this key",
+                                    p.label,
+                                    other.id(),
+                                    cmd.id()
+                                ));
+                            }
+                        }
+                        Some(_) => {}
+                        None => {
+                            owners.push(((p.scope, *chord), (command, from_user)));
+                            km.table(p.scope).push((*chord, command));
+                            placed = true;
+                        }
+                    }
+                }
+                if placed {
+                    shown.push(p.label);
+                }
+            }
+            // `prefix a` stays an alias of the default prefix key (tmux habit).
+            if cmd == Command::SendPrefix
+                && !from_user
+                && prefix == KeyChord::ctrl('a')
+                && lookup(&km.prefix_bindings, KeyChord::plain('a')).is_none()
+            {
+                km.prefix_bindings
+                    .push((KeyChord::plain('a'), Command::SendPrefix));
+            }
+            if !shown.is_empty() {
+                km.labels.push((cmd.id(), shown));
+            }
+        }
+        (km, problems)
+    }
+
+    fn table(&mut self, scope: Scope) -> &mut Bindings {
+        match scope {
+            Scope::Prefix => &mut self.prefix_bindings,
+            Scope::App => &mut self.app_bindings,
+            Scope::Grid => &mut self.grid_bindings,
+            Scope::Scroll => &mut self.scroll_bindings,
+            Scope::Direct => &mut self.direct_bindings,
+        }
     }
 
     pub fn is_prefix(&self, key: &KeyEvent) -> bool {
@@ -369,17 +655,38 @@ impl Keymap {
         lookup(&self.app_bindings, KeyChord::from_event(key))
     }
 
+    pub fn in_grid_focus(&self, key: &KeyEvent) -> Option<Command> {
+        lookup(&self.grid_bindings, KeyChord::from_event(key))
+    }
+
     pub fn in_scroll_mode(&self, key: &KeyEvent) -> Option<Command> {
         lookup(&self.scroll_bindings, KeyChord::from_event(key))
     }
 
-    /// Chords bound to `command` in the prefix table, for the help overlay.
+    pub fn direct(&self, key: &KeyEvent) -> Option<Command> {
+        lookup(&self.direct_bindings, KeyChord::from_event(key))
+    }
+
+    /// Chords bound to `command` in the prefix table.
     pub fn prefix_keys_for(&self, command: Command) -> Vec<KeyChord> {
         self.prefix_bindings
             .iter()
             .filter(|(_, c)| *c == command)
             .map(|(k, _)| *k)
             .collect()
+    }
+
+    /// Display strings of every binding of a command id (`Ctrl+A g`, `sidebar j`, `Alt+1-9`).
+    pub fn labels_for(&self, id: &str) -> &[String] {
+        self.labels
+            .iter()
+            .find(|(i, _)| *i == id)
+            .map_or(&[][..], |(_, l)| l.as_slice())
+    }
+
+    /// The first binding of a command id, as a hint next to its name.
+    pub fn hint_for(&self, id: &str) -> Option<&str> {
+        self.labels_for(id).first().map(String::as_str)
     }
 }
 
@@ -429,7 +736,8 @@ mod tests {
         assert_eq!(get('n'), Some(Command::NewAgent));
         assert_eq!(get('5'), Some(Command::JumpAgent(5)));
         assert_eq!(get('Y'), Some(Command::ToggleGlobalYolo));
-        assert_eq!(get('z'), None);
+        assert_eq!(get('z'), Some(Command::ToggleTileExpand));
+        assert_eq!(get('w'), None);
         assert_eq!(
             km.after_prefix(&ev(KeyCode::Char('a'), KeyModifiers::CONTROL)),
             Some(Command::SendPrefix)
@@ -460,5 +768,170 @@ mod tests {
         assert_eq!(KeyChord::ctrl('a').to_string(), "Ctrl+A");
         assert_eq!(KeyChord::plain('n').to_string(), "n");
         assert_eq!(KeyChord::key(KeyCode::PageUp).to_string(), "PgUp");
+    }
+
+    use as_core::keybindings::KeybindingRule;
+
+    fn rule(command: &str, keys: &str) -> KeybindingRule {
+        KeybindingRule {
+            command: command.into(),
+            keys: keys.into(),
+        }
+    }
+
+    fn build(rules: &[KeybindingRule]) -> (Keymap, Vec<String>) {
+        Keymap::build(KeyChord::ctrl('a'), rules)
+    }
+
+    #[test]
+    fn every_catalog_command_maps_to_a_command_and_back() {
+        for def in as_core::keybindings::COMMANDS {
+            match Command::from_id(def.id) {
+                Some(cmd) => assert_eq!(cmd.id(), def.id),
+                None => assert!(!def.implemented, "{} is implemented but unmapped", def.id),
+            }
+        }
+        for cmd in ALL_COMMANDS {
+            let def = as_core::keybindings::command_def(cmd.id());
+            assert!(
+                def.is_some_and(|d| d.implemented),
+                "{:?} has no catalog entry",
+                cmd
+            );
+        }
+    }
+
+    #[test]
+    fn defaults_have_no_problems_and_no_unbound_commands() {
+        let (km, problems) = build(&[]);
+        assert!(problems.is_empty(), "{problems:?}");
+        for cmd in ALL_COMMANDS {
+            let def = as_core::keybindings::command_def(cmd.id()).unwrap();
+            if !def.default_keys.is_empty() {
+                assert!(!km.labels_for(cmd.id()).is_empty(), "{} unbound", cmd.id());
+            }
+        }
+    }
+
+    #[test]
+    fn new_defaults_toggle_view_and_palette() {
+        let km = Keymap::from_prefix_key("ctrl+a");
+        let get = |c| km.after_prefix(&ev(KeyCode::Char(c), KeyModifiers::NONE));
+        assert_eq!(get('g'), Some(Command::ToggleView));
+        assert_eq!(get('\\'), Some(Command::ToggleView));
+        assert_eq!(get('O'), Some(Command::ShowOverview));
+        assert_eq!(get('v'), Some(Command::CycleView));
+        assert_eq!(get('p'), Some(Command::CommandPalette));
+        assert_eq!(get(':'), Some(Command::CommandPalette));
+        assert_eq!(get('b'), Some(Command::Broadcast));
+        assert_eq!(get('/'), Some(Command::FilterSidebar));
+        assert_eq!(
+            km.after_prefix(&ev(KeyCode::Left, KeyModifiers::SHIFT)),
+            Some(Command::GridMovePrev)
+        );
+        assert_eq!(
+            km.in_grid_focus(&ev(KeyCode::Char('h'), KeyModifiers::NONE)),
+            Some(Command::GridLeft)
+        );
+        assert_eq!(
+            km.in_app_focus(&ev(KeyCode::Char('h'), KeyModifiers::NONE)),
+            Some(Command::ToggleCollapse)
+        );
+    }
+
+    #[test]
+    fn user_override_replaces_the_defaults_of_that_command_only() {
+        let (km, problems) = build(&[rule("new-agent", "prefix N")]);
+        assert!(problems.is_empty(), "{problems:?}");
+        let get = |c| km.after_prefix(&ev(KeyCode::Char(c), KeyModifiers::NONE));
+        assert_eq!(get('N'), Some(Command::NewAgent));
+        assert_eq!(get('n'), None, "the old key is gone");
+        assert_eq!(get('o'), Some(Command::ResumeSession));
+        // The override replaced every default of the command, the sidebar's included.
+        assert_eq!(
+            km.in_app_focus(&ev(KeyCode::Char('n'), KeyModifiers::NONE)),
+            None
+        );
+        assert_eq!(km.hint_for("new-agent"), Some("Ctrl+A N"));
+    }
+
+    #[test]
+    fn direct_chords_and_ranges() {
+        let (km, problems) = build(&[
+            rule("switch-agent-by-index", "alt+1-9"),
+            rule("toggle-view", "ctrl+g | prefix g"),
+        ]);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(
+            km.direct(&ev(KeyCode::Char('3'), KeyModifiers::ALT)),
+            Some(Command::JumpAgent(3))
+        );
+        assert_eq!(
+            km.direct(&ev(KeyCode::Char('g'), KeyModifiers::CONTROL)),
+            Some(Command::ToggleView)
+        );
+        assert_eq!(
+            km.after_prefix(&ev(KeyCode::Char('3'), KeyModifiers::NONE)),
+            None
+        );
+        assert_eq!(km.hint_for("switch-agent-by-index"), Some("Alt+1-9"));
+        assert_eq!(km.hint_for("toggle-view"), Some("Ctrl+G"));
+        let default = build(&[]).0;
+        assert_eq!(
+            default.hint_for("switch-agent-by-index"),
+            Some("Ctrl+A 1-9")
+        );
+    }
+
+    #[test]
+    fn conflicts_are_reported_and_the_user_wins() {
+        let (km, problems) = build(&[rule("new-agent", "prefix r")]);
+        assert_eq!(
+            km.after_prefix(&ev(KeyCode::Char('r'), KeyModifiers::NONE)),
+            Some(Command::NewAgent)
+        );
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("rename-agent") && problems[0].contains("new-agent"));
+
+        let (_, problems) = build(&[rule("new-agent", "prefix X"), rule("quit", "prefix X")]);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("bound to both"));
+    }
+
+    #[test]
+    fn invalid_keys_fall_back_to_the_default_and_report() {
+        let (km, problems) = build(&[
+            rule("new-agent", "prefix nope"),
+            rule("quit", "hyper+q"),
+            rule("toggle-view", "prefix 1-9"),
+            rule("show-overview", "ctrl+a"),
+        ]);
+        assert_eq!(problems.len(), 4, "{problems:?}");
+        let get = |c| km.after_prefix(&ev(KeyCode::Char(c), KeyModifiers::NONE));
+        assert_eq!(get('n'), Some(Command::NewAgent));
+        assert_eq!(get('q'), Some(Command::Quit));
+        assert_eq!(get('g'), Some(Command::ToggleView));
+        assert_eq!(get('O'), Some(Command::ShowOverview));
+    }
+
+    #[test]
+    fn none_unbinds_and_later_phase_commands_are_ignored() {
+        let (km, problems) = build(&[rule("quit", "none"), rule("git-panel", "ctrl+g")]);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(
+            km.after_prefix(&ev(KeyCode::Char('q'), KeyModifiers::NONE)),
+            None
+        );
+        assert!(km.direct_bindings.is_empty());
+    }
+
+    #[test]
+    fn prefix_prefix_follows_the_configured_prefix() {
+        let (km, _) = Keymap::build(KeyChord::ctrl('b'), &[]);
+        assert_eq!(
+            km.after_prefix(&ev(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+            Some(Command::SendPrefix)
+        );
+        assert_eq!(km.hint_for("send-prefix"), Some("Ctrl+B Ctrl+B"));
     }
 }

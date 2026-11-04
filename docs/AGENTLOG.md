@@ -122,3 +122,22 @@ Format: `## <short title>` + what happened + what to do instead.
   stopped; quit the tmux session (or the TUI) first, then stop the daemon, then check with `pgrep -f 'daemon --home <dir>'`.
 - **`CLAUDE_CONFIG_DIR` of the shell leaks into agents.** With it set (e.g. to `~/.claude-work`) new Claude sessions are
   saved in that profile; discovery looks in every profile so it still finds them, and `claudeProfileByProject` overrides it.
+
+## P5 (grid, palette, keybindings) gotchas
+
+- **Tiles must not resize the PTYs.** Every attached terminal (and its PTY) is kept at the *chat pane* size, whatever the
+  view (`App::pane_size` ignores the broadcast bar; `sync_layout` resizes all terms, not only the selected one). A grid tile
+  renders a window of that screen: rows end at the last non-blank row or the cursor row (`TerminalEmulator::content_rows`),
+  columns start at the left edge unless the cursor is further right. Switching Chat <-> Grid never reflows Claude's UI.
+- **`Terminal::clear()` after running an editor leaves a half-painted screen.** ratatui's `clear` asks the terminal for the
+  cursor position (reads stdin) and the diff renderer then only repaints changed cells. After `suspend::run_on_terminal`
+  replace the `Terminal` with a fresh `Terminal::new(..)`; stop reading events (`EventStream` dropped, ~150 ms grace) while
+  the editor owns the keyboard.
+- **The daemon's `Broadcast` resumes every agent of the project** (Hydra's `ensureProcess`), including the hundreds of idle
+  `sess-*` agents imported at startup. The TUI therefore sends `SendInput` to each *running* agent of the tab instead.
+- **Tests must not depend on the wall clock.** The grid hides non-active agents older than `sessionMaxAgeDays` (like Hydra's
+  `recentGroups`), so fixtures dated in the past vanish; fixtures set `session_max_age_days: 0`.
+- **The Running tab must stay when its agents stop.** The grid only follows the selected agent to its project tab when the
+  selection changed on purpose (`GridState::follow`), otherwise the tab jumps away while the last running agent finishes.
+- **Manual checks start real imports.** A fresh `AGENT_STUDIO_HOME` imports every session in `~/.claude*` as idle agents
+  (`importSessionsOnStartup`); write `{"importSessionsOnStartup": false}` into `<home>/config.json` first.

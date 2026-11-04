@@ -262,7 +262,22 @@ impl Io {
                     let _ = tx.send(Msg::ShutdownDone(result));
                 });
             }
-            Effect::Quit | Effect::Bell => {}
+            Effect::SetGridColumns(columns) => {
+                tokio::spawn(async move {
+                    let value = serde_json::to_value(columns).unwrap_or(serde_json::Value::Null);
+                    match client
+                        .update_config(serde_json::json!({ "gridColumns": value }))
+                        .await
+                    {
+                        Ok(config) => {
+                            let _ = tx.send(Msg::Config(Box::new(config)));
+                        }
+                        Err(err) => failure(&client, &tx, &err),
+                    }
+                });
+            }
+            // Handled by the runner (needs the terminal).
+            Effect::Quit | Effect::Bell | Effect::Suspend(_) => {}
         }
     }
 }

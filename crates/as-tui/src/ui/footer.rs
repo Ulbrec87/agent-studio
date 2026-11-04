@@ -6,6 +6,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
+use as_core::ViewMode;
+
 use crate::app::{App, Focus, Modal};
 
 fn picker_hints(mode: &'static str) -> (&'static str, String) {
@@ -21,7 +23,7 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
     if app.prefix_pending {
         return (
             "PREFIX",
-            "n new \u{00B7} o resume \u{00B7} x kill \u{00B7} R restart \u{00B7} d remove \u{00B7} r rename \u{00B7} y yolo \u{00B7} j/k agents \u{00B7} 1-9 jump \u{00B7} s sidebar \u{00B7} [ scroll \u{00B7} i input \u{00B7} ? help \u{00B7} q quit".into(),
+            "n new \u{00B7} g grid \u{00B7} p palette \u{00B7} b broadcast \u{00B7} o resume \u{00B7} x kill \u{00B7} R restart \u{00B7} d remove \u{00B7} r rename \u{00B7} y yolo \u{00B7} j/k agents \u{00B7} 1-9 jump \u{00B7} s sidebar \u{00B7} z expand \u{00B7} / search \u{00B7} ? help \u{00B7} q quit".into(),
         );
     }
     match &app.modal {
@@ -43,7 +45,18 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
         Some(Modal::Quit { .. }) => {
             return ("QUIT", "\u{2190}/\u{2192} choose \u{00B7} Enter confirm \u{00B7} d detach \u{00B7} s stop all \u{00B7} Esc cancel".into());
         }
-        Some(Modal::Help) => return ("HELP", "any key closes".into()),
+        Some(Modal::Help) => {
+            return (
+                "HELP",
+                "j/k PgUp/PgDn scroll \u{00B7} g/G top/bottom \u{00B7} Esc closes".into(),
+            );
+        }
+        Some(Modal::Palette(_)) => {
+            return (
+                "PALETTE",
+                "type to filter \u{00B7} \u{2191}/\u{2193} choose \u{00B7} Enter run \u{00B7} Esc close".into(),
+            );
+        }
         None => {}
     }
     if app.scroll_mode {
@@ -53,13 +66,27 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
         );
     }
     match app.focus {
+        Focus::Terminal if app.view == ViewMode::Grid => (
+            "TILE",
+            format!("typing into the tile \u{00B7} {p} Esc back to the grid \u{00B7} {p} g chat \u{00B7} {p} ? help"),
+        ),
         Focus::Terminal => (
             "TERMINAL",
-            format!("{p} ? help \u{00B7} {p} n new \u{00B7} {p} s sidebar \u{00B7} {p} q quit"),
+            format!(
+                "{p} ? help \u{00B7} {p} p palette \u{00B7} {p} g grid \u{00B7} {p} n new \u{00B7} {p} s sidebar \u{00B7} {p} q quit"
+            ),
+        ),
+        Focus::Grid => (
+            "GRID",
+            "hjkl move \u{00B7} Enter type \u{00B7} c chat \u{00B7} z expand \u{00B7} [ ] tab \u{00B7} < > reorder \u{00B7} b broadcast \u{00B7} u running \u{00B7} C columns \u{00B7} Tab sidebar".into(),
+        ),
+        Focus::Broadcast => (
+            "BROADCAST",
+            "Enter send to every running agent of the tab \u{00B7} Alt+Enter newline \u{00B7} Esc close".into(),
         ),
         Focus::App => (
             "APP",
-            "j/k move \u{00B7} Enter attach \u{00B7} Space fold \u{00B7} / filter \u{00B7} n new \u{00B7} o resume \u{00B7} P profile \u{00B7} Esc back".into(),
+            "j/k move \u{00B7} Enter attach \u{00B7} Space fold \u{00B7} / search \u{00B7} f status \u{00B7} S sort \u{00B7} n new \u{00B7} o resume \u{00B7} Esc back".into(),
         ),
         Focus::Input => (
             "INPUT",

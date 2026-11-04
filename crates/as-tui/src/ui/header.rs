@@ -6,7 +6,10 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
+use as_core::ViewMode;
+
 use crate::app::{App, ConnState, running_count};
+use crate::palette::view_label;
 
 pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     if area.height == 0 {
@@ -23,14 +26,17 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
-        // View tabs: Grid and Overview arrive in later phases.
-        Span::styled(
-            " Chat ",
+    ];
+    for view in [ViewMode::Chat, ViewMode::Grid, ViewMode::Overview] {
+        let style = if view == app.view {
             Style::default()
                 .fg(t.text)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-        ),
-    ];
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default().fg(t.text_muted)
+        };
+        left.push(Span::styled(format!(" {} ", view_label(view)), style));
+    }
     let mut right: Vec<Span> = Vec::new();
 
     match app.conn {

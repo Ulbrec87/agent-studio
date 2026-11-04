@@ -7,7 +7,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget};
 
 use crate::app::{App, Modal, ProfileChooser, QuitChoice};
-use crate::keymap::Command;
 use crate::new_agent::{Field, NewAgentForm};
 use crate::sessions::{SessionPicker, format_age, one_line};
 use crate::theme::Theme;
@@ -100,9 +99,10 @@ pub fn render(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u16, u16
             None
         }
         Modal::Help => {
-            help(app, canvas_screen, &mut canvas);
+            help(app, visible, &mut canvas);
             None
         }
+        Modal::Palette(p) => palette(&theme, p, visible, &mut canvas),
         Modal::Resume(picker) => session_picker(&theme, picker, visible, &mut canvas),
         Modal::Profile(chooser) => {
             profile_chooser(&theme, chooser, canvas_screen, &mut canvas);
@@ -615,91 +615,228 @@ fn quit(
     Paragraph::new(lines).render(content, buf);
 }
 
-fn help(app: &App, screen: Rect, buf: &mut Buffer) {
+/// The help overlay's lines: every command the user can run, grouped by category, with the keys
+/// the *current* keymap binds to it (so overrides from `keybindings.json` show up).
+pub fn help_lines(app: &App) -> Vec<Line<'static>> {
+    use as_core::keybindings::{CATEGORY_ORDER, COMMANDS};
     let theme = &app.theme;
-    let km = &app.keymap;
-    let entries: Vec<(String, String)> = [
-        Command::SendPrefix,
-        Command::NewAgent,
-        Command::ResumeSession,
-        Command::SetProfile,
-        Command::KillAgent,
-        Command::RestartAgent,
-        Command::RemoveAgent,
-        Command::RenameAgent,
-        Command::ToggleYolo,
-        Command::ToggleGlobalYolo,
-        Command::NextAgent,
-        Command::PrevAgent,
-        Command::JumpAgent(1),
-        Command::FocusSidebar,
-        Command::ScrollMode,
-        Command::ToggleInputBar,
-        Command::SidebarNarrower,
-        Command::SidebarWider,
-        Command::ClearToasts,
-        Command::Help,
-        Command::Quit,
-    ]
-    .into_iter()
-    .map(|cmd| {
-        let mut keys: Vec<String> = km
-            .prefix_keys_for(cmd)
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        if let Command::JumpAgent(1) = cmd {
-            keys = vec!["1-9".into()];
-        }
-        (keys.join(" / "), cmd.description())
-    })
-    .collect();
-    let h = u16::try_from(entries.len() + 8).unwrap_or(30);
-    let area = centered(screen, 74, h);
-    let inner = frame(theme, "Key bindings", area, buf);
     let prefix = app.prefix_label();
+    let dim = Style::default().fg(theme.text_secondary);
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("Prefix: ", Style::default().fg(theme.text_secondary)),
+            Span::styled("Prefix: ", dim),
             Span::styled(
                 prefix.clone(),
                 Style::default()
                     .fg(theme.accent)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                "  then a key (all other keys go to the agent):",
-                Style::default().fg(theme.text_secondary),
-            ),
+            Span::styled("  then a key; every other key goes to the agent", dim),
         ]),
-        Line::raw(""),
+        Line::styled(
+            "Keys without a prefix work in the sidebar, grid and scroll mode as named below.",
+            dim,
+        ),
     ];
-    for (keys, desc) in entries {
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!(" {prefix} {keys:<14}"),
-                Style::default().fg(theme.accent),
-            ),
-            Span::raw(desc),
-        ]));
+    for category in CATEGORY_ORDER {
+        let entries: Vec<_> = COMMANDS
+            .iter()
+            .filter(|c| {
+                c.category == category
+                    && c.implemented
+                    && c.show_in_shortcuts
+                    && crate::keymap::Command::from_id(c.id).is_some()
+            })
+            .collect();
+        if entries.is_empty() {
+            continue;
+        }
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(
+            category.to_string(),
+            Style::default()
+                .fg(theme.text)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        ));
+        for c in entries {
+            let keys = app.keymap.labels_for(c.id);
+            let (text, style) = if keys.is_empty() {
+                (
+                    "(unbound)".to_string(),
+                    Style::default().fg(theme.text_muted),
+                )
+            } else {
+                (keys.join("  "), Style::default().fg(theme.accent))
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!(" {:<46}", fit_right(&text, 46)), style),
+                Span::raw(c.label.to_string()),
+            ]));
+        }
     }
     lines.push(Line::raw(""));
     lines.push(Line::styled(
-        " Sidebar focus: j/k move \u{00B7} Enter attach \u{00B7} Space fold \u{00B7} / filter \u{00B7} Esc back",
-        Style::default().fg(theme.text_secondary),
+        "Edit keys in keybindings.json (palette: Open Keybindings File); changes apply at once.",
+        dim,
     ));
-    lines.push(Line::styled(
-        " Scroll mode: \u{2191}/\u{2193} PgUp/PgDn g/G \u{00B7} Esc/q leave (Shift+PgUp enters)",
-        Style::default().fg(theme.text_secondary),
-    ));
-    Paragraph::new(lines).render(
+    lines
+}
+
+/// Keep the head of `text` within `max` columns.
+fn fit_right(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(max.saturating_sub(1)).collect();
+    format!("{head}\u{2026}")
+}
+
+fn help(app: &mut App, screen: Rect, buf: &mut Buffer) {
+    let lines = help_lines(app);
+    let area = centered(screen, 110, screen.height.saturating_sub(2).max(6));
+    let theme = app.theme;
+    let inner = frame(&theme, "Key bindings", area, buf);
+    let body_h = usize::from(inner.height.saturating_sub(1));
+    let max_scroll = lines.len().saturating_sub(body_h);
+    app.help_scroll = app.help_scroll.min(max_scroll);
+    let scroll = app.help_scroll;
+    let shown: Vec<Line> = lines.iter().skip(scroll).take(body_h).cloned().collect();
+    Paragraph::new(shown).render(
         Rect {
             x: inner.x + 1,
             width: inner.width.saturating_sub(2),
+            height: u16::try_from(body_h).unwrap_or(0),
             ..inner
         },
         buf,
     );
+    let last = (scroll + body_h).min(lines.len());
+    let footer = format!(
+        " j/k PgUp/PgDn g/G scroll \u{00B7} Esc close \u{00B7} {}-{} of {}",
+        scroll + 1,
+        last,
+        lines.len()
+    );
+    if inner.height > 0 {
+        buf.set_string(
+            inner.x,
+            inner.bottom() - 1,
+            fit_right(&footer, usize::from(inner.width)),
+            Style::default()
+                .fg(theme.text_muted)
+                .bg(theme.surface_raised),
+        );
+    }
+}
+
+/// The command palette popup; returns the cursor position of the query field.
+fn palette(
+    theme: &Theme,
+    palette: &mut crate::palette::Palette,
+    screen: Rect,
+    buf: &mut Buffer,
+) -> Option<(u16, u16)> {
+    let w = screen.width.saturating_sub(4).clamp(20, 84);
+    let h = screen.height.saturating_sub(2).clamp(6, 24);
+    let area = centered(screen, w, h);
+    let inner = frame(theme, "Command palette", area, buf);
+    if inner.height < 4 || inner.width < 10 {
+        return None;
+    }
+    // Query row.
+    let query_area = Rect {
+        x: inner.x + 2,
+        width: inner.width.saturating_sub(3),
+        height: 1,
+        ..inner
+    };
+    buf.set_string(
+        inner.x,
+        inner.y,
+        "\u{203A} ",
+        Style::default().fg(theme.accent).bg(theme.surface_raised),
+    );
+    let cursor = input_row(theme, &mut palette.query, query_area, buf, true);
+    // Result rows.
+    let list_h = usize::from(inner.height - 2);
+    let n = palette.filtered.len();
+    let offset = (palette.cursor + 1).saturating_sub(list_h);
+    if n == 0 {
+        buf.set_string(
+            inner.x + 1,
+            inner.y + 1,
+            "No matching command or agent",
+            Style::default()
+                .fg(theme.text_muted)
+                .bg(theme.surface_raised),
+        );
+    }
+    for (row, idx) in palette
+        .filtered
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(list_h)
+    {
+        let entry = &palette.entries[*idx];
+        let y = inner.y + 1 + u16::try_from(row - offset).unwrap_or(0);
+        let selected = row == palette.cursor;
+        let bg = if selected {
+            theme.surface_hover
+        } else {
+            theme.surface_raised
+        };
+        for x in inner.x..inner.right() {
+            if let Some(c) = buf.cell_mut((x, y)) {
+                c.set_symbol(" ");
+                c.set_style(Style::default().bg(bg));
+            }
+        }
+        let marker = if selected { "\u{25B8} " } else { "  " };
+        let right = if entry.hint.is_empty() {
+            entry.detail.clone()
+        } else {
+            entry.hint.clone()
+        };
+        let right_w = right.chars().count();
+        let label_room = usize::from(inner.width).saturating_sub(right_w + 5);
+        let label = fit_right(&entry.label, label_room);
+        buf.set_string(
+            inner.x,
+            y,
+            format!("{marker}{label}"),
+            Style::default()
+                .fg(theme.text)
+                .bg(bg)
+                .add_modifier(if selected {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
+        );
+        if right_w + 3 < usize::from(inner.width) {
+            let x = inner.right() - u16::try_from(right_w).unwrap_or(0) - 1;
+            let color = if entry.hint.is_empty() {
+                theme.text_muted
+            } else {
+                theme.accent
+            };
+            buf.set_string(x, y, right, Style::default().fg(color).bg(bg));
+        }
+    }
+    let status = format!(
+        " {n} match{} \u{00B7} \u{2191}/\u{2193} choose \u{00B7} Enter run \u{00B7} Esc close",
+        if n == 1 { "" } else { "es" }
+    );
+    buf.set_string(
+        inner.x,
+        inner.bottom() - 1,
+        fit_right(&status, usize::from(inner.width)),
+        Style::default()
+            .fg(theme.text_muted)
+            .bg(theme.surface_raised),
+    );
+    cursor
 }
 
 /// The session picker popup (also drawn over the New agent dialog).
