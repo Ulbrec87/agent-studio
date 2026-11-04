@@ -1,0 +1,369 @@
+//! Protocol messages. JSON, adjacently tagged (`{"type": "...", "payload": ...}`) with snake_case
+//! names, so adding a variant never changes the encoding of the others. Binary data is base64.
+
+use as_core::agents::providers::PreflightResult;
+use as_core::{AgentStatus, AppConfig, CreateAgentPayload, ModelId, ProviderId};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// Bumped when an incompatible change is made to the messages below.
+pub const PROTOCOL_VERSION: u32 = 1;
+
+pub type AgentState = as_core::AgentState;
+
+/// client -> daemon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+pub enum ClientMsg {
+    Request { id: u64, req: Request },
+}
+
+/// daemon -> client.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)] // short-lived values, boxing would only clutter the API
+pub enum ServerMsg {
+    /// Answer to the request with the same `id`.
+    Response {
+        id: u64,
+        result: Result<Response, String>,
+    },
+    /// Pushed without a request.
+    Event(Event),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+pub enum Request {
+    /// First request of a connection.
+    Hello {
+        client_version: String,
+    },
+    Ping,
+    ListAgents,
+    GetAgent {
+        agent_id: String,
+    },
+    CreateAgent(CreateAgentPayload),
+    KillAgent {
+        agent_id: String,
+    },
+    RemoveAgent {
+        agent_id: String,
+    },
+    RestartAgent {
+        agent_id: String,
+    },
+    /// Text input with submit-queue semantics (text, then Enter after a short delay).
+    SendInput {
+        agent_id: String,
+        input: String,
+    },
+    /// Raw bytes straight to the PTY (key presses, paste).
+    SendRaw {
+        agent_id: String,
+        #[serde(with = "crate::b64")]
+        data: Vec<u8>,
+    },
+    Resize {
+        agent_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    /// `SendInput` to every running agent of a project.
+    Broadcast {
+        project_dir: String,
+        input: String,
+    },
+    RenameAgent {
+        agent_id: String,
+        name: String,
+    },
+    SetModel {
+        agent_id: String,
+        model: ModelId,
+    },
+    ToggleYolo {
+        agent_id: String,
+        yolo: bool,
+    },
+    SetGlobalYolo(bool),
+    /// Returns the buffered output and starts streaming `Event::AgentOutput` for this agent
+    /// to this connection.
+    Subscribe {
+        agent_id: String,
+    },
+    Unsubscribe {
+        agent_id: String,
+    },
+    GetConfig,
+    /// JSON merge patch, camelCase keys (see `ConfigStore::update`).
+    UpdateConfig(Value),
+    Preflight {
+        provider: Option<ProviderId>,
+    },
+    Status,
+    /// `stop_agents: true` kills every agent first; `false` is refused while any agent runs.
+    Shutdown {
+        stop_agents: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)] // short-lived values, boxing would only clutter the API
+pub enum Response {
+    Ok,
+    Pong,
+    Flag(bool),
+    Hello(HelloInfo),
+    Agents(Vec<AgentState>),
+    Agent(Option<AgentState>),
+    Ids(Vec<String>),
+    Buffer {
+        #[serde(with = "crate::b64")]
+        data: Vec<u8>,
+    },
+    Config(Box<AppConfig>),
+    Preflight(Vec<ProviderPreflight>),
+    Status(DaemonStatus),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HelloInfo {
+    pub daemon_version: String,
+    pub protocol: u32,
+    pub pid: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderPreflight {
+    pub provider: ProviderId,
+    pub result: PreflightResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DaemonStatus {
+    pub pid: u32,
+    pub version: String,
+    pub protocol: u32,
+    pub uptime_secs: u64,
+    pub agent_count: usize,
+    /// Agents with a process or starting.
+    pub running_count: usize,
+    pub clients: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+pub enum Event {
+    /// PTY bytes; only sent to connections subscribed to `agent_id`.
+    AgentOutput {
+        agent_id: String,
+        #[serde(with = "crate::b64")]
+        data: Vec<u8>,
+    },
+    AgentStatus {
+        agent_id: String,
+        status: AgentStatus,
+        session_id: Option<String>,
+        model: ModelId,
+    },
+    /// A running agent was silent for a while (needs attention).
+    AgentWaiting {
+        agent_id: String,
+    },
+    /// Agent list changed (created, removed, renamed): re-run `ListAgents`.
+    AgentsChanged,
+    ConfigChanged(Box<AppConfig>),
+    DaemonShuttingDown,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn round_trip<T: Serialize + for<'de> Deserialize<'de> + PartialEq + std::fmt::Debug>(v: T) {
+        let text = serde_json::to_string(&v).unwrap();
+        let back: T = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, v, "{text}");
+    }
+
+    #[test]
+    fn request_encoding_is_stable() {
+        let msg = ClientMsg::Request {
+            id: 7,
+            req: Request::Resize {
+                agent_id: "a1".into(),
+                cols: 80,
+                rows: 24,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&msg).unwrap(),
+            json!({"type":"request","payload":{"id":7,"req":{"type":"resize","payload":{"agent_id":"a1","cols":80,"rows":24}}}})
+        );
+        assert_eq!(
+            serde_json::to_value(Request::Ping).unwrap(),
+            json!({"type":"ping"})
+        );
+    }
+
+    #[test]
+    fn raw_bytes_are_base64() {
+        let req = Request::SendRaw {
+            agent_id: "a".into(),
+            data: vec![0, 255, 0x1b, b'[', 0xc3],
+        };
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(v["payload"]["data"], json!("AP8bW8M="));
+        round_trip(req);
+        round_trip(Event::AgentOutput {
+            agent_id: "a".into(),
+            data: vec![0xe2, 0x82],
+        });
+        round_trip(Response::Buffer { data: Vec::new() });
+        assert!(
+            serde_json::from_value::<Request>(
+                json!({"type":"send_raw","payload":{"agent_id":"a","data":"!!"}})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn all_requests_round_trip() {
+        let all = vec![
+            Request::Hello {
+                client_version: "1".into(),
+            },
+            Request::Ping,
+            Request::ListAgents,
+            Request::GetAgent {
+                agent_id: "a".into(),
+            },
+            Request::CreateAgent(CreateAgentPayload {
+                name: "n".into(),
+                project_dir: "/p".into(),
+                ..Default::default()
+            }),
+            Request::KillAgent {
+                agent_id: "a".into(),
+            },
+            Request::RemoveAgent {
+                agent_id: "a".into(),
+            },
+            Request::RestartAgent {
+                agent_id: "a".into(),
+            },
+            Request::SendInput {
+                agent_id: "a".into(),
+                input: "hi".into(),
+            },
+            Request::Broadcast {
+                project_dir: "/p".into(),
+                input: "x".into(),
+            },
+            Request::RenameAgent {
+                agent_id: "a".into(),
+                name: "b".into(),
+            },
+            Request::SetModel {
+                agent_id: "a".into(),
+                model: "opus".into(),
+            },
+            Request::ToggleYolo {
+                agent_id: "a".into(),
+                yolo: true,
+            },
+            Request::SetGlobalYolo(true),
+            Request::Subscribe {
+                agent_id: "a".into(),
+            },
+            Request::Unsubscribe {
+                agent_id: "a".into(),
+            },
+            Request::GetConfig,
+            Request::UpdateConfig(json!({"maxAgents": 3})),
+            Request::Preflight {
+                provider: Some(ProviderId::Codex),
+            },
+            Request::Preflight { provider: None },
+            Request::Status,
+            Request::Shutdown { stop_agents: true },
+        ];
+        for r in all {
+            round_trip(ClientMsg::Request { id: 1, req: r });
+        }
+    }
+
+    #[test]
+    fn responses_and_events_round_trip() {
+        let agent = AgentState::default();
+        for r in [
+            Response::Ok,
+            Response::Pong,
+            Response::Flag(true),
+            Response::Hello(HelloInfo {
+                daemon_version: "0.1.0".into(),
+                protocol: PROTOCOL_VERSION,
+                pid: 1,
+            }),
+            Response::Agents(vec![agent.clone()]),
+            Response::Agent(Some(agent)),
+            Response::Agent(None),
+            Response::Ids(vec!["a".into()]),
+            Response::Config(Box::default()),
+            Response::Preflight(vec![ProviderPreflight {
+                provider: ProviderId::Claude,
+                result: PreflightResult {
+                    ok: false,
+                    path: None,
+                    version: None,
+                    error: Some("nope".into()),
+                },
+            }]),
+            Response::Status(DaemonStatus {
+                pid: 1,
+                version: "v".into(),
+                protocol: 1,
+                uptime_secs: 3,
+                agent_count: 2,
+                running_count: 1,
+                clients: 1,
+            }),
+        ] {
+            round_trip(ServerMsg::Response {
+                id: 2,
+                result: Ok(r),
+            });
+        }
+        round_trip(ServerMsg::Response {
+            id: 3,
+            result: Err("boom".into()),
+        });
+        for e in [
+            Event::AgentStatus {
+                agent_id: "a".into(),
+                status: AgentStatus::Running,
+                session_id: Some("s".into()),
+                model: "opus".into(),
+            },
+            Event::AgentWaiting {
+                agent_id: "a".into(),
+            },
+            Event::AgentsChanged,
+            Event::ConfigChanged(Box::default()),
+            Event::DaemonShuttingDown,
+        ] {
+            round_trip(ServerMsg::Event(e));
+        }
+    }
+
+    #[test]
+    fn unknown_type_is_an_error_not_a_panic() {
+        assert!(serde_json::from_str::<ClientMsg>(r#"{"type":"nope"}"#).is_err());
+        assert!(serde_json::from_str::<ClientMsg>("garbage").is_err());
+    }
+}

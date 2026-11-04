@@ -17,7 +17,7 @@ static SESSION_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Result of checking that a provider CLI is installed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PreflightResult {
     pub ok: bool,
     pub path: Option<String>,

@@ -10,7 +10,7 @@ Tick a phase when it is pushed to `origin/main` with fmt + clippy + tests green.
 
 - [x] P0 Bootstrap
 - [x] P1 Core agents
-- [ ] P2 Daemon + protocol
+- [x] P2 Daemon + protocol
 - [ ] P3 TUI MVP
 - [ ] P4 Sessions
 - [ ] P5 Grid + broadcast + palette

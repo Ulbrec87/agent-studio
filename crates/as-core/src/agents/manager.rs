@@ -228,6 +228,8 @@ struct Inner {
     provider_paths: HashMap<ProviderId, String>,
     shell_config: ShellConfigProvider,
     claude_profile: ClaudeProfileResolver,
+    /// Extra env for every spawned agent (e.g. the daemon's fixed PATH).
+    env_overrides: EnvOverrides,
 }
 
 impl Inner {
@@ -461,6 +463,7 @@ impl Shared {
             .cloned();
         let shell_config = (inner.shell_config)();
         let claude_profile = inner.claude_profile.clone();
+        let base_overrides = inner.env_overrides.clone();
         let m = &mut inner.agents[idx];
 
         m.last_exit_code = None;
@@ -479,7 +482,7 @@ impl Shared {
             }
         };
 
-        let mut overrides: EnvOverrides = EnvOverrides::new();
+        let mut overrides: EnvOverrides = base_overrides;
         if m.state.provider == ProviderId::Claude {
             let dir = claude_profile(&m.state.project_dir, m.state.session_id.as_deref());
             overrides.extend(claude_profile_env(dir.as_deref()));
@@ -742,6 +745,7 @@ impl AgentManager {
                 // Default 'direct' so a bare manager spawns the CLI as is; the daemon installs the real config.
                 shell_config: Arc::new(ShellConfig::direct),
                 claude_profile: Arc::new(|_, _| None),
+                env_overrides: EnvOverrides::new(),
             }),
             events,
             handle: Handle::current(),
@@ -782,6 +786,12 @@ impl AgentManager {
         provider: impl Fn() -> ShellConfig + Send + Sync + 'static,
     ) {
         self.shared.inner.lock().shell_config = Arc::new(provider);
+    }
+
+    /// Env overrides applied to every agent spawned from now on (`Some` sets, `None` removes);
+    /// the daemon uses it to hand agents `shell::fixed_path()` without touching its own env.
+    pub fn set_env_overrides(&self, overrides: EnvOverrides) {
+        self.shared.inner.lock().env_overrides = overrides;
     }
 
     /// Claude profile (`CLAUDE_CONFIG_DIR`) resolver; defaults to "keep the daemon's env".

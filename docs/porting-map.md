@@ -16,7 +16,7 @@ Update the row (and add new rows) in the same commit that ports the code.
 | `electron/agents/AgentManager.ts` | `as-core::agents::manager` | P1 | wip — session discovery/import → P4, worktree → P10 (`SessionLocator` hook, `TODO(P4)`/`TODO(P10)`) |
 | `shared/terminalModelDetection.ts` | `as-core::agents::model_detect` | P1 | done |
 | `electron/workspace/WorkspaceStore.ts` | `as-core::workspace` | P1 | done |
-| `electron/daemon/*` (protocol, server, client, lock, lifecycle) | `as-proto`, `as-daemon`, `as-tui::client` | P2 | todo |
+| `electron/daemon/*` (protocol, server, client, lock, lifecycle) | `as-proto` (messages, codec, client, lifecycle, lock), `as-daemon` (server, registry, handler) ; TUI uses `as_proto::DaemonClient` | P2 | done (no notifications/MCP/overview/usage/headless yet) |
 | `electron/daemon/DaemonNotificationService.ts`, `notifications/*` | `as-daemon::notifications` | P3 | todo |
 | `src/components/{Sidebar,ChatView,Header,NewAgent,Notifications}` | `as-tui::views::{sidebar,chat,header,new_agent,toasts}` | P3 | todo |
 | `src/components/Terminal/TerminalPane.tsx` (xterm.js) | `as-tui::widgets::terminal` (vt100 + tui-term) | P3 | todo |

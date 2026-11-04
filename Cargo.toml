@@ -36,6 +36,8 @@ as-daemon = { version = "0.1.0", path = "crates/as-daemon" }
 as-proto = { version = "0.1.0", path = "crates/as-proto" }
 as-tui = { version = "0.1.0", path = "crates/as-tui" }
 clap = { version = "4.6.7", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }

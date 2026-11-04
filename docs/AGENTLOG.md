@@ -44,3 +44,20 @@ Format: `## <short title>` + what happened + what to do instead.
   patches key by key and ignores values that don't deserialize. Corrupt JSON is copied to `config.json.corrupt` before defaults are written.
 - **Tests that wait for threads**: use a poll helper (`wait_for`) instead of fixed sleeps; the fake PTY (`agents::fake_pty`) lets tests
   emit output/exit deterministically. File mtimes can be coarse, so the config reload test sets the mtime explicitly.
+
+## P2 (daemon + protocol) gotchas
+
+- **`futures-util` needs the `sink` feature** for `SinkExt` (`Framed::split()` / `.send()`); default features don't have it.
+- **Detaching the daemon without `unsafe`.** `pre_exec(setsid)` is unsafe (workspace warns on `unsafe_code`). We use
+  `Command::process_group(0)` + null stdio and the daemon ignores SIGHUP; that is enough to survive the terminal closing.
+- **Subscribe must not duplicate or lose bytes.** The manager appends to its buffer and emits the event under one lock, but
+  the dispatcher may still hold queued events at snapshot time. Subscribe therefore goes through the dispatcher task, which
+  first drains the broadcast queue, then snapshots the buffer and registers the subscription (a microsecond window can still
+  repeat the last chunk, never lose it).
+- **Handle a client's requests sequentially.** Spawning a task per request would reorder `SendRaw` keystrokes.
+- **Fake PTYs ignore signals**: daemon tests that stop running agents need a helper that calls `emit_exit` once `signals()`
+  is non-empty, or `wait_all_stopped` burns its full 5 s.
+- **Liveness = pid alive AND socket accepts.** A lock with a live (recycled) pid and a refusing socket is stale. On Windows
+  the pid check is skipped (always "alive"), the socket probe decides.
+- **No real interprocess crate source in registry until `cargo fetch`**: use `ListenerOptions::new().name(..).create_tokio()`
+  and `Name` from `String::to_fs_name::<GenericFilePath>()`; it accepts the `\\.\pipe\...` path on Windows too.
