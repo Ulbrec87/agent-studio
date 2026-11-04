@@ -2,7 +2,10 @@
 //! names, so adding a variant never changes the encoding of the others. Binary data is base64.
 
 use as_core::agents::providers::PreflightResult;
-use as_core::{AgentStatus, AppConfig, CreateAgentPayload, ModelId, ProviderId};
+use as_core::sessions::{ClaudeProfile, ListSessionsOptions, SessionSummary};
+use as_core::{
+    AgentStatus, AppConfig, CreateAgentPayload, ModelId, ProviderId, ProviderModelOption,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -110,6 +113,26 @@ pub enum Request {
     /// The client's terminal gained/lost focus. The daemon sends OS notifications only while no
     /// client is focused (Hydra: native notification when the window is not focused).
     ClientFocus(bool),
+    /// Sessions of a provider's catalog (P4), newest first. The daemon adds the config's
+    /// `hiddenSessionIds` (hidden ones are left out unless `include_hidden`).
+    ListSessions(ListSessionsOptions),
+    /// Hide/unhide a session in the lists (persisted in `hiddenSessionIds`); answers `Config`.
+    HideSession {
+        session_id: String,
+        hidden: bool,
+    },
+    /// Claude profiles (`~/.claude`, `~/.claude-<name>`, `$CLAUDE_CONFIG_DIR`) on this machine.
+    ListClaudeProfiles,
+    /// Map a project dir to a Claude profile (`claudeProfileByProject`): `Some(config_dir)`,
+    /// `Some("")` for the default profile, `None` to remove the mapping. Answers `Config`.
+    SetProjectProfile {
+        project_dir: String,
+        config_dir: Option<String>,
+    },
+    /// Models of a provider, discovered from its CLI when possible (cached).
+    ListProviderModels {
+        provider: ProviderId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -130,6 +153,9 @@ pub enum Response {
     Config(Box<AppConfig>),
     Preflight(Vec<ProviderPreflight>),
     Status(DaemonStatus),
+    Sessions(Vec<SessionSummary>),
+    Profiles(Vec<ClaudeProfile>),
+    Models(Vec<ProviderModelOption>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

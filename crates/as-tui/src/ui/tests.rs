@@ -203,6 +203,13 @@ fn survives_tiny_screens() {
         draw(&mut app, w, h);
         app.request_quit();
         draw(&mut app, w, h);
+        app.modal = None;
+        app.exec(crate::keymap::Command::ResumeSession);
+        feed(&mut app, ProviderId::Claude, Ok(sample_sessions()));
+        draw(&mut app, w, h);
+        app.modal = None;
+        app.exec(crate::keymap::Command::SetProfile);
+        draw(&mut app, w, h);
     }
 }
 
@@ -221,4 +228,230 @@ fn disconnected_banner_and_waiting_badge() {
         first_line.contains("4/6 running") || first_line.contains("3/6 running"),
         "{first_line}"
     );
+}
+
+// ── sessions picker, profiles (P4) ──────────────────────────────────────────
+
+use as_core::sessions::{ClaudeProfile, SessionSummary};
+
+const NOW_MS: i64 = 1_773_144_000_000; // 2026-03-10T12:00:00Z
+
+fn session(
+    id: &str,
+    project: &str,
+    prompt: &str,
+    branch: Option<&str>,
+    msgs: u32,
+    modified: &str,
+) -> SessionSummary {
+    SessionSummary {
+        session_id: id.into(),
+        provider: ProviderId::Claude,
+        project_path: project.into(),
+        first_prompt: prompt.into(),
+        message_count: msgs,
+        modified_at: modified.into(),
+        git_branch: branch.map(Into::into),
+        ..Default::default()
+    }
+}
+
+fn sample_sessions() -> Vec<SessionSummary> {
+    vec![
+        session(
+            "s1",
+            "/work/api",
+            "Fix the login form validation and add tests for the empty password case",
+            Some("fix/login"),
+            42,
+            "2026-03-10T11:55:00Z",
+        ),
+        session(
+            "s2",
+            "/work/web/some/very/deeply/nested/project/dir",
+            "write docs\nfor billing",
+            Some("main"),
+            7,
+            "2026-03-10T09:00:00Z",
+        ),
+        SessionSummary {
+            hidden: true,
+            ..session(
+                "s3",
+                "/work/api",
+                "an old hidden one",
+                None,
+                3,
+                "2026-03-08T09:00:00Z",
+            )
+        },
+        session(
+            "s4",
+            "/work/old",
+            "ancient refactor",
+            Some("legacy"),
+            120,
+            "2026-01-02T09:00:00Z",
+        ),
+    ]
+}
+
+fn picker_app(w: u16, h: u16) -> App {
+    let mut app = new_app(mixed_agents(), w, h);
+    app.exec(crate::keymap::Command::ResumeSession);
+    if let Some(Modal::Resume(p)) = &mut app.modal {
+        p.now_ms = NOW_MS;
+    }
+    app
+}
+
+fn feed(app: &mut App, provider: ProviderId, result: Result<Vec<SessionSummary>, String>) {
+    app.handle_msg(crate::app::Msg::Sessions { provider, result });
+}
+
+#[test]
+fn session_picker_loading_then_list() {
+    let mut app = picker_app(110, 26);
+    let t = draw(&mut app, 110, 26);
+    insta::assert_snapshot!("session_picker_loading", text(&t));
+    feed(&mut app, ProviderId::Claude, Ok(sample_sessions()));
+    let t = draw(&mut app, 110, 26);
+    insta::assert_snapshot!("session_picker_list", text(&t));
+}
+
+#[test]
+fn session_picker_toggles_and_filter() {
+    let mut app = picker_app(110, 26);
+    feed(&mut app, ProviderId::Claude, Ok(sample_sessions()));
+    // all ages + hidden shown
+    app.handle_key(key(KeyCode::Char('a')));
+    app.handle_key(key(KeyCode::Char('s')));
+    app.handle_key(key(KeyCode::Down));
+    let t = draw(&mut app, 110, 26);
+    insta::assert_snapshot!("session_picker_all_ages_hidden", text(&t));
+    // fuzzy filter
+    app.handle_key(key(KeyCode::Char('/')));
+    for c in "lgn".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let t = draw(&mut app, 110, 26);
+    insta::assert_snapshot!("session_picker_filter", text(&t));
+}
+
+#[test]
+fn session_picker_empty_and_error_states() {
+    let mut app = picker_app(100, 20);
+    feed(&mut app, ProviderId::Claude, Ok(Vec::new()));
+    let t = draw(&mut app, 100, 20);
+    assert!(text(&t).contains("No Claude sessions found."));
+    feed(&mut app, ProviderId::Claude, Err("daemon exploded".into()));
+    let t = draw(&mut app, 100, 20);
+    assert!(text(&t).contains("daemon exploded"));
+    // Filters hide everything: the hint says why.
+    feed(&mut app, ProviderId::Claude, Ok(sample_sessions()));
+    app.handle_key(key(KeyCode::Char('/')));
+    for c in "zzzzqq".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    let t = draw(&mut app, 100, 20);
+    assert!(text(&t).contains("No session matches the filters"));
+}
+
+#[test]
+fn session_picker_inside_the_new_agent_dialog_and_resume_row() {
+    let mut app = new_app(mixed_agents(), 110, 40);
+    app.exec(crate::keymap::Command::NewAgent);
+    if let Some(Modal::NewAgent(form)) = &mut app.modal {
+        form.field = crate::new_agent::Field::Resume;
+    }
+    app.handle_key(key(KeyCode::Char(' ')));
+    if let Some(Modal::NewAgent(form)) = &mut app.modal
+        && let Some(p) = &mut form.picker
+    {
+        p.now_ms = NOW_MS;
+    }
+    feed(&mut app, ProviderId::Claude, Ok(sample_sessions()));
+    let t = draw(&mut app, 110, 40);
+    insta::assert_snapshot!("session_picker_in_dialog", text(&t));
+    app.handle_key(key(KeyCode::Enter));
+    // The picked session is shown on the Resume row ("now": the fixture is stamped at pick time).
+    if let Some(Modal::NewAgent(form)) = &mut app.modal
+        && let Some(s) = &mut form.resume
+    {
+        s.modified_at = chrono::Utc::now().to_rfc3339();
+    }
+    let t = draw(&mut app, 110, 40);
+    insta::assert_snapshot!("dialog_with_resumed_session", text(&t));
+}
+
+#[test]
+fn new_agent_dialog_with_profiles() {
+    let mut app = new_app(mixed_agents(), 100, 40);
+    app.handle_msg(crate::app::Msg::Profiles(vec![
+        ClaudeProfile {
+            config_dir: "/h/.claude".into(),
+            label: "default".into(),
+            is_default: true,
+        },
+        ClaudeProfile {
+            config_dir: "/h/.claude-work".into(),
+            label: "work".into(),
+            is_default: false,
+        },
+    ]));
+    app.config
+        .claude_profile_by_project
+        .insert("/work/api".into(), "/h/.claude-work".into());
+    app.exec(crate::keymap::Command::NewAgent);
+    if let Some(Modal::NewAgent(form)) = &mut app.modal {
+        form.dir.set_text("/work/api/sub");
+    }
+    // The daemon's answer arrives after the dialog opened: the mapping picks the profile.
+    app.handle_msg(crate::app::Msg::Profiles(vec![
+        ClaudeProfile {
+            config_dir: "/h/.claude".into(),
+            label: "default".into(),
+            is_default: true,
+        },
+        ClaudeProfile {
+            config_dir: "/h/.claude-work".into(),
+            label: "work".into(),
+            is_default: false,
+        },
+    ]));
+    let t = draw(&mut app, 100, 40);
+    let shown = text(&t);
+    assert!(shown.contains("Profile"), "{shown}");
+    assert!(shown.contains("work (/h/.claude-work)"), "{shown}");
+    insta::assert_snapshot!("new_agent_dialog_profiles", shown);
+}
+
+#[test]
+fn profile_chooser_and_sidebar_chip() {
+    let mut app = new_app(mixed_agents(), 100, 24);
+    app.handle_msg(crate::app::Msg::Profiles(vec![
+        ClaudeProfile {
+            config_dir: "/h/.claude".into(),
+            label: "default".into(),
+            is_default: true,
+        },
+        ClaudeProfile {
+            config_dir: "/h/.claude-work".into(),
+            label: "work".into(),
+            is_default: false,
+        },
+    ]));
+    app.config
+        .claude_profile_by_project
+        .insert("/work/api".into(), "/h/.claude-work".into());
+    app.config
+        .claude_profile_by_project
+        .insert("/work/web".into(), String::new());
+    let t = draw(&mut app, 100, 24);
+    let shown = text(&t);
+    assert!(shown.contains("/work/api [work]"), "{shown}");
+    assert!(!shown.contains("/work/web ["), "{shown}");
+    app.exec(crate::keymap::Command::SetProfile);
+    let t = draw(&mut app, 100, 24);
+    insta::assert_snapshot!("profile_chooser", text(&t));
 }

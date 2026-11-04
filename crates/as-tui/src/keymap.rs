@@ -164,6 +164,10 @@ pub enum Command {
     /// Send the prefix key itself to the agent.
     SendPrefix,
     NewAgent,
+    /// Pick a previous session of the provider and resume it.
+    ResumeSession,
+    /// Choose the Claude profile of the project under the cursor.
+    SetProfile,
     KillAgent,
     RestartAgent,
     RemoveAgent,
@@ -205,6 +209,8 @@ impl Command {
         match self {
             Command::SendPrefix => "send the prefix key to the agent".into(),
             Command::NewAgent => "new agent".into(),
+            Command::ResumeSession => "resume session\u{2026}".into(),
+            Command::SetProfile => "Claude profile of the project".into(),
             Command::KillAgent => "kill agent (stop its process)".into(),
             Command::RestartAgent => "restart agent".into(),
             Command::RemoveAgent => "remove agent".into(),
@@ -262,6 +268,8 @@ impl Keymap {
         let mut prefix_bindings: Bindings = vec![
             (prefix, Command::SendPrefix),
             (KeyChord::plain('n'), Command::NewAgent),
+            (KeyChord::plain('o'), Command::ResumeSession),
+            (KeyChord::plain('P'), Command::SetProfile),
             (KeyChord::plain('x'), Command::KillAgent),
             (KeyChord::plain('R'), Command::RestartAgent),
             (KeyChord::plain('d'), Command::RemoveAgent),
@@ -303,6 +311,8 @@ impl Keymap {
             (KeyChord::key(KeyCode::Esc), Command::FocusTerminal),
             (KeyChord::key(KeyCode::Tab), Command::FocusTerminal),
             (KeyChord::plain('n'), Command::NewAgent),
+            (KeyChord::plain('o'), Command::ResumeSession),
+            (KeyChord::plain('P'), Command::SetProfile),
             (KeyChord::plain('x'), Command::KillAgent),
             (KeyChord::plain('R'), Command::RestartAgent),
             (KeyChord::plain('d'), Command::RemoveAgent),

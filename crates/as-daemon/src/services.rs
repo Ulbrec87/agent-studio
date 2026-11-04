@@ -1,20 +1,28 @@
 //! Shared daemon state: the services (agents, config, workspace), the client registry,
 //! event dispatching, debounced persistence and the shutdown sequence.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use as_core::agents::env::{EnvOverrides, process_env};
 use as_core::agents::shell::{Os, ShellConfig, fixed_path};
+use as_core::agents::{ProviderModelCatalog, SessionLocator};
 use as_core::paths::Paths;
-use as_core::{AgentEvent, AgentManager, ConfigStore, WorkspaceStore};
+use as_core::sessions::{
+    CatalogSessionLocator, ListSessionsOptions, SessionSummary, profiles::make_resolver,
+};
+use as_core::{
+    AgentEvent, AgentManager, ConfigStore, ProviderId, WorkspaceStore,
+    get_default_model_for_provider,
+};
 use as_proto::Event;
 use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 
-use crate::DaemonOptions;
 use crate::notifications::{self, NotificationService};
 use crate::registry::Registry;
+use crate::{DaemonOptions, SessionCatalogs};
 
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 const CONFIG_POLL: Duration = Duration::from_millis(500);
@@ -34,6 +42,8 @@ pub struct Daemon {
     pub manager: AgentManager,
     pub config: Arc<ConfigStore>,
     pub workspace: Arc<WorkspaceStore>,
+    pub catalogs: SessionCatalogs,
+    pub models: ProviderModelCatalog,
     pub registry: Registry,
     pub notifications: NotificationService,
     pub started: Instant,
@@ -51,11 +61,28 @@ impl Daemon {
     pub async fn start(paths: Paths, options: DaemonOptions) -> Arc<Self> {
         let config = Arc::new(ConfigStore::open(&paths));
         let workspace = Arc::new(WorkspaceStore::open(&paths));
-        let manager = AgentManager::with_options(options.manager);
+        let mut manager_options = options.manager;
+        if options.catalog_locator {
+            let locator: Arc<dyn SessionLocator> = Arc::new(CatalogSessionLocator::new(
+                options.catalogs.claude.clone(),
+                options.catalogs.codex.clone(),
+            ));
+            manager_options.locator = locator;
+        }
+        let manager = AgentManager::with_options(manager_options);
         {
             let config = config.clone();
             manager.set_shell_config_provider(move || ShellConfig::from_config(&config.get()));
         }
+        {
+            // Claude profiles: a resumed session uses the profile that owns it, the rest follow
+            // `claudeProfileByProject`.
+            let config = config.clone();
+            manager.set_claude_profile_resolver(make_resolver(move || {
+                config.get().claude_profile_by_project
+            }));
+        }
+        let models = ProviderModelCatalog::new();
         if options.apply_fixed_path {
             // Runs the login shell (bounded by its own timeout): keep it off the async threads.
             let fixed = tokio::task::spawn_blocking(|| fixed_path(&process_env(), Os::current()))
@@ -65,6 +92,7 @@ impl Daemon {
             if let Some(path) = fixed {
                 let mut overrides = EnvOverrides::new();
                 overrides.insert("PATH".into(), Some(path));
+                models.set_env_overrides(overrides.clone());
                 manager.set_env_overrides(overrides);
             }
         }
@@ -77,6 +105,8 @@ impl Daemon {
             manager,
             config,
             workspace,
+            catalogs: options.catalogs,
+            models,
             registry: Registry::default(),
             notifications: NotificationService::default(),
             started: Instant::now(),
@@ -89,7 +119,61 @@ impl Daemon {
             control,
         });
         daemon.spawn_tasks(control_rx);
+        if options.import_sessions {
+            daemon.spawn_session_import();
+        }
         daemon
+    }
+
+    /// Sessions of a provider's catalog (blocking: scans files; call from `spawn_blocking`).
+    /// OpenCode has no catalog.
+    pub fn list_sessions_blocking(&self, options: &ListSessionsOptions) -> Vec<SessionSummary> {
+        let hidden: HashSet<String> = self.config.get().hidden_session_ids.into_iter().collect();
+        match options.provider {
+            ProviderId::Claude => self.catalogs.claude.list_sessions(options, &hidden),
+            ProviderId::Codex => self.catalogs.codex.list_sessions(options, &hidden),
+            ProviderId::Opencode => Vec::new(),
+        }
+    }
+
+    /// Import catalog sessions as idle agents (Hydra `importSessionsOnStartup`), in the background:
+    /// scanning must not delay the first client. Every catalog gives its own provider, so a session
+    /// is always resumed with the CLI that created it.
+    fn spawn_session_import(self: &Arc<Self>) {
+        let config = self.config.get();
+        if !config.import_sessions_on_startup {
+            return;
+        }
+        let this = self.clone();
+        tokio::spawn(async move {
+            for provider in [ProviderId::Claude, ProviderId::Codex] {
+                let options = ListSessionsOptions {
+                    provider,
+                    limit: (config.session_import_limit > 0)
+                        .then_some(config.session_import_limit as usize),
+                    max_age_days: (config.session_max_age_days > 0)
+                        .then_some(config.session_max_age_days),
+                    project_path_prefix: Some(config.session_import_project_prefix.clone())
+                        .filter(|p| !p.trim().is_empty()),
+                    ..Default::default()
+                };
+                let scan = this.clone();
+                let sessions =
+                    tokio::task::spawn_blocking(move || scan.list_sessions_blocking(&options))
+                        .await
+                        .unwrap_or_default();
+                // Nothing to resume in a session without a prompt and without messages.
+                let sessions: Vec<_> = sessions
+                    .into_iter()
+                    .filter(|s| !(s.first_prompt.trim().is_empty() && s.message_count == 0))
+                    .collect();
+                let model = get_default_model_for_provider(provider);
+                let imported = this.manager.import_sessions(&sessions, &model, provider);
+                if imported > 0 {
+                    tracing::info!(imported, %provider, "imported sessions");
+                }
+            }
+        });
     }
 
     fn spawn_tasks(self: &Arc<Self>, control_rx: mpsc::UnboundedReceiver<Control>) {

@@ -5,7 +5,12 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use as_core::{AgentState, AgentStatus, AppConfig, CreateAgentPayload};
+use as_core::sessions::profiles::resolve_profile;
+use as_core::sessions::{ClaudeProfile, SessionSummary};
+use as_core::{
+    AgentState, AgentStatus, AppConfig, CreateAgentPayload, ProviderId, ProviderModelOption,
+    get_default_model_for_provider,
+};
 use as_proto::{Event, NotificationKind, StudioNotification};
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -14,6 +19,7 @@ use ratatui::layout::Rect;
 
 use crate::keymap::{Command, KeyChord, Keymap};
 use crate::new_agent::{FormAction, NewAgentForm};
+use crate::sessions::{PickerAction, PickerOrigin, SessionPicker};
 use crate::sidebar::{self, Row, RowKey};
 use crate::term::{TerminalEmulator, Vt100Emulator, keys};
 use crate::theme::{ColorMode, Theme};
@@ -110,6 +116,25 @@ pub enum Modal {
         stopping: bool,
     },
     Help,
+    /// `prefix o`: pick a session and resume it.
+    Resume(Box<SessionPicker>),
+    /// `prefix P`: Claude profile of a project.
+    Profile(ProfileChooser),
+}
+
+/// One entry of the profile chooser.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProfileChoice {
+    pub label: String,
+    /// `None` = no mapping (the agent keeps the daemon's environment), `Some("")` = default profile.
+    pub config_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProfileChooser {
+    pub project_dir: String,
+    pub choices: Vec<ProfileChoice>,
+    pub idx: usize,
 }
 
 /// Something to do outside the state machine.
@@ -118,6 +143,25 @@ pub enum Effect {
     /// ListAgents + GetConfig.
     Refresh,
     CreateAgent(CreateAgentPayload),
+    /// Map the project to a Claude profile (`config_dir`, `""` = default), then create the agent.
+    CreateAgentWithProfile {
+        project_dir: String,
+        config_dir: String,
+        payload: CreateAgentPayload,
+    },
+    LoadProfiles,
+    LoadModels(ProviderId),
+    /// The sessions of a provider (all ages, hidden ones flagged); `force` rescans the disk.
+    LoadSessions {
+        provider: ProviderId,
+        force: bool,
+    },
+    HideSession(String, bool),
+    /// `None` removes the mapping.
+    SetProjectProfile {
+        project_dir: String,
+        config_dir: Option<String>,
+    },
     Kill(String),
     Restart(String),
     Remove(String),
@@ -149,6 +193,15 @@ pub enum Msg {
     },
     Failed(String),
     ShutdownDone(Result<(), String>),
+    Profiles(Vec<ClaudeProfile>),
+    Models {
+        provider: ProviderId,
+        models: Vec<ProviderModelOption>,
+    },
+    Sessions {
+        provider: ProviderId,
+        result: Result<Vec<SessionSummary>, String>,
+    },
 }
 
 pub enum SubState {
@@ -180,6 +233,10 @@ pub struct App {
     pub theme: Theme,
     pub keymap: Keymap,
     pub agents: Vec<AgentState>,
+    /// Claude profiles on this machine (for the project chips and the choosers).
+    pub profiles: Vec<ClaudeProfile>,
+    /// Models per provider as discovered by the daemon (the dialog falls back to the built-in ones).
+    pub models: HashMap<ProviderId, Vec<ProviderModelOption>>,
     /// Running agents that went quiet (`AgentWaiting`) and have not produced output since.
     pub waiting: HashSet<String>,
     pub selected: Option<String>,
@@ -220,6 +277,8 @@ impl App {
             theme,
             keymap,
             agents: Vec::new(),
+            profiles: Vec::new(),
+            models: HashMap::new(),
             waiting: HashSet::new(),
             selected: None,
             focus: Focus::Terminal,
@@ -248,7 +307,10 @@ impl App {
 
     /// Select the first agent and subscribe to it. Call once after construction.
     pub fn start(&mut self) -> Vec<Effect> {
-        let mut fx = vec![Effect::SetFocus(self.terminal_focused)];
+        let mut fx = vec![
+            Effect::SetFocus(self.terminal_focused),
+            Effect::LoadProfiles,
+        ];
         if let Some(i) = sidebar::agent_order(&self.agents, "").first() {
             let id = self.agents[*i].id.clone();
             fx.extend(self.select(&id));
@@ -314,6 +376,22 @@ impl App {
 
     pub fn sidebar_rows(&self) -> Vec<Row> {
         sidebar::rows(&self.agents, &self.sidebar.collapsed, &self.sidebar.filter)
+    }
+
+    /// Label of the Claude profile a project is mapped to, unless it is the default one.
+    pub fn profile_chip(&self, project_dir: &str) -> Option<String> {
+        let mapped = resolve_profile(project_dir, &self.config.claude_profile_by_project)?;
+        if mapped.is_empty() {
+            return None;
+        }
+        let profile = self.profiles.iter().find(|p| p.config_dir == mapped);
+        if profile.is_some_and(|p| p.is_default) {
+            return None;
+        }
+        Some(as_core::sessions::profiles::profile_label(
+            &mapped,
+            &self.profiles,
+        ))
     }
 
     pub fn sidebar_cursor_index(&self, rows: &[Row]) -> Option<usize> {
@@ -478,6 +556,32 @@ impl App {
                 fx.extend(self.on_subscribed(&agent_id, result))
             }
             Msg::Failed(error) => self.toast(ToastKind::Error, "Error", &error),
+            Msg::Profiles(profiles) => {
+                self.profiles = profiles.clone();
+                if let Some(Modal::NewAgent(form)) = &mut self.modal {
+                    form.set_profiles(profiles);
+                }
+                self.dirty = true;
+            }
+            Msg::Models { provider, models } => {
+                if let Some(Modal::NewAgent(form)) = &mut self.modal {
+                    form.set_models(provider, models.clone());
+                }
+                self.models.insert(provider, models);
+                self.dirty = true;
+            }
+            Msg::Sessions { provider, result } => {
+                match &mut self.modal {
+                    Some(Modal::Resume(picker)) => picker.set_sessions(provider, result),
+                    Some(Modal::NewAgent(form)) => {
+                        if let Some(picker) = &mut form.picker {
+                            picker.set_sessions(provider, result);
+                        }
+                    }
+                    _ => {}
+                }
+                self.dirty = true;
+            }
             Msg::ShutdownDone(result) => match result {
                 Ok(()) => {
                     self.quit = true;
@@ -572,7 +676,11 @@ impl App {
     pub fn on_reconnected(&mut self) -> Vec<Effect> {
         self.conn = ConnState::Connected;
         let (cols, rows) = self.pane_size();
-        let mut fx = vec![Effect::Refresh, Effect::SetFocus(self.terminal_focused)];
+        let mut fx = vec![
+            Effect::Refresh,
+            Effect::SetFocus(self.terminal_focused),
+            Effect::LoadProfiles,
+        ];
         for (id, term) in &mut self.terms {
             term.emu = Box::new(Vt100Emulator::new(cols, rows));
             term.sub = SubState::Requested(Vec::new());
@@ -872,7 +980,13 @@ impl App {
         self.dirty = true;
         match &mut self.modal {
             Some(Modal::NewAgent(form)) => {
-                form.handle_paste(text);
+                if !form.handle_picker_paste(text) {
+                    form.handle_paste(text);
+                }
+                return Vec::new();
+            }
+            Some(Modal::Resume(picker)) => {
+                picker.handle_paste(text);
                 return Vec::new();
             }
             Some(Modal::Rename { input, .. }) => {
@@ -995,12 +1109,47 @@ impl App {
                     })
                     .unwrap_or_else(|| self.cwd.to_string_lossy().into_owned());
                 let shown = as_core::paths::tildify(std::path::Path::new(&dir));
-                self.modal = Some(Modal::NewAgent(Box::new(NewAgentForm::new(
-                    &self.config,
-                    &shown,
-                    &self.cwd,
+                let mut form = NewAgentForm::new(&self.config, &shown, &self.cwd);
+                form.set_profiles(self.profiles.clone());
+                let mut fx = vec![Effect::LoadProfiles];
+                fx.extend(self.sync_form_models(&mut form));
+                self.modal = Some(Modal::NewAgent(Box::new(form)));
+                fx
+            }
+            Command::ResumeSession => {
+                let agent = self.selected_agent();
+                let project = agent.map(|a| a.project_dir.clone()).unwrap_or_default();
+                // OpenCode keeps no session files: start from Claude.
+                let provider = agent
+                    .map(|a| a.provider)
+                    .filter(|p| *p != ProviderId::Opencode)
+                    .unwrap_or(match self.config.default_provider {
+                        ProviderId::Opencode => ProviderId::Claude,
+                        p => p,
+                    });
+                self.modal = Some(Modal::Resume(Box::new(SessionPicker::new(
+                    PickerOrigin::Standalone,
+                    provider,
+                    &project,
+                    self.config.session_max_age_days,
                 ))));
-                Vec::new()
+                vec![Effect::LoadSessions {
+                    provider,
+                    force: false,
+                }]
+            }
+            Command::SetProfile => {
+                let dir = match &self.sidebar.cursor {
+                    Some(RowKey::Header(key)) if key != sidebar::MANAGER_GROUP => Some(key.clone()),
+                    _ => self.selected_agent().map(|a| a.project_dir.clone()),
+                };
+                match dir.filter(|d| !d.is_empty()) {
+                    Some(project_dir) => {
+                        self.open_profile_chooser(project_dir);
+                        vec![Effect::LoadProfiles]
+                    }
+                    None => Vec::new(),
+                }
             }
             Command::KillAgent => selected.map(Effect::Kill).into_iter().collect(),
             Command::RestartAgent => selected.map(Effect::Restart).into_iter().collect(),
@@ -1160,19 +1309,61 @@ impl App {
         };
         match modal {
             Modal::NewAgent(mut form) => {
+                let mut fx = Vec::new();
                 match form.handle_key(&key) {
                     FormAction::None => {}
                     FormAction::Cancel => return Vec::new(),
+                    FormAction::Picker(action) => fx.extend(Self::picker_effects(action)),
                     FormAction::Submit => match form.build_payload() {
                         Ok(payload) => {
                             form.submitting = true;
+                            let change = form.profile_change(&payload.project_dir);
                             self.modal = Some(Modal::NewAgent(form));
-                            return vec![Effect::CreateAgent(payload)];
+                            return vec![match change {
+                                Some((project_dir, config_dir)) => Effect::CreateAgentWithProfile {
+                                    project_dir,
+                                    config_dir,
+                                    payload,
+                                },
+                                None => Effect::CreateAgent(payload),
+                            }];
                         }
                         Err(error) => form.error = Some(error),
                     },
                 }
+                fx.extend(self.sync_form_models(&mut form));
                 self.modal = Some(Modal::NewAgent(form));
+                fx
+            }
+            Modal::Resume(mut picker) => match picker.handle_key(&key) {
+                PickerAction::Cancel => Vec::new(),
+                PickerAction::Pick(session) => self.resume_session(*session, picker),
+                action => {
+                    let fx = Self::picker_effects(action);
+                    self.modal = Some(Modal::Resume(picker));
+                    fx
+                }
+            },
+            Modal::Profile(mut chooser) => {
+                let n = chooser.choices.len();
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') => return Vec::new(),
+                    KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
+                        chooser.idx = (chooser.idx + 1) % n.max(1);
+                    }
+                    KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => {
+                        chooser.idx = (chooser.idx + n.max(1) - 1) % n.max(1);
+                    }
+                    KeyCode::Enter => {
+                        let choice = chooser.choices.get(chooser.idx);
+                        return vec![Effect::SetProjectProfile {
+                            project_dir: chooser.project_dir.clone(),
+                            config_dir: choice.and_then(|c| c.config_dir.clone()),
+                        }];
+                    }
+                    _ => {}
+                }
+                self.modal = Some(Modal::Profile(chooser));
                 Vec::new()
             }
             Modal::Rename {
@@ -1248,6 +1439,100 @@ impl App {
             }
             Modal::Help => Vec::new(),
         }
+    }
+
+    fn picker_effects(action: PickerAction) -> Vec<Effect> {
+        match action {
+            PickerAction::Load { provider, force } => {
+                vec![Effect::LoadSessions { provider, force }]
+            }
+            PickerAction::Hide { session_id, hidden } => {
+                vec![Effect::HideSession(session_id, hidden)]
+            }
+            PickerAction::None | PickerAction::Cancel | PickerAction::Pick(_) => Vec::new(),
+        }
+    }
+
+    /// Use the cached model list for the dialog's provider, or ask the daemon for it.
+    fn sync_form_models(&self, form: &mut NewAgentForm) -> Vec<Effect> {
+        let Some(provider) = form.models_wanted.take() else {
+            return Vec::new();
+        };
+        if let Some(models) = self.models.get(&provider) {
+            form.set_models(provider, models.clone());
+        }
+        vec![Effect::LoadModels(provider)]
+    }
+
+    /// `prefix o`: create an agent resuming `session` with the defaults of its provider.
+    fn resume_session(
+        &mut self,
+        session: SessionSummary,
+        picker: Box<SessionPicker>,
+    ) -> Vec<Effect> {
+        let dir = std::path::Path::new(&session.project_path);
+        if session.project_path.is_empty() || !dir.is_dir() {
+            self.toast(
+                ToastKind::Error,
+                "Cannot resume",
+                &format!(
+                    "The project directory no longer exists: {}",
+                    as_core::paths::tildify(dir)
+                ),
+            );
+            self.modal = Some(Modal::Resume(picker));
+            return Vec::new();
+        }
+        let provider = session.provider;
+        let model = if self.config.default_provider == provider {
+            self.config.default_model.clone()
+        } else {
+            get_default_model_for_provider(provider)
+        };
+        vec![Effect::CreateAgent(CreateAgentPayload {
+            name: as_core::AgentManager::generate_name(
+                &session.first_prompt,
+                &session.project_path,
+            ),
+            project_dir: session.project_path.clone(),
+            provider,
+            model,
+            yolo: self.config.global_yolo,
+            resume_session_id: Some(session.session_id),
+            ..Default::default()
+        })]
+    }
+
+    fn open_profile_chooser(&mut self, project_dir: String) {
+        let mut choices = vec![ProfileChoice {
+            label: "inherit the daemon's environment (no mapping)".into(),
+            config_dir: None,
+        }];
+        choices.extend(self.profiles.iter().map(|p| ProfileChoice {
+            label: format!(
+                "{} ({})",
+                p.label,
+                as_core::paths::tildify(std::path::Path::new(&p.config_dir))
+            ),
+            config_dir: Some(if p.is_default {
+                String::new()
+            } else {
+                p.config_dir.clone()
+            }),
+        }));
+        let own = self.config.claude_profile_by_project.get(&project_dir);
+        let idx = own
+            .and_then(|mapped| {
+                choices
+                    .iter()
+                    .position(|c| c.config_dir.as_deref() == Some(mapped))
+            })
+            .unwrap_or(0);
+        self.modal = Some(Modal::Profile(ProfileChooser {
+            project_dir,
+            choices,
+            idx,
+        }));
     }
 
     fn resolve_quit(&mut self, choice: QuitChoice, running: usize) -> Vec<Effect> {

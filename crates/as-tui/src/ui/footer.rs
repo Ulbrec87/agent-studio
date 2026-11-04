@@ -8,16 +8,31 @@ use ratatui::widgets::Widget;
 
 use crate::app::{App, Focus, Modal};
 
+fn picker_hints(mode: &'static str) -> (&'static str, String) {
+    (
+        mode,
+        "j/k move \u{00B7} Enter pick \u{00B7} / filter \u{00B7} a ages \u{00B7} p project \u{00B7} s hidden \u{00B7} h hide \u{00B7} Esc close".into(),
+    )
+}
+
 /// `(mode label, hints)` for the footer.
 pub fn mode_and_hints(app: &App) -> (&'static str, String) {
     let p = app.prefix_label();
     if app.prefix_pending {
         return (
             "PREFIX",
-            "n new \u{00B7} x kill \u{00B7} R restart \u{00B7} d remove \u{00B7} r rename \u{00B7} y yolo \u{00B7} j/k agents \u{00B7} 1-9 jump \u{00B7} s sidebar \u{00B7} [ scroll \u{00B7} i input \u{00B7} ? help \u{00B7} q quit".into(),
+            "n new \u{00B7} o resume \u{00B7} x kill \u{00B7} R restart \u{00B7} d remove \u{00B7} r rename \u{00B7} y yolo \u{00B7} j/k agents \u{00B7} 1-9 jump \u{00B7} s sidebar \u{00B7} [ scroll \u{00B7} i input \u{00B7} ? help \u{00B7} q quit".into(),
         );
     }
     match &app.modal {
+        Some(Modal::NewAgent(form)) if form.picker.is_some() => return picker_hints("SESSIONS"),
+        Some(Modal::Resume(_)) => return picker_hints("RESUME"),
+        Some(Modal::Profile(_)) => {
+            return (
+                "PROFILE",
+                "\u{2191}/\u{2193} choose \u{00B7} Enter apply \u{00B7} Esc cancel".into(),
+            );
+        }
         Some(Modal::NewAgent(_)) => {
             return ("NEW AGENT", "Tab/\u{2193} next \u{00B7} Shift+Tab prev \u{00B7} \u{2190}/\u{2192} change \u{00B7} Enter create \u{00B7} Esc cancel".into());
         }
@@ -44,7 +59,7 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
         ),
         Focus::App => (
             "APP",
-            "j/k move \u{00B7} Enter attach \u{00B7} Space fold \u{00B7} / filter \u{00B7} n new \u{00B7} Esc back".into(),
+            "j/k move \u{00B7} Enter attach \u{00B7} Space fold \u{00B7} / filter \u{00B7} n new \u{00B7} o resume \u{00B7} P profile \u{00B7} Esc back".into(),
         ),
         Focus::Input => (
             "INPUT",

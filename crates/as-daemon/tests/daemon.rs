@@ -5,8 +5,9 @@ use std::time::Duration;
 
 use as_core::agents::fake_pty::FakePtyBackend;
 use as_core::paths::Paths;
+use as_core::sessions::{ClaudeSessionCatalog, CodexSessionCatalog};
 use as_core::{AgentStatus, CreateAgentPayload, ManagerOptions, ProviderId};
-use as_daemon::{DaemonOptions, serve};
+use as_daemon::{DaemonOptions, SessionCatalogs, serve};
 use as_proto::lifecycle::{ensure_daemon_with, stop_daemon};
 use as_proto::{
     ClientMsg, DaemonClient, Event, NotificationKind, Request, ServerMsg, codec, lock, transport,
@@ -32,9 +33,23 @@ fn options(backend: &FakePtyBackend) -> DaemonOptions {
             kill_grace: Duration::from_millis(50),
             ..Default::default()
         },
+        catalogs: empty_catalogs(),
+        catalog_locator: true,
+        import_sessions: false,
         preflight_on_create: false,
         apply_fixed_path: false,
         os_notifications: false,
+    }
+}
+
+/// Catalogs that see nothing (never the developer's real sessions).
+fn empty_catalogs() -> SessionCatalogs {
+    SessionCatalogs {
+        claude: Arc::new(ClaudeSessionCatalog::with_dirs(Vec::new(), 0)),
+        codex: Arc::new(CodexSessionCatalog::with_dir(
+            std::path::PathBuf::from("/nonexistent-codex-sessions"),
+            0,
+        )),
     }
 }
 
@@ -390,4 +405,160 @@ async fn notifications_are_pushed_and_deduplicated() {
     h.backend.ptys()[0].emit_exit(0);
     next_event(&mut events, "completed", pick(NotificationKind::AgentIdle)).await;
     h.stop.cancel();
+}
+
+fn write_file(path: &std::path::Path, content: &str) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, content).unwrap();
+}
+
+#[tokio::test]
+async fn sessions_import_hide_profiles_and_models() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::at(dir.path().join("home"));
+    let claude_projects = dir.path().join("claude/projects");
+    let codex_sessions = dir.path().join("codex/sessions");
+    let claude_line = |sid: &str, cwd: &str, prompt: &str| {
+        format!(
+            "{}\n{}\n",
+            serde_json::json!({"sessionId": sid, "cwd": cwd}),
+            serde_json::json!({"type":"user","message":{"role":"user","content":prompt}})
+        )
+    };
+    write_file(
+        &claude_projects.join("p/s-a.jsonl"),
+        &claude_line("s-a", "/proj/api", "Fix the login bug"),
+    );
+    write_file(
+        &claude_projects.join("p/s-hidden.jsonl"),
+        &claude_line("s-hidden", "/proj/web", "Hidden one"),
+    );
+    write_file(
+        &codex_sessions.join("2026/01/01/rollout-c-a.jsonl"),
+        &format!(
+            "{}\n{}\n",
+            serde_json::json!({"type":"session_meta","payload":{"id":"c-a","cwd":"/proj/cx","timestamp":"2026-01-01T00:00:00Z"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"user_message","message":"port it"}})
+        ),
+    );
+    write_file(
+        &paths.config_file(),
+        r#"{"importSessionsOnStartup": true, "sessionMaxAgeDays": 0, "hiddenSessionIds": ["s-hidden"]}"#,
+    );
+
+    let backend = FakePtyBackend::new();
+    let mut opts = options(&backend);
+    opts.import_sessions = true;
+    opts.catalogs = SessionCatalogs {
+        claude: Arc::new(ClaudeSessionCatalog::with_dirs(vec![claude_projects], 0)),
+        codex: Arc::new(CodexSessionCatalog::with_dir(codex_sessions, 0)),
+    };
+    let stop = CancellationToken::new();
+    let task = tokio::spawn(serve(paths.clone(), opts, stop.clone()));
+    wait_for_socket(&paths).await;
+    let client = DaemonClient::connect(&paths).await.unwrap();
+
+    // Startup import: visible sessions only, each with its own provider, idle, no process.
+    let mut agents = Vec::new();
+    for _ in 0..300 {
+        agents = client.list_agents().await.unwrap();
+        if agents.len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let mut got: Vec<(String, ProviderId, AgentStatus)> = agents
+        .iter()
+        .map(|a| (a.id.clone(), a.provider, a.status))
+        .collect();
+    got.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        got,
+        vec![
+            ("sess-c-a".into(), ProviderId::Codex, AgentStatus::Idle),
+            ("sess-s-a".into(), ProviderId::Claude, AgentStatus::Idle),
+        ]
+    );
+    assert_eq!(backend.spawn_count(), 0);
+
+    // Listing honours the hidden ids unless asked.
+    let list = |provider, include_hidden| {
+        client.list_sessions(as_core::sessions::ListSessionsOptions {
+            provider,
+            include_hidden,
+            ..Default::default()
+        })
+    };
+    let visible = list(ProviderId::Claude, false).await.unwrap();
+    assert_eq!(
+        visible
+            .iter()
+            .map(|s| s.session_id.as_str())
+            .collect::<Vec<_>>(),
+        ["s-a"]
+    );
+    assert_eq!(visible[0].first_prompt, "Fix the login bug");
+    let all = list(ProviderId::Claude, true).await.unwrap();
+    assert_eq!(all.len(), 2);
+    assert!(all.iter().any(|s| s.session_id == "s-hidden" && s.hidden));
+    assert_eq!(list(ProviderId::Codex, false).await.unwrap().len(), 1);
+    assert!(list(ProviderId::Opencode, true).await.unwrap().is_empty());
+
+    // Hide / unhide persists in the config.
+    let cfg = client.hide_session("s-a", true).await.unwrap();
+    assert_eq!(cfg.hidden_session_ids, ["s-hidden", "s-a"]);
+    assert!(list(ProviderId::Claude, false).await.unwrap().is_empty());
+    let cfg = client.hide_session("s-hidden", false).await.unwrap();
+    assert_eq!(cfg.hidden_session_ids, ["s-a"]);
+    assert!(
+        std::fs::read_to_string(paths.config_file())
+            .unwrap()
+            .contains("\"s-a\"")
+    );
+
+    // Project profiles: stored without the trailing slash, used for new Claude agents.
+    let cfg = client
+        .set_project_profile("/proj/api/", Some("/x/.claude-work".into()))
+        .await
+        .unwrap();
+    assert_eq!(
+        cfg.claude_profile_by_project["/proj/api"],
+        "/x/.claude-work"
+    );
+    let agent = client
+        .create_agent(CreateAgentPayload {
+            project_dir: "/proj/api/sub".into(),
+            ..payload()
+        })
+        .await
+        .unwrap();
+    let env = backend.env_of(0);
+    assert_eq!(
+        env.get("CLAUDE_CONFIG_DIR").map(String::as_str),
+        Some("/x/.claude-work"),
+        "{}",
+        agent.id
+    );
+    let cfg = client.set_project_profile("/proj/api", None).await.unwrap();
+    assert!(cfg.claude_profile_by_project.is_empty());
+    assert!(client.set_project_profile("  ", None).await.is_err());
+    client.list_claude_profiles().await.unwrap();
+
+    // Models: Claude is the static list.
+    let models = client
+        .list_provider_models(ProviderId::Claude)
+        .await
+        .unwrap();
+    assert_eq!(
+        models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["opus", "sonnet", "haiku"]
+    );
+
+    exit_on_terminate(&backend);
+    stop.cancel();
+    tokio::time::timeout(Duration::from_secs(8), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
 }

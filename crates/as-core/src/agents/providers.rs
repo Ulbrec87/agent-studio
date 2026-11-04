@@ -12,9 +12,17 @@ use crate::types::{AgentState, ModelId, ProviderId};
 
 const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
 
-static SESSION_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)session(?:[_\s-]?id)?[:=\s]+([a-z0-9-]{8,})").expect("static regex")
+/// Claude prints `Session ID: <uuid>`. Hydra's pattern (`session[ _-]?id?[:=\s]+([a-z0-9-]{8,})`) also
+/// matched "session management" -> "management"; the id must now be a UUID.
+static CLAUDE_SESSION_ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)session(?:[_\s-]?id)?[:=\s]+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b",
+    )
+    .expect("static regex")
 });
+/// OpenCode session ids look like `ses_` + 10 or more letters/digits (e.g. `ses_3f1a9c2b7ZdEqPk`).
+static OPENCODE_SESSION_ID_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(ses_[A-Za-z0-9]{10,})\b").expect("static regex"));
 
 /// Result of checking that a provider CLI is installed.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -160,7 +168,8 @@ impl Provider {
     pub fn session_id_regex(&self) -> Option<&'static Regex> {
         match self.id {
             ProviderId::Codex => None,
-            _ => Some(&SESSION_ID_REGEX),
+            ProviderId::Claude => Some(&CLAUDE_SESSION_ID_REGEX),
+            ProviderId::Opencode => Some(&OPENCODE_SESSION_ID_REGEX),
         }
     }
 
@@ -353,15 +362,49 @@ mod tests {
     fn session_regex() {
         assert!(get_provider(ProviderId::Codex).session_id_regex().is_none());
         let re = get_provider(ProviderId::Claude).session_id_regex().unwrap();
+        let uuid = "5f1c9a2e-77aa-4b1c-9d3e-0123456789ab";
         assert_eq!(
-            &re.captures("Session ID: 1234abcd-ef").unwrap()[1],
-            "1234abcd-ef"
+            &re.captures(&format!("Session ID: {uuid}")).unwrap()[1],
+            uuid
         );
         assert_eq!(
-            &re.captures("session_id=abcdef123456").unwrap()[1],
-            "abcdef123456"
+            &re.captures(&format!("session_id={uuid}")).unwrap()[1],
+            uuid
         );
-        assert!(re.captures("no ids here").is_none());
+        assert_eq!(
+            &re.captures(&format!("SESSION   {uuid} ok")).unwrap()[1],
+            uuid
+        );
+        // Hydra's loose pattern matched all of these.
+        for noise in [
+            "session management",
+            "Session ID: 1234abcd-ef",
+            "session: abcdef123456",
+            "the session starts now",
+            "no ids here",
+        ] {
+            assert!(re.captures(noise).is_none(), "{noise}");
+        }
+        let oc = get_provider(ProviderId::Opencode)
+            .session_id_regex()
+            .unwrap();
+        assert_eq!(
+            &oc.captures("resume with: opencode --session ses_3f1a9c2b7ZdEqPk")
+                .unwrap()[1],
+            "ses_3f1a9c2b7ZdEqPk"
+        );
+        assert_eq!(
+            &oc.captures("Session ses_abcdefghij12\n").unwrap()[1],
+            "ses_abcdefghij12"
+        );
+        for noise in [
+            "session management",
+            "ses_short",
+            "classes_abcdefghijkl",
+            "session id: 12345678",
+        ] {
+            assert!(oc.captures(noise).is_none(), "{noise}");
+        }
     }
 
     #[tokio::test]

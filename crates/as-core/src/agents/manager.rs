@@ -10,8 +10,12 @@
 //! `parking_lot::Mutex` guards the state and is never held across an `.await`.
 //! PTY writes go through a per-process writer mutex, outside the state lock.
 //!
-//! Deferred (see `TODO(P4)` / `TODO(P10)`): session discovery from the provider
-//! catalogs, import of Claude transcripts, git worktree mode.
+//! Sessions (P4): after a spawn the manager asks the [`SessionLocator`] for the provider session id on
+//! a backoff schedule ([`DiscoverySchedule`]); [`AgentManager::import_sessions`] adds catalog sessions
+//! as idle agents without a process. Claude's startup input (`/rename`, initial prompt) is held back
+//! while its "trust this folder" dialog is on screen (see `agents::startup`).
+//!
+//! Deferred (see `TODO(P10)`): git worktree mode.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -28,11 +32,13 @@ use tokio::runtime::Handle;
 use tokio::sync::broadcast;
 
 use super::env::{EnvOverrides, build_agent_env_from_process, claude_profile_env};
-use super::model_detect::detect_latest_model_from_terminal_output;
+use super::model_detect::{detect_latest_model_from_terminal_output, strip_ansi};
 use super::output::{AltScreenFilter, OutputBuffer};
 use super::providers::{PreflightResult, get_all_providers, get_provider};
 use super::pty::{NativePtyBackend, PtyBackend, PtyControl, PtySpawnRequest};
 use super::shell::{ShellConfig, SpawnSpec, wrap_with_shell_current};
+use super::startup::{GateState, StartupOptions, TrustGate};
+use crate::sessions::SessionSummary;
 use crate::types::{
     AgentConfig, AgentState, AgentStatus, CreateAgentPayload, MAX_CONCURRENT_AGENTS_HARD_LIMIT,
     ModelId, ProviderId, WorkMode,
@@ -59,6 +65,8 @@ pub const INITIAL_PROMPT_DELAY: Duration = Duration::from_millis(1500);
 /// Initial prompt delay when a `/rename` is sent first.
 pub const INITIAL_PROMPT_DELAY_AFTER_RENAME: Duration = Duration::from_millis(3000);
 const SESSION_HINT_MAX_LENGTH: usize = 400;
+/// A session of the project touched this long before the spawn still counts as the agent's own.
+pub const SESSION_DISCOVERY_GRACE_MS: i64 = 5 * 60 * 1000;
 /// Output window scanned for the active model.
 const MODEL_DETECTION_WINDOW: usize = 12_000;
 /// After the process exits, wait at most this long for the reader thread to drain the PTY.
@@ -67,10 +75,6 @@ const READER_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 const EVENT_CHANNEL_CAPACITY: usize = 4096;
 const READ_CHUNK: usize = 16 * 1024;
 
-static UUID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b")
-        .expect("static regex")
-});
 static LEADING_TAG: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^<[^>]+>").expect("static regex"));
 
@@ -124,15 +128,23 @@ pub struct SessionQuery {
     pub latest_user_prompt: Option<String>,
     /// Session ids already owned by other agents.
     pub used_session_ids: Vec<String>,
+    /// Rescan the catalog instead of reusing a recent snapshot (first probe after a spawn, exit).
+    pub force_refresh: bool,
 }
 
-/// Finds the provider session id of an agent from the CLI's own catalogs.
+/// Finds the provider session id of an agent from the CLI's own catalogs (Hydra
+/// `probeSessionIdFromCatalog`). Blocking: the manager calls it from `spawn_blocking`.
 ///
-/// TODO(P4): implement with the Claude/Codex session catalogs (Hydra `probeSessionIdFromCatalog`,
-/// with the 2.5 s -> 30 s backoff schedule started at spawn). Today the manager only calls
-/// `locate` once, when a process exits, and the default implementation finds nothing.
+/// `Some(id)` settles the agent on that session (the manager stops looking; when `id` differs from the
+/// current one, e.g. Codex resuming into a new rollout, the agent switches to it); `None` means
+/// "not found yet" and the manager asks again later.
 pub trait SessionLocator: Send + Sync + 'static {
     fn locate(&self, query: &SessionQuery) -> Option<String>;
+
+    /// `false` when the locator never finds anything (no point in polling).
+    fn enabled(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -141,6 +153,53 @@ impl SessionLocator for NoSessionLocator {
     fn locate(&self, _query: &SessionQuery) -> Option<String> {
         None
     }
+    fn enabled(&self) -> bool {
+        false
+    }
+}
+
+/// Backoff of the session-id discovery after a spawn: `initial`, then `initial * factor^n`, at most `max`.
+#[derive(Debug, Clone, Copy)]
+pub struct DiscoverySchedule {
+    pub initial: Duration,
+    pub max: Duration,
+    pub factor: f64,
+}
+
+impl Default for DiscoverySchedule {
+    fn default() -> Self {
+        Self {
+            initial: Duration::from_millis(2500),
+            max: Duration::from_secs(30),
+            factor: 1.6,
+        }
+    }
+}
+
+impl DiscoverySchedule {
+    /// Pause before probe number `attempt + 1` (attempt 0 is the first pause).
+    pub fn delay(&self, attempt: u32) -> Duration {
+        let exp = i32::try_from(attempt).unwrap_or(i32::MAX);
+        let secs = self.initial.as_secs_f64() * self.factor.powi(exp);
+        if secs.is_finite() && secs < self.max.as_secs_f64() {
+            Duration::from_secs_f64(secs)
+        } else {
+            self.max
+        }
+    }
+}
+
+/// Lowercase, whitespace-collapsed, cut to 400 chars: what prompts are compared by.
+pub(crate) fn normalize_prompt_hint(input: Option<&str>) -> String {
+    input
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+        .chars()
+        .take(SESSION_HINT_MAX_LENGTH)
+        .collect()
 }
 
 /// Replaces the provider CLI invocation (tests, or a custom launcher).
@@ -157,6 +216,8 @@ pub struct ManagerOptions {
     pub command_override: Option<CommandOverride>,
     /// Grace period between SIGTERM and SIGKILL.
     pub kill_grace: Duration,
+    pub discovery: DiscoverySchedule,
+    pub startup: StartupOptions,
 }
 
 impl Default for ManagerOptions {
@@ -166,6 +227,8 @@ impl Default for ManagerOptions {
             locator: Arc::new(NoSessionLocator),
             command_override: None,
             kill_grace: GRACEFUL_KILL_TIMEOUT,
+            discovery: DiscoverySchedule::default(),
+            startup: StartupOptions::default(),
         }
     }
 }
@@ -177,6 +240,8 @@ struct Run {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     control: Box<dyn PtyControl>,
     alt_filter: AltScreenFilter,
+    /// Claude only: holds the startup input while the trust dialog is up.
+    gate: Option<TrustGate>,
 }
 
 struct Managed {
@@ -255,6 +320,19 @@ impl Inner {
     }
 }
 
+/// Something written to Claude shortly after the spawn.
+enum StartupStep {
+    Rename(String),
+    Prompt(String),
+}
+
+enum GateOutcome {
+    Go,
+    /// The process is gone (or the manager is stopping): write nothing.
+    Gone,
+    Expired,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum SpawnOutcome {
     Spawned,
@@ -270,6 +348,8 @@ struct Shared {
     locator: Arc<dyn SessionLocator>,
     command_override: Option<CommandOverride>,
     kill_grace: Duration,
+    discovery: DiscoverySchedule,
+    startup: StartupOptions,
     next_run_id: AtomicU64,
     shutdown: AtomicBool,
 }
@@ -282,6 +362,13 @@ fn now_ms() -> u64 {
 
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
+/// Tell the startup gate of `m`'s process that the user sent it `data`.
+fn note_user_input(m: &mut Managed, data: &[u8]) {
+    if let Some(gate) = m.run.as_mut().and_then(|r| r.gate.as_mut()) {
+        gate.on_user_input(data);
+    }
 }
 
 fn write_pty(writer: &Arc<Mutex<Box<dyn Write + Send>>>, data: &[u8]) -> bool {
@@ -327,19 +414,15 @@ impl Shared {
         if m.state.session_id.is_some() {
             return;
         }
-        let text = String::from_utf8_lossy(data);
-        let provider = get_provider(m.state.provider);
-        if let Some(caps) = provider
+        // Only the provider's own pattern: Hydra also accepted any UUID in the output, which would
+        // adopt ids from the conversation text; the catalog discovery is the real source.
+        let text = strip_ansi(&String::from_utf8_lossy(data));
+        if let Some(caps) = get_provider(m.state.provider)
             .session_id_regex()
             .and_then(|re| re.captures(&text))
             && let Some(id) = caps.get(1)
         {
             self.update_session_id(m, id.as_str());
-            return;
-        }
-        // Fallback: generic UUID.
-        if let Some(found) = UUID_REGEX.find(&text) {
-            self.update_session_id(m, found.as_str());
         }
     }
 
@@ -384,6 +467,13 @@ impl Shared {
         } else {
             data.to_vec()
         };
+        if let Some(gate) = run.gate.as_mut() {
+            let was_holding = gate.holding();
+            gate.on_output(data, now_ms());
+            if gate.holding() != was_holding {
+                tracing::info!(agent = %id, holding = gate.holding(), "Claude trust prompt state changed");
+            }
+        }
         // Hydra scans the raw chunk (before filtering) for the session id.
         self.capture_session_id(m, data);
         self.push_output(m, filtered);
@@ -429,13 +519,14 @@ impl Shared {
             };
             m.stop_requested = false;
             self.update_status(m, status);
-            (m.state.session_id.is_none()
+            ((m.state.session_id.is_none() || m.state.provider == ProviderId::Codex)
                 && !m.imported
                 && get_provider(m.state.provider).supports_resume)
                 .then(|| SessionQuery {
                     agent: m.state.clone(),
                     latest_user_prompt: m.latest_user_prompt.clone(),
                     used_session_ids: used,
+                    force_refresh: true,
                 })
         };
         // Outside the lock: a locator may read files.
@@ -529,29 +620,23 @@ impl Shared {
             writer: writer.clone(),
             control: process.control,
             alt_filter: AltScreenFilter::default(),
+            gate: (m.state.provider == ProviderId::Claude).then(|| TrustGate::new(now_ms())),
         });
         m.stop_requested = false;
         m.state.pid = process.pid;
         m.state.started_at = Some(now_iso());
         m.state.ended_at = None;
         self.update_status(m, AgentStatus::Running);
-        // TODO(P4): start session discovery here (catalog probe + backoff, `SessionLocator`).
 
         self.start_io_threads(&id, run_id, process.reader, process.waiter);
 
         // `--name` does not name Claude sessions: write /rename after startup.
         let rename = (m.state.provider == ProviderId::Claude && !m.state.name.trim().is_empty())
             .then(|| m.state.name.trim().to_string());
+        let mut steps = Vec::new();
         if let Some(name) = &rename {
-            let (shared, id, name) = (self.clone(), id.clone(), name.clone());
-            self.handle.spawn(async move {
-                tokio::time::sleep(CLAUDE_RENAME_DELAY).await;
-                if shared.run_is_current(&id, run_id) {
-                    write_pty(&writer, format!("/rename {name}\r").as_bytes());
-                }
-            });
+            steps.push((CLAUDE_RENAME_DELAY, StartupStep::Rename(name.clone())));
         }
-
         // Initial prompt, once, after startup (fresh and resumed sessions).
         if !m.state.initial_prompt.is_empty() {
             let prompt = std::mem::take(&mut m.state.initial_prompt);
@@ -560,16 +645,150 @@ impl Shared {
             } else {
                 INITIAL_PROMPT_DELAY
             };
-            let (shared, id) = (self.clone(), id.clone());
-            self.handle.spawn(async move {
-                tokio::time::sleep(delay).await;
-                let mut inner = shared.inner.lock();
-                if let Some(idx) = inner.idx(&id) {
-                    shared.queue_locked(&mut inner, idx, prompt);
-                }
-            });
+            steps.push((delay, StartupStep::Prompt(prompt)));
+        }
+        if !steps.is_empty() {
+            self.spawn_startup(&id, run_id, writer, steps);
+        }
+        if self.locator.enabled()
+            && !m.imported
+            && provider.supports_resume
+            && (m.state.session_id.is_none() || m.state.provider == ProviderId::Codex)
+        {
+            self.spawn_discovery(&id, run_id);
         }
         SpawnOutcome::Spawned
+    }
+
+    // ── startup input (held while Claude shows its trust dialog) ────────────
+
+    fn spawn_startup(
+        self: &Arc<Self>,
+        id: &str,
+        run_id: u64,
+        writer: Arc<Mutex<Box<dyn Write + Send>>>,
+        steps: Vec<(Duration, StartupStep)>,
+    ) {
+        let (shared, id) = (self.clone(), id.to_string());
+        self.handle.spawn(async move {
+            let t0 = tokio::time::Instant::now();
+            for (delay, step) in steps {
+                tokio::time::sleep_until(t0 + delay).await;
+                match shared.wait_for_gate(&id, run_id).await {
+                    GateOutcome::Go => {}
+                    GateOutcome::Gone => return,
+                    GateOutcome::Expired => {
+                        tracing::warn!(agent = %id, "trust prompt not answered in time: startup input dropped");
+                        return;
+                    }
+                }
+                match step {
+                    StartupStep::Rename(name) => {
+                        write_pty(&writer, format!("/rename {name}\r").as_bytes());
+                    }
+                    StartupStep::Prompt(text) => {
+                        let mut inner = shared.inner.lock();
+                        if let Some(idx) = inner.idx(&id) {
+                            shared.queue_locked(&mut inner, idx, text);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// Wait until the startup input of this run may be written.
+    async fn wait_for_gate(&self, id: &str, run_id: u64) -> GateOutcome {
+        loop {
+            let state = {
+                let inner = self.inner.lock();
+                let run = inner
+                    .idx(id)
+                    .and_then(|i| inner.agents[i].run.as_ref())
+                    .filter(|r| r.run_id == run_id);
+                match run {
+                    None => return GateOutcome::Gone,
+                    Some(run) => run
+                        .gate
+                        .as_ref()
+                        .map_or(GateState::Proceed, |g| g.poll(now_ms(), &self.startup)),
+                }
+            };
+            match state {
+                GateState::Proceed => return GateOutcome::Go,
+                GateState::Expired => return GateOutcome::Expired,
+                GateState::Wait if self.shutdown.load(Ordering::Relaxed) => {
+                    return GateOutcome::Gone;
+                }
+                GateState::Wait => tokio::time::sleep(self.startup.poll).await,
+            }
+        }
+    }
+
+    // ── session id discovery ────────────────────────────────────────────────
+
+    /// Ask the locator right away and then on the backoff schedule until it settles on a session,
+    /// the process ends or the manager shuts down.
+    fn spawn_discovery(self: &Arc<Self>, id: &str, run_id: u64) {
+        let (shared, id) = (self.clone(), id.to_string());
+        self.handle.spawn(async move {
+            let mut attempt = 0u32;
+            loop {
+                let Some(query) = shared.discovery_query(&id, run_id, attempt == 0) else {
+                    return;
+                };
+                let locator = shared.locator.clone();
+                let found = tokio::task::spawn_blocking(move || locator.locate(&query))
+                    .await
+                    .ok()
+                    .flatten();
+                if let Some(found) = found {
+                    shared.apply_discovered(&id, run_id, &found);
+                    return;
+                }
+                tokio::time::sleep(shared.discovery.delay(attempt)).await;
+                attempt = attempt.saturating_add(1);
+            }
+        });
+    }
+
+    /// The query for the next probe, or `None` when discovery is over for this run.
+    fn discovery_query(&self, id: &str, run_id: u64, force_refresh: bool) -> Option<SessionQuery> {
+        if self.shutdown.load(Ordering::Relaxed) {
+            return None;
+        }
+        let inner = self.inner.lock();
+        let idx = inner.idx(id)?;
+        let m = &inner.agents[idx];
+        if m.run.as_ref().is_none_or(|r| r.run_id != run_id) || m.imported {
+            return None;
+        }
+        // Found by other means (output, `set_session_id`): done, except Codex which may move on.
+        if m.state.session_id.is_some() && m.state.provider != ProviderId::Codex {
+            return None;
+        }
+        let used = inner
+            .agents
+            .iter()
+            .filter(|a| a.state.id != id)
+            .filter_map(|a| a.state.session_id.clone())
+            .collect();
+        Some(SessionQuery {
+            agent: m.state.clone(),
+            latest_user_prompt: m.latest_user_prompt.clone(),
+            used_session_ids: used,
+            force_refresh,
+        })
+    }
+
+    fn apply_discovered(&self, id: &str, run_id: u64, session_id: &str) {
+        let mut inner = self.inner.lock();
+        let Some(idx) = inner.idx(id) else { return };
+        let m = &mut inner.agents[idx];
+        if m.run.as_ref().is_some_and(|r| r.run_id == run_id) {
+            tracing::debug!(agent = %id, session = %session_id, "session discovered");
+            self.update_session_id(m, session_id);
+        }
     }
 
     fn start_io_threads(
@@ -753,6 +972,8 @@ impl AgentManager {
             locator: options.locator,
             command_override: options.command_override,
             kill_grace: options.kill_grace,
+            discovery: options.discovery,
+            startup: options.startup,
             next_run_id: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
         });
@@ -860,6 +1081,7 @@ impl AgentManager {
         if inner.count_active(None) >= MAX_CONCURRENT_AGENTS_HARD_LIMIT {
             return Err(ManagerError::MaxAgents);
         }
+        let resumed = payload.resume_session_id.clone();
         let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
         let now = now_iso();
         let state = AgentState {
@@ -896,6 +1118,16 @@ impl AgentManager {
             return Err(ManagerError::MaxAgents);
         }
         let state = inner.agents[idx].state.clone();
+        // Resuming a session that is listed as an idle imported agent: the new agent takes its place.
+        if let Some(sid) = resumed {
+            inner.agents.retain(|m| {
+                !(m.imported
+                    && m.run.is_none()
+                    && m.state.id != state.id
+                    && m.state.session_id.as_deref() == Some(sid.as_str())
+                    && m.state.provider == state.provider)
+            });
+        }
         drop(inner);
         self.shared.emit(AgentEvent::Changed);
         Ok(state)
@@ -1021,7 +1253,17 @@ impl AgentManager {
         if m.state.provider == ProviderId::Claude
             && let Some(run) = &m.run
         {
-            write_pty(&run.writer, format!("/rename {trimmed}\r").as_bytes());
+            if run.gate.as_ref().is_some_and(TrustGate::holding) {
+                // Enter would answer the trust dialog ("No, exit" is pre-selected): write it later.
+                self.shared.spawn_startup(
+                    &m.state.id,
+                    run.run_id,
+                    run.writer.clone(),
+                    vec![(Duration::ZERO, StartupStep::Rename(trimmed.to_string()))],
+                );
+            } else {
+                write_pty(&run.writer, format!("/rename {trimmed}\r").as_bytes());
+            }
         }
         self.shared.emit_status(m);
         let state = m.state.clone();
@@ -1064,6 +1306,7 @@ impl AgentManager {
         if !self.shared.ensure_process(&mut inner, idx) {
             return false;
         }
+        note_user_input(&mut inner.agents[idx], format!("{input}\r").as_bytes());
         self.shared.queue_locked(&mut inner, idx, input.to_string())
     }
 
@@ -1077,6 +1320,7 @@ impl AgentManager {
             if !self.shared.ensure_process(&mut inner, idx) {
                 return false;
             }
+            note_user_input(&mut inner.agents[idx], data);
             let Some(run) = &inner.agents[idx].run else {
                 return false;
             };
@@ -1094,7 +1338,11 @@ impl AgentManager {
             if inner.agents[idx].state.project_dir != project_dir {
                 continue;
             }
-            if self.shared.ensure_process(&mut inner, idx)
+            if self.shared.ensure_process(&mut inner, idx) {
+                // A submitted message ends with Enter.
+                note_user_input(&mut inner.agents[idx], format!("{input}\r").as_bytes());
+            }
+            if inner.agents[idx].run.is_some()
                 && self.shared.queue_locked(&mut inner, idx, input.to_string())
             {
                 sent.push(inner.agents[idx].state.id.clone());
@@ -1238,6 +1486,77 @@ impl AgentManager {
         restored
     }
 
+    /// Add catalog sessions as idle agents without a process (Hydra `importSessions`): a session
+    /// already held by an agent, or without id/project, is skipped. Each agent resumes its
+    /// session (`--resume <id>`) on its first input or restart, with the provider that created it.
+    /// Imported agents are not persisted in the workspace (the catalog is the source of truth).
+    /// Returns how many were added.
+    pub fn import_sessions(
+        &self,
+        sessions: &[SessionSummary],
+        default_model: &str,
+        provider: ProviderId,
+    ) -> usize {
+        let mut inner = self.shared.inner.lock();
+        let mut imported = 0;
+        for session in sessions {
+            if session.session_id.is_empty() || session.project_path.is_empty() {
+                continue;
+            }
+            if inner
+                .agents
+                .iter()
+                .any(|m| m.state.session_id.as_deref() == Some(session.session_id.as_str()))
+            {
+                continue;
+            }
+            let short: String = session.session_id.chars().take(8).collect();
+            let created_at = if session.created_at.is_empty() {
+                now_iso()
+            } else {
+                session.created_at.clone()
+            };
+            let modified = [&session.modified_at, &session.created_at]
+                .into_iter()
+                .find(|t| !t.is_empty())
+                .cloned();
+            let state = AgentState {
+                config: AgentConfig {
+                    id: inner.unique_id(&format!("sess-{short}")),
+                    name: Self::generate_name(&session.first_prompt, &session.project_path),
+                    project_dir: session.project_path.clone(),
+                    provider,
+                    model: default_model.to_string(),
+                    reasoning_effort: None,
+                    yolo: false,
+                    is_manager: false,
+                    session_id: Some(session.session_id.clone()),
+                    initial_prompt: String::new(),
+                    created_at: created_at.clone(),
+                    work_mode: WorkMode::Local,
+                    worktree_path: None,
+                    worktree_branch: None,
+                },
+                status: AgentStatus::Idle,
+                pid: None,
+                restart_count: 0,
+                started_at: None,
+                ended_at: modified.clone(),
+                last_activity_at: modified.unwrap_or(created_at),
+            };
+            let prompt = session.first_prompt.trim();
+            let mut managed = Managed::new(state, (!prompt.is_empty()).then(|| prompt.to_string()));
+            managed.imported = true;
+            inner.agents.push(managed);
+            imported += 1;
+        }
+        drop(inner);
+        if imported > 0 {
+            self.shared.emit(AgentEvent::Changed);
+        }
+        imported
+    }
+
     /// Agents to persist. `ending_now` stamps still-running agents as ended now
     /// (daemon shutdown, before their PTYs are killed).
     pub fn export_workspace_agents(&self, ending_now: bool) -> Vec<PersistedWorkspaceAgent> {
@@ -1355,10 +1674,21 @@ mod tests {
 
     type ProfileCalls = Vec<(String, Option<String>)>;
 
+    /// Startup gate timing small enough for tests.
+    fn fast_startup() -> StartupOptions {
+        StartupOptions {
+            trust_settle: Duration::from_millis(80),
+            trust_timeout: Duration::from_secs(30),
+            poll: Duration::from_millis(10),
+            no_output_grace: Duration::from_millis(50),
+        }
+    }
+
     fn manager_with(backend: &FakePtyBackend) -> AgentManager {
         AgentManager::with_options(ManagerOptions {
             backend: Arc::new(backend.clone()),
             kill_grace: Duration::from_millis(80),
+            startup: fast_startup(),
             ..Default::default()
         })
     }
@@ -2224,6 +2554,458 @@ mod tests {
             manager.get(&a.id).unwrap().session_id.as_deref() == Some("found-session-1")
         })
         .await;
+    }
+
+    // ── session discovery ───────────────────────────────────────────────────
+
+    /// `(force_refresh, prompt hint, ids owned by other agents)` of one `locate` call.
+    type LocateCall = (bool, Option<String>, Vec<String>);
+
+    struct ScriptedLocator {
+        calls: Mutex<Vec<LocateCall>>,
+        answer_on_call: usize,
+        id: &'static str,
+    }
+    impl ScriptedLocator {
+        fn new(answer_on_call: usize, id: &'static str) -> Arc<Self> {
+            Arc::new(Self {
+                calls: Mutex::default(),
+                answer_on_call,
+                id,
+            })
+        }
+        fn call_count(&self) -> usize {
+            self.calls.lock().len()
+        }
+    }
+    impl SessionLocator for Arc<ScriptedLocator> {
+        fn locate(&self, q: &SessionQuery) -> Option<String> {
+            let mut calls = self.calls.lock();
+            calls.push((
+                q.force_refresh,
+                q.latest_user_prompt.clone(),
+                q.used_session_ids.clone(),
+            ));
+            (calls.len() >= self.answer_on_call).then(|| self.id.to_string())
+        }
+    }
+
+    fn discovering(backend: &FakePtyBackend, locator: Arc<ScriptedLocator>) -> AgentManager {
+        AgentManager::with_options(ManagerOptions {
+            backend: Arc::new(backend.clone()),
+            locator: Arc::new(locator),
+            kill_grace: Duration::from_millis(80),
+            startup: fast_startup(),
+            discovery: DiscoverySchedule {
+                initial: Duration::from_millis(15),
+                max: Duration::from_millis(40),
+                factor: 2.0,
+            },
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn discovery_backoff_is_hydras_schedule() {
+        let d = DiscoverySchedule::default();
+        let secs = |n| d.delay(n).as_secs_f64();
+        assert_eq!(secs(0), 2.5);
+        assert_eq!(secs(1), 4.0);
+        assert!((secs(2) - 6.4).abs() < 1e-9);
+        assert!((secs(3) - 10.24).abs() < 1e-9);
+        assert_eq!(secs(7), 30.0);
+        assert_eq!(secs(500), 30.0);
+    }
+
+    #[tokio::test]
+    async fn discovery_polls_after_spawn_until_the_locator_finds_the_session() {
+        let backend = FakePtyBackend::new();
+        let locator = ScriptedLocator::new(3, "found-by-discovery");
+        let manager = discovering(&backend, locator.clone());
+        let agent = manager
+            .create(CreateAgentPayload {
+                initial_prompt: "fix the bug".into(),
+                ..payload()
+            })
+            .await
+            .unwrap();
+        wait_for("session id", || {
+            manager.get(&agent.id).unwrap().session_id.as_deref() == Some("found-by-discovery")
+        })
+        .await;
+        assert_eq!(locator.call_count(), 3);
+        {
+            let calls = locator.calls.lock();
+            assert!(calls[0].0, "the first probe forces a rescan");
+            assert!(!calls[1].0);
+            assert_eq!(calls[0].1.as_deref(), Some("fix the bug"), "prompt hint");
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(locator.call_count(), 3, "stops once settled");
+    }
+
+    #[tokio::test]
+    async fn discovery_hands_the_locator_the_ids_of_other_agents() {
+        let backend = FakePtyBackend::new();
+        let locator = ScriptedLocator::new(1_000_000, "never");
+        let manager = discovering(&backend, locator.clone());
+        let other = manager.create(payload()).await.unwrap();
+        manager.set_session_id(&other.id, "owned-elsewhere");
+        let second = manager.create(payload()).await.unwrap();
+        wait_for("second probe", || {
+            locator
+                .calls
+                .lock()
+                .iter()
+                .any(|c| c.2 == ["owned-elsewhere"])
+        })
+        .await;
+        assert!(manager.get(&second.id).unwrap().session_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn discovery_stops_when_the_process_exits_and_probes_once_more() {
+        let backend = FakePtyBackend::new();
+        let locator = ScriptedLocator::new(1_000_000, "never");
+        let manager = discovering(&backend, locator.clone());
+        let a = manager.create(payload()).await.unwrap();
+        wait_for("a few probes", || locator.call_count() >= 2).await;
+        backend.ptys()[0].emit_exit(0);
+        wait_status_idle(&manager, &a.id).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let after_exit = locator.call_count();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(
+            locator.call_count(),
+            after_exit,
+            "no polling without a process"
+        );
+        assert!(
+            locator.calls.lock().last().is_some_and(|c| c.0),
+            "exit probe rescans"
+        );
+    }
+
+    async fn wait_status_idle(manager: &AgentManager, id: &str) {
+        wait_for("idle", || {
+            manager.get(id).unwrap().status == AgentStatus::Idle
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn no_discovery_for_a_resumed_claude_session_but_codex_keeps_checking() {
+        let backend = FakePtyBackend::new();
+        let locator = ScriptedLocator::new(1, "codex-new-rollout");
+        let manager = discovering(&backend, locator.clone());
+        manager
+            .create(CreateAgentPayload {
+                resume_session_id: Some("known".into()),
+                ..payload()
+            })
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(locator.call_count(), 0, "a Claude session id is final");
+
+        let codex = manager
+            .create(CreateAgentPayload {
+                provider: ProviderId::Codex,
+                resume_session_id: Some("old-rollout".into()),
+                ..payload()
+            })
+            .await
+            .unwrap();
+        wait_for("codex switches", || {
+            manager.get(&codex.id).unwrap().session_id.as_deref() == Some("codex-new-rollout")
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn output_regex_wins_and_ends_discovery() {
+        let backend = FakePtyBackend::new();
+        let locator = ScriptedLocator::new(1_000_000, "never");
+        let manager = discovering(&backend, locator.clone());
+        let a = manager.create(payload()).await.unwrap();
+        backend.ptys()[0]
+            .emit_data(b"\x1b[1mSession ID:\x1b[0m 5f1c9a2e-77aa-4b1c-9d3e-0123456789ab");
+        wait_for("sid from output", || {
+            manager.get(&a.id).unwrap().session_id.is_some()
+        })
+        .await;
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        let n = locator.call_count();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(locator.call_count(), n);
+        // Loose words are not ids.
+        let b = manager.create(payload()).await.unwrap();
+        backend.ptys()[1].emit_data(b"session management is on; session: abcdefgh");
+        backend.ptys()[1].emit_data(b"x");
+        wait_for("drain", || manager.get_buffer(&b.id).ends_with(b"x")).await;
+        assert!(manager.get(&b.id).unwrap().session_id.is_none());
+    }
+
+    // ── import ──────────────────────────────────────────────────────────────
+
+    fn catalog_session(id: &str, project: &str, prompt: &str) -> SessionSummary {
+        SessionSummary {
+            session_id: id.into(),
+            project_path: project.into(),
+            first_prompt: prompt.into(),
+            created_at: "2026-01-01T10:00:00.000Z".into(),
+            modified_at: "2026-01-02T10:00:00.000Z".into(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn imported_sessions_are_idle_agents_that_resume_on_first_input() {
+        let backend = FakePtyBackend::new();
+        let manager = manager_with(&backend);
+        let sessions = vec![
+            catalog_session(
+                "abcdef12-0000-0000-0000-000000000001",
+                "/work/api",
+                "Fix the login bug",
+            ),
+            catalog_session("abcdef12-0000-0000-0000-000000000002", "/work/web", ""),
+            catalog_session("abcdef12-0000-0000-0000-000000000001", "/work/api", "dup"),
+            catalog_session("", "/work/x", "no id"),
+            catalog_session("zzz", "", "no project"),
+        ];
+        let mut rx = manager.subscribe();
+        assert_eq!(
+            manager.import_sessions(&sessions, "sonnet", ProviderId::Claude),
+            2
+        );
+        assert!(
+            drain(&mut rx)
+                .iter()
+                .any(|e| matches!(e, AgentEvent::Changed))
+        );
+        assert_eq!(backend.spawn_count(), 0, "imported agents have no process");
+        let agents = manager.list();
+        assert_eq!(agents.len(), 2);
+        assert_eq!(agents[0].id, "sess-abcdef12");
+        assert_eq!(agents[1].id, "sess-abcdef12-2");
+        assert_eq!(agents[0].name, "Fix the login bug");
+        assert!(agents[1].name.starts_with("web "), "{}", agents[1].name);
+        assert!(
+            agents
+                .iter()
+                .all(|a| a.status == AgentStatus::Idle && a.pid.is_none())
+        );
+        assert_eq!(agents[0].project_dir, "/work/api");
+        assert_eq!(agents[0].model, "sonnet");
+        assert_eq!(agents[0].created_at, "2026-01-01T10:00:00.000Z");
+        assert_eq!(agents[0].last_activity_at, "2026-01-02T10:00:00.000Z");
+        assert_eq!(
+            agents[0].ended_at.as_deref(),
+            Some("2026-01-02T10:00:00.000Z")
+        );
+        assert!(
+            manager.export_workspace_agents(false).is_empty(),
+            "not persisted"
+        );
+        // Importing again adds nothing.
+        assert_eq!(
+            manager.import_sessions(&sessions, "sonnet", ProviderId::Claude),
+            0
+        );
+
+        // First input resumes the session.
+        assert!(manager.send_input("sess-abcdef12", "continue"));
+        let args = backend.request(0).unwrap().args;
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--resume" && w[1] == "abcdef12-0000-0000-0000-000000000001"),
+            "{args:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn imported_codex_sessions_keep_their_provider_and_never_probe() {
+        let backend = FakePtyBackend::new();
+        let locator = ScriptedLocator::new(1, "x");
+        let manager = discovering(&backend, locator.clone());
+        manager.import_sessions(
+            &[catalog_session("c1", "/w", "p")],
+            "gpt-5.4",
+            ProviderId::Codex,
+        );
+        assert!(manager.send_input("sess-c1", "go"));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(manager.get("sess-c1").unwrap().provider, ProviderId::Codex);
+        assert_eq!(locator.call_count(), 0, "imported agents do not discover");
+    }
+
+    #[tokio::test]
+    async fn resuming_a_session_replaces_its_idle_imported_agent() {
+        let backend = FakePtyBackend::new();
+        let manager = manager_with(&backend);
+        manager.import_sessions(
+            &[
+                catalog_session("s-1", "/tmp/project", "p"),
+                catalog_session("s-2", "/tmp/project", "q"),
+            ],
+            "sonnet",
+            ProviderId::Claude,
+        );
+        let created = manager
+            .create(CreateAgentPayload {
+                resume_session_id: Some("s-1".into()),
+                ..payload()
+            })
+            .await
+            .unwrap();
+        let ids: Vec<String> = manager.list().into_iter().map(|a| a.id.clone()).collect();
+        assert_eq!(ids, ["sess-s-2".to_string(), created.id.clone()]);
+        assert_eq!(created.session_id.as_deref(), Some("s-1"));
+    }
+
+    // ── trust prompt ────────────────────────────────────────────────────────
+
+    const TRUST: &[u8] = b"\x1b[1m Do you trust the files in this folder?\x1b[0m\r\n \x1b[36m\xe2\x9d\xaf 1. Yes, I trust this folder\x1b[0m\r\n   2. No, exit\r\n";
+    const MAIN_UI: &[u8] = b"\x1b[2J\x1b[H Welcome to Claude Code!\r\n > Try \"how does this project work?\"\r\n ? for shortcuts";
+
+    fn named_with_prompt() -> CreateAgentPayload {
+        CreateAgentPayload {
+            initial_prompt: "do it".into(),
+            ..payload()
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_input_is_held_while_the_trust_prompt_is_unanswered() {
+        let backend = FakePtyBackend::new();
+        let manager = manager_with(&backend);
+        let agent = manager.create(named_with_prompt()).await.unwrap();
+        let pty = backend.ptys()[0].clone();
+        pty.emit_data(TRUST);
+        // Well past /rename (1.5 s) and the initial prompt (3 s): still nothing was typed.
+        tokio::time::sleep(Duration::from_millis(3600)).await;
+        assert_eq!(pty.written(), "", "Enter would have pressed 'No, exit'");
+        assert_eq!(manager.get(&agent.id).unwrap().status, AgentStatus::Running);
+
+        // Navigating does not release it.
+        assert!(manager.send_raw_input(&agent.id, b"\x1b[B"));
+        pty.emit_data(TRUST);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(pty.written(), "\x1b[B");
+
+        // The user answers; Claude draws its UI: the held input follows.
+        assert!(manager.send_raw_input(&agent.id, b"\x1b[A"));
+        pty.emit_data(TRUST);
+        assert!(manager.send_raw_input(&agent.id, b"\r"));
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(pty.written(), "\x1b[B\x1b[A\r", "nothing before new output");
+        pty.emit_data(MAIN_UI);
+        wait_for("/rename after the answer", || {
+            pty.written().contains("/rename EP\r")
+        })
+        .await;
+        wait_for("initial prompt", || pty.written().contains("do it\r")).await;
+        let written = pty.written();
+        assert!(
+            written.find("/rename EP").unwrap() < written.find("do it").unwrap(),
+            "{written:?}"
+        );
+        assert!(manager.get(&agent.id).unwrap().initial_prompt.is_empty());
+    }
+
+    #[tokio::test]
+    async fn startup_input_flows_normally_when_there_is_no_trust_prompt() {
+        let backend = FakePtyBackend::new();
+        let manager = manager_with(&backend);
+        manager.create(named_with_prompt()).await.unwrap();
+        let pty = backend.ptys()[0].clone();
+        pty.emit_data(MAIN_UI);
+        wait_for("/rename", || pty.written().starts_with("/rename EP\r")).await;
+        wait_for("prompt", || pty.written().contains("do it")).await;
+    }
+
+    #[tokio::test]
+    async fn an_unanswered_trust_prompt_drops_the_startup_input_after_the_timeout() {
+        let backend = FakePtyBackend::new();
+        let manager = AgentManager::with_options(ManagerOptions {
+            backend: Arc::new(backend.clone()),
+            startup: StartupOptions {
+                trust_timeout: Duration::from_millis(1800),
+                ..fast_startup()
+            },
+            ..Default::default()
+        });
+        manager.create(named_with_prompt()).await.unwrap();
+        let pty = backend.ptys()[0].clone();
+        pty.emit_data(TRUST);
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        // Even an answer now does not bring the dropped input back.
+        pty.emit_data(MAIN_UI);
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert_eq!(pty.written(), "");
+    }
+
+    #[tokio::test]
+    async fn nothing_is_written_when_the_process_exits_at_the_trust_prompt() {
+        let backend = FakePtyBackend::new();
+        let manager = manager_with(&backend);
+        let agent = manager.create(named_with_prompt()).await.unwrap();
+        let pty = backend.ptys()[0].clone();
+        pty.emit_data(TRUST);
+        pty.emit_exit(1);
+        wait_for("errored", || {
+            manager.get(&agent.id).unwrap().status == AgentStatus::Errored
+        })
+        .await;
+        tokio::time::sleep(Duration::from_millis(3300)).await;
+        assert_eq!(pty.written(), "");
+    }
+
+    #[tokio::test]
+    async fn rename_while_the_trust_prompt_is_up_is_deferred() {
+        let backend = FakePtyBackend::new();
+        let manager = manager_with(&backend);
+        let agent = manager
+            .create(CreateAgentPayload {
+                name: String::new(),
+                ..payload()
+            })
+            .await
+            .unwrap();
+        let pty = backend.ptys()[0].clone();
+        pty.emit_data(TRUST);
+        wait_for("prompt buffered", || {
+            !manager.get_buffer(&agent.id).is_empty()
+        })
+        .await;
+        manager.rename_agent(&agent.id, "New name");
+        tokio::time::sleep(Duration::from_millis(1800)).await;
+        assert_eq!(pty.written(), "");
+        assert_eq!(manager.get(&agent.id).unwrap().name, "New name");
+        manager.send_raw_input(&agent.id, b"1");
+        pty.emit_data(MAIN_UI);
+        wait_for("deferred rename", || {
+            pty.written().ends_with("/rename New name\r")
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn other_providers_are_not_gated() {
+        let backend = FakePtyBackend::new();
+        let manager = manager_with(&backend);
+        manager
+            .create(CreateAgentPayload {
+                provider: ProviderId::Codex,
+                initial_prompt: "go".into(),
+                ..payload()
+            })
+            .await
+            .unwrap();
+        let pty = backend.ptys()[0].clone();
+        pty.emit_data(TRUST);
+        wait_for("prompt written", || pty.written().contains("go")).await;
     }
 
     // ── real PTY integration ────────────────────────────────────────────────

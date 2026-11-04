@@ -31,4 +31,4 @@ expression: text(&t)
                            │                            │✖ Agent Error                             │
                            │                            │ui-fix encountered an error               │
  / filter…                 │                            ╰──────────────────────────────────────────╯
- PREFIX  Ctrl+A … n new · x kill · R restart · d remove · r rename · y yolo · j/k agents · 1-9 jump
+ PREFIX  Ctrl+A … n new · o resume · x kill · R restart · d remove · r rename · y yolo · j/k agents

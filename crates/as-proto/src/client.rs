@@ -13,7 +13,8 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use as_core::paths::Paths;
-use as_core::{AppConfig, CreateAgentPayload, ModelId, ProviderId};
+use as_core::sessions::{ClaudeProfile, ListSessionsOptions, SessionSummary};
+use as_core::{AppConfig, CreateAgentPayload, ModelId, ProviderId, ProviderModelOption};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
@@ -349,6 +350,65 @@ impl DaemonClient {
     pub async fn status(&self) -> Result<DaemonStatus> {
         match self.request(Request::Status).await? {
             Response::Status(s) => Ok(s),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn list_sessions(&self, options: ListSessionsOptions) -> Result<Vec<SessionSummary>> {
+        match self.request(Request::ListSessions(options)).await? {
+            Response::Sessions(s) => Ok(s),
+            other => unexpected(other),
+        }
+    }
+
+    /// Returns the updated config.
+    pub async fn hide_session(&self, session_id: &str, hidden: bool) -> Result<AppConfig> {
+        match self
+            .request(Request::HideSession {
+                session_id: session_id.into(),
+                hidden,
+            })
+            .await?
+        {
+            Response::Config(c) => Ok(*c),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn list_claude_profiles(&self) -> Result<Vec<ClaudeProfile>> {
+        match self.request(Request::ListClaudeProfiles).await? {
+            Response::Profiles(p) => Ok(p),
+            other => unexpected(other),
+        }
+    }
+
+    /// Returns the updated config.
+    pub async fn set_project_profile(
+        &self,
+        project_dir: &str,
+        config_dir: Option<String>,
+    ) -> Result<AppConfig> {
+        match self
+            .request(Request::SetProjectProfile {
+                project_dir: project_dir.into(),
+                config_dir,
+            })
+            .await?
+        {
+            Response::Config(c) => Ok(*c),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn list_provider_models(
+        &self,
+        provider: ProviderId,
+    ) -> Result<Vec<ProviderModelOption>> {
+        match self
+            .request(Request::ListProviderModels { provider })
+            .await?
+        {
+            Response::Models(m) => Ok(m),
             other => unexpected(other),
         }
     }

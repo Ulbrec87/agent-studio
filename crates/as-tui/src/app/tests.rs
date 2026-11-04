@@ -1,5 +1,6 @@
 use super::*;
 use as_core::ProviderId;
+use as_core::sessions::{ClaudeProfile, SessionSummary};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub(crate) fn agent(id: &str, name: &str, dir: &str, status: AgentStatus) -> AgentState {
@@ -730,4 +731,456 @@ fn mouse_wheel_scrolls_and_clicks_select() {
     };
     app.handle_mouse(click);
     assert_eq!(app.selected.as_deref(), Some(id.as_str()));
+}
+
+// ── sessions, profiles, models (P4) ─────────────────────────────────────────
+
+fn sess(id: &str, provider: ProviderId, project: &str, prompt: &str) -> SessionSummary {
+    SessionSummary {
+        session_id: id.into(),
+        provider,
+        project_path: project.into(),
+        first_prompt: prompt.into(),
+        message_count: 4,
+        modified_at: chrono::Utc::now().to_rfc3339(),
+        ..Default::default()
+    }
+}
+
+fn profile(dir: &str, label: &str, is_default: bool) -> ClaudeProfile {
+    ClaudeProfile {
+        config_dir: dir.into(),
+        label: label.into(),
+        is_default,
+    }
+}
+
+fn two_profiles() -> Vec<ClaudeProfile> {
+    vec![
+        profile("/h/.claude", "default", true),
+        profile("/h/.claude-work", "work", false),
+    ]
+}
+
+fn type_text(app: &mut App, text: &str) {
+    for c in text.chars() {
+        app.handle_key(chr(c));
+    }
+}
+
+#[test]
+fn prefix_o_opens_the_picker_loads_sessions_and_resumes_the_pick() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().to_str().unwrap();
+    let mut app = two_agents();
+    let fx = prefix(&mut app, 'o');
+    assert_eq!(
+        fx,
+        vec![Effect::LoadSessions {
+            provider: ProviderId::Claude,
+            force: false
+        }]
+    );
+    assert!(matches!(&app.modal, Some(Modal::Resume(p)) if p.loading));
+    let fx = app.handle_msg(Msg::Sessions {
+        provider: ProviderId::Claude,
+        result: Ok(vec![
+            sess("s-1", ProviderId::Claude, project, "fix the bug"),
+            sess("s-2", ProviderId::Claude, "/p1", "other"),
+        ]),
+    });
+    assert!(fx.is_empty());
+    // Enter picks the first (newest first order is the daemon's; both are "now").
+    let fx = app.handle_key(key(KeyCode::Enter));
+    let [Effect::CreateAgent(p)] = &fx[..] else {
+        panic!("{fx:?}")
+    };
+    assert_eq!(p.resume_session_id.as_deref(), Some("s-1"));
+    assert_eq!(p.project_dir, project);
+    assert_eq!(p.provider, ProviderId::Claude);
+    assert_eq!(p.name, "fix the bug");
+    assert_eq!(p.model, "sonnet");
+    assert!(
+        app.modal.is_none(),
+        "closed when the agent is being created"
+    );
+}
+
+#[test]
+fn picker_toggles_hide_reload_and_tab_provider_emit_effects() {
+    let mut app = two_agents();
+    prefix(&mut app, 'o');
+    app.handle_msg(Msg::Sessions {
+        provider: ProviderId::Claude,
+        result: Ok(vec![sess("s-1", ProviderId::Claude, "/p1", "hello")]),
+    });
+    assert_eq!(
+        app.handle_key(chr('h')),
+        vec![Effect::HideSession("s-1".into(), true)]
+    );
+    assert!(matches!(&app.modal, Some(Modal::Resume(p)) if p.visible_len() == 0));
+    assert_eq!(
+        app.handle_key(chr('r')),
+        vec![Effect::LoadSessions {
+            provider: ProviderId::Claude,
+            force: true
+        }]
+    );
+    assert_eq!(
+        app.handle_key(key(KeyCode::Tab)),
+        vec![Effect::LoadSessions {
+            provider: ProviderId::Codex,
+            force: false
+        }]
+    );
+    // An answer for the provider we left is ignored; Esc closes.
+    app.handle_msg(Msg::Sessions {
+        provider: ProviderId::Claude,
+        result: Ok(vec![sess("x", ProviderId::Claude, "/p1", "late")]),
+    });
+    assert!(matches!(&app.modal, Some(Modal::Resume(p)) if p.visible_len() == 0 && p.loading));
+    assert!(app.handle_key(key(KeyCode::Esc)).is_empty());
+    assert!(app.modal.is_none());
+}
+
+#[test]
+fn resuming_into_a_missing_directory_keeps_the_picker_and_toasts() {
+    let mut app = two_agents();
+    prefix(&mut app, 'o');
+    app.handle_msg(Msg::Sessions {
+        provider: ProviderId::Claude,
+        result: Ok(vec![sess(
+            "s-1",
+            ProviderId::Claude,
+            "/definitely/gone",
+            "x",
+        )]),
+    });
+    assert!(app.handle_key(key(KeyCode::Enter)).is_empty());
+    assert!(matches!(app.modal, Some(Modal::Resume(_))));
+    assert!(
+        app.toasts
+            .iter()
+            .any(|t| t.body.contains("no longer exists"))
+    );
+}
+
+#[test]
+fn picker_filter_mode_types_into_the_query() {
+    let mut app = two_agents();
+    prefix(&mut app, 'o');
+    app.handle_msg(Msg::Sessions {
+        provider: ProviderId::Claude,
+        result: Ok(vec![
+            sess("s-1", ProviderId::Claude, "/p1", "login form"),
+            sess("s-2", ProviderId::Claude, "/p1", "billing docs"),
+        ]),
+    });
+    app.handle_key(chr('/'));
+    type_text(&mut app, "bill");
+    let Some(Modal::Resume(p)) = &app.modal else {
+        panic!()
+    };
+    assert_eq!(
+        p.visible()
+            .map(|s| s.session_id.as_str())
+            .collect::<Vec<_>>(),
+        ["s-2"]
+    );
+    app.handle_paste(" docs");
+    let Some(Modal::Resume(p)) = &app.modal else {
+        panic!()
+    };
+    assert_eq!(p.query.text(), "bill docs");
+}
+
+fn open_form_resume(app: &mut App) {
+    prefix(app, 'n');
+    let Some(Modal::NewAgent(form)) = &mut app.modal else {
+        panic!()
+    };
+    form.field = crate::new_agent::Field::Resume;
+}
+
+#[test]
+fn the_dialog_resume_field_fills_project_and_provider_and_creates_with_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().to_str().unwrap();
+    let mut app = two_agents();
+    open_form_resume(&mut app);
+    let fx = app.handle_key(chr(' '));
+    assert_eq!(
+        fx,
+        vec![Effect::LoadSessions {
+            provider: ProviderId::Claude,
+            force: false
+        }]
+    );
+    app.handle_msg(Msg::Sessions {
+        provider: ProviderId::Claude,
+        result: Ok(vec![sess(
+            "s-9",
+            ProviderId::Codex,
+            project,
+            "port the parser",
+        )]),
+    });
+    // Enter picks (it does not submit the dialog).
+    let fx = app.handle_key(key(KeyCode::Enter));
+    assert!(
+        fx.contains(&Effect::LoadModels(ProviderId::Codex)),
+        "{fx:?}"
+    );
+    let Some(Modal::NewAgent(form)) = &app.modal else {
+        panic!("dialog closed")
+    };
+    assert!(form.picker.is_none());
+    assert_eq!(form.provider, ProviderId::Codex, "the session's provider");
+    assert_eq!(form.name.text(), "port the parser");
+    assert!(
+        form.dir
+            .text()
+            .ends_with(dir.path().file_name().unwrap().to_str().unwrap())
+    );
+    // Enter creates it.
+    let fx = app.handle_key(key(KeyCode::Enter));
+    let [Effect::CreateAgent(p)] = &fx[..] else {
+        panic!("{fx:?}")
+    };
+    assert_eq!(p.resume_session_id.as_deref(), Some("s-9"));
+    assert_eq!(p.provider, ProviderId::Codex);
+    assert_eq!(p.project_dir, project);
+}
+
+#[test]
+fn changing_provider_drops_a_picked_session_and_backspace_clears_it() {
+    let mut app = two_agents();
+    open_form_resume(&mut app);
+    let Some(Modal::NewAgent(form)) = &mut app.modal else {
+        panic!()
+    };
+    form.apply_session(sess("s-1", ProviderId::Claude, "/p1", "x"));
+    assert!(form.resume.is_some());
+    form.field = crate::new_agent::Field::Provider;
+    app.handle_key(key(KeyCode::Right));
+    let Some(Modal::NewAgent(form)) = &mut app.modal else {
+        panic!()
+    };
+    assert!(form.resume.is_none(), "the session belongs to Claude");
+    form.apply_session(sess("s-2", ProviderId::Codex, "/p1", "y"));
+    form.field = crate::new_agent::Field::Resume;
+    app.handle_key(key(KeyCode::Backspace));
+    let Some(Modal::NewAgent(form)) = &app.modal else {
+        panic!()
+    };
+    assert!(form.resume.is_none());
+}
+
+#[test]
+fn the_dialog_picker_esc_returns_to_the_dialog() {
+    let mut app = two_agents();
+    open_form_resume(&mut app);
+    app.handle_key(chr(' '));
+    assert!(matches!(&app.modal, Some(Modal::NewAgent(f)) if f.picker.is_some()));
+    app.handle_key(key(KeyCode::Esc));
+    assert!(matches!(&app.modal, Some(Modal::NewAgent(f)) if f.picker.is_none()));
+}
+
+#[test]
+fn profile_field_shows_with_several_profiles_and_maps_the_project_on_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().to_str().unwrap().to_string();
+    let mut app = two_agents();
+    app.config
+        .claude_profile_by_project
+        .insert(project.clone(), "/h/.claude-work".into());
+    // One profile: no field.
+    app.handle_msg(Msg::Profiles(vec![profile("/h/.claude", "default", true)]));
+    prefix(&mut app, 'n');
+    let Some(Modal::NewAgent(form)) = &mut app.modal else {
+        panic!()
+    };
+    assert!(!form.fields().contains(&crate::new_agent::Field::Profile));
+    form.dir.set_text(&project);
+
+    // Two profiles: shown, defaulting to the project's mapping.
+    app.handle_msg(Msg::Profiles(two_profiles()));
+    let Some(Modal::NewAgent(form)) = &mut app.modal else {
+        panic!()
+    };
+    form.set_profiles(two_profiles());
+    assert!(form.fields().contains(&crate::new_agent::Field::Profile));
+    assert_eq!(form.profile_idx, 1, "work");
+    // Unchanged -> plain create.
+    let fx = app.handle_key(key(KeyCode::Enter));
+    assert!(matches!(&fx[..], [Effect::CreateAgent(_)]), "{fx:?}");
+
+    // Pick the default profile -> map first, then create.
+    let mut app = two_agents();
+    app.handle_msg(Msg::Profiles(two_profiles()));
+    prefix(&mut app, 'n');
+    let Some(Modal::NewAgent(form)) = &mut app.modal else {
+        panic!()
+    };
+    form.dir.set_text(&project);
+    form.field = crate::new_agent::Field::Profile;
+    app.handle_key(key(KeyCode::Right));
+    let fx = app.handle_key(key(KeyCode::Enter));
+    let [
+        Effect::CreateAgentWithProfile {
+            project_dir,
+            config_dir,
+            payload,
+        },
+    ] = &fx[..]
+    else {
+        panic!("{fx:?}")
+    };
+    assert_eq!(project_dir, &project);
+    assert_eq!(config_dir, "/h/.claude-work");
+    assert_eq!(payload.project_dir, project);
+}
+
+#[test]
+fn a_resumed_session_never_changes_the_project_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().to_str().unwrap();
+    let mut app = two_agents();
+    app.handle_msg(Msg::Profiles(two_profiles()));
+    prefix(&mut app, 'n');
+    let Some(Modal::NewAgent(form)) = &mut app.modal else {
+        panic!()
+    };
+    form.field = crate::new_agent::Field::Profile;
+    form.profile_idx = 1;
+    form.apply_session(sess("s-1", ProviderId::Claude, project, "x"));
+    let fx = app.handle_key(key(KeyCode::Enter));
+    assert!(matches!(&fx[..], [Effect::CreateAgent(_)]), "{fx:?}");
+}
+
+#[test]
+fn prefix_p_chooses_a_profile_for_the_project() {
+    let mut app = two_agents();
+    app.handle_msg(Msg::Profiles(two_profiles()));
+    app.config
+        .claude_profile_by_project
+        .insert("/p1".into(), "/h/.claude-work".into());
+    let fx = prefix(&mut app, 'P');
+    assert_eq!(fx, vec![Effect::LoadProfiles]);
+    let Some(Modal::Profile(c)) = &app.modal else {
+        panic!()
+    };
+    assert_eq!(c.project_dir, "/p1");
+    assert_eq!(c.choices.len(), 3);
+    assert_eq!(c.idx, 2, "the current mapping is preselected");
+    app.handle_key(key(KeyCode::Up));
+    let fx = app.handle_key(key(KeyCode::Enter));
+    assert_eq!(
+        fx,
+        vec![Effect::SetProjectProfile {
+            project_dir: "/p1".into(),
+            config_dir: Some(String::new())
+        }]
+    );
+    assert!(app.modal.is_none());
+    // The "no mapping" entry removes it.
+    prefix(&mut app, 'P');
+    app.handle_key(key(KeyCode::Down)); // wraps from the last entry to the first
+    let fx = app.handle_key(key(KeyCode::Enter));
+    assert_eq!(
+        fx,
+        vec![Effect::SetProjectProfile {
+            project_dir: "/p1".into(),
+            config_dir: None
+        }]
+    );
+}
+
+#[test]
+fn prefix_p_in_sidebar_targets_the_header_under_the_cursor() {
+    let mut app = two_agents();
+    app.handle_key(ctrl_a());
+    app.handle_key(chr('s'));
+    app.sidebar.cursor = Some(RowKey::Header("/p2".into()));
+    app.handle_key(chr('P'));
+    assert!(matches!(&app.modal, Some(Modal::Profile(c)) if c.project_dir == "/p2"));
+}
+
+#[test]
+fn profile_chip_only_for_non_default_profiles() {
+    let mut app = two_agents();
+    app.profiles = two_profiles();
+    app.config
+        .claude_profile_by_project
+        .insert("/p1".into(), "/h/.claude-work".into());
+    app.config
+        .claude_profile_by_project
+        .insert("/p2".into(), String::new());
+    app.config
+        .claude_profile_by_project
+        .insert("/p3".into(), "/h/.claude".into());
+    assert_eq!(app.profile_chip("/p1/sub").as_deref(), Some("work"));
+    assert_eq!(app.profile_chip("/p2"), None, "explicit default");
+    assert_eq!(app.profile_chip("/p3"), None, "default by path");
+    assert_eq!(app.profile_chip("/other"), None);
+    app.config
+        .claude_profile_by_project
+        .insert("/p4".into(), "/gone".into());
+    assert_eq!(
+        app.profile_chip("/p4").as_deref(),
+        Some("/gone"),
+        "missing profile: raw path"
+    );
+}
+
+#[test]
+fn models_come_from_the_daemon_and_follow_the_provider() {
+    let mut app = two_agents();
+    let fx = prefix(&mut app, 'n');
+    assert!(
+        fx.contains(&Effect::LoadModels(ProviderId::Claude)),
+        "{fx:?}"
+    );
+    let discovered = vec![
+        ProviderModelOption {
+            id: "opus-9".into(),
+            label: "Opus 9".into(),
+            ..Default::default()
+        },
+        ProviderModelOption {
+            id: "sonnet".into(),
+            label: "Sonnet".into(),
+            ..Default::default()
+        },
+    ];
+    app.handle_msg(Msg::Models {
+        provider: ProviderId::Claude,
+        models: discovered.clone(),
+    });
+    let Some(Modal::NewAgent(form)) = &mut app.modal else {
+        panic!()
+    };
+    assert_eq!(form.model_options().len(), 2);
+    assert_eq!(form.model(), "sonnet", "the preferred model stays selected");
+    // Another provider asks for its own list; a stale answer is ignored.
+    form.field = crate::new_agent::Field::Provider;
+    let fx = app.handle_key(key(KeyCode::Right));
+    assert_eq!(fx, vec![Effect::LoadModels(ProviderId::Codex)]);
+    app.handle_msg(Msg::Models {
+        provider: ProviderId::Claude,
+        models: discovered,
+    });
+    let Some(Modal::NewAgent(form)) = &app.modal else {
+        panic!()
+    };
+    assert_eq!(form.provider, ProviderId::Codex);
+    assert!(form.model_options().iter().all(|m| m.id.starts_with("gpt")));
+    // A reopened dialog uses the cache right away.
+    app.modal = None;
+    let fx = prefix(&mut app, 'n');
+    assert!(fx.contains(&Effect::LoadModels(ProviderId::Claude)));
+    let Some(Modal::NewAgent(form)) = &app.modal else {
+        panic!()
+    };
+    assert_eq!(form.model_options()[0].id, "opus-9");
 }

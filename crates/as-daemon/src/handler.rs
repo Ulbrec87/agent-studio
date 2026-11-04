@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use as_core::sessions::profiles;
 use as_core::{AgentManager, MAX_CONCURRENT_AGENTS_HARD_LIMIT, ProviderId};
 use as_proto::message::PROTOCOL_VERSION;
 use as_proto::{DaemonStatus, HelloInfo, ProviderPreflight, Request, Response};
@@ -137,6 +138,64 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
         Request::ClientFocus(focused) => {
             daemon.registry.set_focus(client, focused);
             Ok(Response::Ok)
+        }
+        Request::ListSessions(options) => {
+            let daemon = daemon.clone();
+            let sessions =
+                tokio::task::spawn_blocking(move || daemon.list_sessions_blocking(&options))
+                    .await
+                    .map_err(|e| format!("session scan failed: {e}"))?;
+            Ok(Response::Sessions(sessions))
+        }
+        Request::HideSession { session_id, hidden } => {
+            let session_id = session_id.trim().to_string();
+            if session_id.is_empty() {
+                return Err("session id is empty".into());
+            }
+            daemon
+                .config
+                .modify(|c| {
+                    c.hidden_session_ids.retain(|id| *id != session_id);
+                    if hidden {
+                        c.hidden_session_ids.push(session_id.clone());
+                    }
+                })
+                .map(|c| Response::Config(Box::new(c)))
+                .map_err(|e| e.to_string())
+        }
+        Request::ListClaudeProfiles => {
+            let profiles = tokio::task::spawn_blocking(profiles::list_profiles_from_env)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(Response::Profiles(profiles))
+        }
+        Request::SetProjectProfile {
+            project_dir,
+            config_dir,
+        } => {
+            let dir = project_dir.trim();
+            let dir = if dir.len() > 1 {
+                dir.trim_end_matches(['/', '\\'])
+            } else {
+                dir
+            };
+            if dir.is_empty() {
+                return Err("project directory is empty".into());
+            }
+            daemon
+                .config
+                .modify(|c| {
+                    c.claude_profile_by_project = profiles::with_profile(
+                        &c.claude_profile_by_project,
+                        dir,
+                        config_dir.as_deref(),
+                    );
+                })
+                .map(|c| Response::Config(Box::new(c)))
+                .map_err(|e| e.to_string())
+        }
+        Request::ListProviderModels { provider } => {
+            Ok(Response::Models(daemon.models.list(provider).await))
         }
         Request::Shutdown { stop_agents } => {
             if !stop_agents && m.active_count() > 0 {

@@ -93,10 +93,16 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             } => {
                 let arrow = if *collapsed { "\u{25B8}" } else { "\u{25BE}" };
                 let count_text = format!(" {count}");
+                // A small chip names the Claude profile of the project unless it is the default.
+                let chip = (key != sidebar::MANAGER_GROUP)
+                    .then(|| app.profile_chip(key))
+                    .flatten()
+                    .map(|label| format!(" [{label}]"));
+                let chip_w = chip.as_ref().map_or(0, |c| c.chars().count());
                 // " ▾ " in front and the count behind: the path gives way, from the left.
-                let room =
-                    usize::from(inner.width).saturating_sub(3 + count_text.chars().count() + 1);
-                vec![
+                let room = usize::from(inner.width)
+                    .saturating_sub(3 + count_text.chars().count() + chip_w + 1);
+                let mut spans = vec![
                     Span::styled(format!(" {arrow} "), Style::default().fg(t.text_muted)),
                     Span::styled(
                         fit_left(&sidebar::group_label(key), room),
@@ -104,8 +110,12 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                             .fg(t.text_secondary)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(count_text, Style::default().fg(t.text_muted)),
-                ]
+                ];
+                if let Some(chip) = chip {
+                    spans.push(Span::styled(chip, Style::default().fg(t.accent)));
+                }
+                spans.push(Span::styled(count_text, Style::default().fg(t.text_muted)));
+                spans
             }
             Row::Agent(idx) => {
                 let a = &app.agents[*idx];

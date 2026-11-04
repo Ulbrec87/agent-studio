@@ -9,20 +9,21 @@ Update the row (and add new rows) in the same commit that ports the code.
 | `electron/config/ConfigStore.ts` | `as-core::config::ConfigStore` | P1 | done |
 | `electron/config/KeybindingStore.ts`, `shared/keybindings.ts` | `as-core::keybindings` (+ TUI key parsing in `as-tui::keymap`) | P5 | todo |
 | `electron/agents/providers.ts` | `as-core::agents::providers` | P1 | done |
-| `electron/agents/ProviderModelCatalog.ts` | `as-core::agents::model_catalog` | P4 | todo |
+| `electron/agents/ProviderModelCatalog.ts` | `as-core::agents::model_catalog` (+ `ListProviderModels`) | P4 | done (discovered list replaces the built-in one, which stays the fallback; failures cached 30 s) |
 | `electron/agents/shellWrapper.ts` | `as-core::agents::shell` | P1 | done |
 | `electron/agents/agentEnv.ts` | `as-core::agents::env` | P1 | done |
 | `electron/util/fix-path.ts` | `as-core::agents::shell` (login-shell PATH) | P1 | done (`shell::fixed_path` returns the PATH; daemon applies it in P2) |
-| `electron/agents/AgentManager.ts` | `as-core::agents::manager` | P1 | wip — session discovery/import → P4, worktree → P10 (`SessionLocator` hook, `TODO(P4)`/`TODO(P10)`) |
+| `electron/agents/AgentManager.ts` | `as-core::agents::manager` (+ `agents::startup` trust-prompt gate) | P1/P4 | wip — session discovery (`SessionLocator`, backoff) and `import_sessions` done in P4; worktree → P10 (`TODO(P10)`) |
 | `shared/terminalModelDetection.ts` | `as-core::agents::model_detect` | P1 | done |
 | `electron/workspace/WorkspaceStore.ts` | `as-core::workspace` | P1 | done |
 | `electron/daemon/*` (protocol, server, client, lock, lifecycle) | `as-proto` (messages, codec, client, lifecycle, lock), `as-daemon` (server, registry, handler) ; TUI uses `as_proto::DaemonClient` | P2 | done (no notifications/MCP/overview/usage/headless yet) |
 | `electron/daemon/DaemonNotificationService.ts`, `notifications/*` | `as-daemon::notifications` (`Event::Notification`, `Request::ClientFocus`, OS notifications via `notify-rust`, feature `desktop-notifications`) | P3 | done (Overview-tracker `needs-you` source arrives with P6; no headless/usage notifications yet) |
-| `src/components/{Sidebar,ChatView,Header,NewAgent,Notifications}` | `as-tui::ui::{sidebar,chat,header,dialogs,toasts,footer}`, `as-tui::{app,new_agent,sidebar,keymap,theme}` | P3 | done (no session resume field, no filter chips/sort, no profile chip) |
+| `src/components/{Sidebar,ChatView,Header,NewAgent,Notifications}`, `useClaudeProfiles`, `ClaudeProfileOptions` (P4: `as-tui::{sessions, new_agent}`, `ui::dialogs`) | `as-tui::ui::{sidebar,chat,header,dialogs,toasts,footer}`, `as-tui::{app,new_agent,sidebar,keymap,theme}` | P3 | done (resume + profile added in P4; no filter chips/sort) |
 | `src/components/Terminal/TerminalPane.tsx` (xterm.js) | `as-tui::term::{vt,render,keys}` (vt100 behind `TerminalEmulator`, own cell renderer: `tui-term` not used) | P3 | done |
 | `src/hooks/{useNotifications,useNeedsYouTitle}.ts`, quit dialog in `App.tsx` | `as-tui::app` (toasts, `(N) Agent Studio` title, bell, quit dialog) | P3 | done |
-| `electron/sessions/SessionCatalog.ts`, `CodexSessionCatalog.ts`, `TranscriptReader.ts` | `as-core::sessions` | P4 | todo |
-| `electron/sessions/claudeProfiles.ts`, `shared/claudeProfiles.ts` | `as-core::sessions::profiles` | P4 | todo |
+| `electron/sessions/SessionCatalog.ts`, `CodexSessionCatalog.ts`, `TranscriptReader.ts` | `as-core::sessions::{claude, codex, transcript}` (+ `locator` = `probeSessionIdFromCatalog`) | P4 | done (per-file mtime/size cache on top of the 5 s snapshot; sidechains and duplicate session files left out) |
+| `electron/sessions/claudeProfiles.ts`, `shared/claudeProfiles.ts` | `as-core::sessions::profiles` | P4 | done |
+| session/config handlers of `electron/ipc/handlers.ts`, startup import in `electron/daemon/index.ts` | `as-proto` requests `ListSessions`/`HideSession`/`ListClaudeProfiles`/`SetProjectProfile`/`ListProviderModels`, `as-daemon::{handler, services}` | P4 | done (startup import also honours `sessionMaxAgeDays`) |
 | `src/components/GridView/*` | `as-tui::views::grid` | P5 | todo |
 | `src/components/CommandPalette`, `Shortcuts` | `as-tui::views::{palette,help}` | P5 | todo |
 | `electron/overview/*`, `shared/overview/*` | `as-core::overview` | P6 | todo |

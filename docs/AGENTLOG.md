@@ -81,10 +81,44 @@ Format: `## <short title>` + what happened + what to do instead.
   canvas (min 80x40) and copied back, so tiny terminals clip instead of crashing.
 - **Panic hook only restores on the main thread**, otherwise a panic in a background task would leave raw mode while the app lives.
 - **Claude's trust prompt vs `/rename`.** On a folder Claude does not trust yet ("Is this a project you trust?", default
-  `No, exit`), Hydra's delayed `/rename <name>\r` presses Enter on "No, exit" and the agent ends as `errored`. Use a folder that
-  was trusted once (run `claude` there) or fix in P4/P10 (detect the prompt before renaming).
+  `No, exit`), Hydra's delayed `/rename <name>\r` presses Enter on "No, exit" and the agent ends as `errored`. *Fixed in P4*
+  (see "Trust prompt gate" below).
 - **`agent-studio status`/`ls` start a daemon** when none runs (by design, `ensure_daemon`): after `stop` do not call them
   when you want to verify the daemon is gone; check the lock file / `pgrep -x agent-studio` instead. Do not `pkill -f` a
   pattern that appears in your own shell command line.
 - **tmux for TUI checks.** `tmux new-session -d -x 130 -y 36 'AGENT_STUDIO_HOME=… agent-studio'` + `tmux send-keys` /
   `tmux capture-pane -p` is enough to drive the TUI (use `C-a` for the prefix); tmux has `focus-events` off by default.
+
+## P4 (sessions) gotchas
+
+- **Trust prompt gate (`agents::startup::TrustGate`).** Claude's startup input (`/rename`, initial prompt) is held while the
+  "Is this a project you created or one you trust?" / "Yes, I trust this folder" dialog is on the agent's output
+  (ANSI stripped, compared with all non-alphanumerics removed, because the UI places words with cursor moves). Released when
+  (1) the user answered (Enter or a digit; arrow keys only move the selection and never release), (2) new output arrived
+  after the answer that no longer shows the dialog and has >= 40 visible characters (the real UI), and (3) 1.5 s passed
+  with no redraw of the dialog. Not released within 5 min: the held writes are dropped with a `warn` log; the process
+  exiting drops them silently. Without a dialog the writes go out on Hydra's schedule once the CLI printed anything
+  (or after 10 s of silence). `rename_agent` on a running Claude defers its `/rename` the same way. Only Claude is gated.
+  Other first-run dialogs (MCP server approval, API-key prompt) are not detected. Verified by hand with a real
+  untrusted folder: the dialog stays up, no exit, `/rename` and the prompt arrive after "Yes".
+- **Session-id regexes tightened.** Hydra's `session[ _-]?id?[:=\s]+([a-z0-9-]{8,})` also took "session management" ->
+  "management". Claude now needs a UUID after "session id", OpenCode a `ses_<10+ alphanumerics>` id anywhere. The generic
+  "any UUID in the output" fallback was **removed** (it adopted UUIDs from the conversation); the catalog discovery is the
+  real source. The regex runs on ANSI-stripped text (a colored "Session ID:" label used to break it).
+- **Discovery polls the catalog, never under a lock.** The manager asks the `SessionLocator` from `spawn_blocking`
+  (immediately with a forced rescan, then 2.5 s x 1.6^n, max 30 s); Claude stops once it has an id, Codex keeps checking
+  until its session was modified since this run started (resume creates a new rollout). Imported agents never discover.
+- **The Claude profile resolver runs under the manager lock** (called while spawning), so it must stay cheap: it looks for
+  `<id>.jsonl` directly in each profile's `projects/*` (no catalog scan) and only then falls back to the project mapping.
+- **Claude leaves `<id>.orphaned-<ts>.jsonl` copies** next to sessions; their header has the original session id, so the
+  catalog dedupes by session id (newest wins). First lines can also be huge: only the first 256 KB of a transcript are
+  parsed for the header (a session whose id/cwd are not in that head is skipped), message counts read at most 8 MB.
+- **Fuzzy picker.** `nucleo-matcher` matches letters scattered over long prompts, so short queries match many rows; the
+  list is sorted by score, and a new query must reset the cursor to the top (keeping the old selection scrolled the best
+  match out of view). Typing is only a command in filter mode (`/`); in list mode `h a p s r j k` are commands.
+- **Unix socket paths are limited to ~104 bytes** (`sun_path`): a test `AGENT_STUDIO_HOME` inside the long scratchpad path
+  fails with "local socket name length exceeds capacity"; use `/tmp/as4h`-like short homes for manual runs.
+- **Stop the TUI before `stop --force`.** A TUI that is still open reconnects and starts a new daemon right after it was
+  stopped; quit the tmux session (or the TUI) first, then stop the daemon, then check with `pgrep -f 'daemon --home <dir>'`.
+- **`CLAUDE_CONFIG_DIR` of the shell leaks into agents.** With it set (e.g. to `~/.claude-work`) new Claude sessions are
+  saved in that profile; discovery looks in every profile so it still finds them, and `claudeProfileByProject` overrides it.

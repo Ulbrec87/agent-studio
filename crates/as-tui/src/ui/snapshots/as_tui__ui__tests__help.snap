@@ -7,12 +7,13 @@ expression: text(&t)
    ● manager       running │ attaching…
  ▾ /work/api 3             │
    ● api-refactor  running │
-   ● tests !       running │
-   ○ migratio╭ Key bindings ──────────────────────────────────────────────────────────╮
- ▾ /work/web │ Prefix: Ctrl+A  then a key (all other keys go to the agent):           │
-   ✖ ui-fix  │                                                                        │
-   ◌ boot    │  Ctrl+A Ctrl+A / a    send the prefix key to the agent                 │
-             │  Ctrl+A n             new agent                                        │
+   ● tests ! ╭ Key bindings ──────────────────────────────────────────────────────────╮
+   ○ migratio│ Prefix: Ctrl+A  then a key (all other keys go to the agent):           │
+ ▾ /work/web │                                                                        │
+   ✖ ui-fix  │  Ctrl+A Ctrl+A / a    send the prefix key to the agent                 │
+   ◌ boot    │  Ctrl+A n             new agent                                        │
+             │  Ctrl+A o             resume session…                                  │
+             │  Ctrl+A P             Claude profile of the project                    │
              │  Ctrl+A x             kill agent (stop its process)                    │
              │  Ctrl+A R             restart agent                                    │
              │  Ctrl+A d / Del       remove agent                                     │
@@ -22,13 +23,12 @@ expression: text(&t)
              │  Ctrl+A j / Down      next agent                                       │
              │  Ctrl+A k / Up        previous agent                                   │
              │  Ctrl+A 1-9           jump to agent 1                                  │
-             │  Ctrl+A s             focus the sidebar                                │
-             │  Ctrl+A [             scroll mode (scrollback)                         │────────────╮
-             │  Ctrl+A i             toggle the input bar                             │            │
-             │  Ctrl+A <             narrower sidebar                                 │put         │
-             │  Ctrl+A >             wider sidebar                                    │────────────╯
-             │  Ctrl+A Esc           dismiss notifications                            │────────────╮
+             │  Ctrl+A s             focus the sidebar                                │────────────╮
+             │  Ctrl+A [             scroll mode (scrollback)                         │            │
+             │  Ctrl+A i             toggle the input bar                             │put         │
+             │  Ctrl+A <             narrower sidebar                                 │────────────╯
+             │  Ctrl+A >             wider sidebar                                    │────────────╮
+             │  Ctrl+A Esc           dismiss notifications                            │            │
              │  Ctrl+A ?             this help                                        │            │
-             │  Ctrl+A q             quit                                             │            │
- / filter…   │                                                                        │────────────╯
- HELP  any ke│  Sidebar focus: j/k move · Enter attach · Space fold · / filter · Esc  │
+ / filter…   │  Ctrl+A q             quit                                             │────────────╯
+ HELP  any ke│                                                                        │

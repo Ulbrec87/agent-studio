@@ -6,6 +6,7 @@
 pub mod agents;
 pub mod config;
 pub mod paths;
+pub mod sessions;
 pub mod types;
 pub mod usage_settings;
 pub mod util;

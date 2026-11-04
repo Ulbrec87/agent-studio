@@ -32,11 +32,30 @@
   * `Request` (P2): `Hello`, `Ping`, `ListAgents`, `GetAgent`, `CreateAgent`, `KillAgent`, `RemoveAgent`,
     `RestartAgent`, `SendInput` (submit queue), `SendRaw` (bytes), `Resize`, `Broadcast`, `RenameAgent`, `SetModel`,
     `ToggleYolo`, `SetGlobalYolo`, `Subscribe`, `Unsubscribe`, `GetConfig`, `UpdateConfig` (JSON patch), `Preflight`,
-    `Status`, `Shutdown { stop_agents }`, `ClientFocus(bool)` (P3).
+    `Status`, `Shutdown { stop_agents }`, `ClientFocus(bool)` (P3),
+    `ListSessions(ListSessionsOptions)`, `HideSession { session_id, hidden }`, `ListClaudeProfiles`,
+    `SetProjectProfile { project_dir, config_dir }`, `ListProviderModels { provider }` (P4, see *Sessions* below).
   * `Response`: `Ok`, `Pong`, `Flag(bool)`, `Hello(HelloInfo)`, `Agents`, `Agent(Option)`, `Ids`, `Buffer { data }`,
-    `Config`, `Preflight`, `Status`.
+    `Config`, `Preflight`, `Status`, `Sessions`, `Profiles`, `Models` (P4).
   * `Event`: `AgentOutput { agent_id, data }`, `AgentStatus { agent_id, status, session_id, model }`, `AgentWaiting`,
     `AgentsChanged`, `ConfigChanged`, `DaemonShuttingDown`, `Notification(StudioNotification)` (P3). New phases add variants only.
+* **Sessions (P4)**: `ListSessions` returns `SessionSummary`s (camelCase like Hydra's `ClaudeSessionSummary`, plus
+  `provider` and `hidden`) newest first; the daemon scans off the async runtime (`spawn_blocking`) and adds the config's
+  `hiddenSessionIds` (hidden sessions are left out unless `includeHidden`). Filters: provider, `limit`, `maxAgeDays`,
+  `projectPathPrefix`, `query` (all words, case-insensitive), `includeSidechains`, `forceRefresh`. OpenCode has no
+  catalog (empty list). `HideSession` and `SetProjectProfile` edit the config under its lock and answer `Config`
+  (the change is also pushed as `ConfigChanged`). `SetProjectProfile.config_dir`: a dir, `""` = default profile, `None`
+  removes the mapping. `CreateAgent` with `resume_session_id` resumes that session; for Claude the profile is the one
+  that owns the session file, otherwise the project mapping (`claudeProfileByProject`, longest prefix wins).
+  `ListProviderModels` merges nothing: discovered models (`codex app-server`, `opencode models --verbose`) replace the
+  built-in list, which is the fallback (Claude: built-in aliases only); cached 5 min (failures 30 s).
+* **Startup import**: after the daemon is up, when `importSessionsOnStartup` is set, every catalog's sessions
+  (`sessionImportLimit`, `sessionMaxAgeDays`, `sessionImportProjectPrefix`, minus `hiddenSessionIds`, minus sessions
+  without prompt and messages) become idle `sess-<id8>` agents without process, each with the provider that saved it; they
+  are not persisted in `workspace.json` and the first input resumes them.
+* **Session-id discovery**: after every spawn the manager asks the `SessionLocator` (catalog based) at once and then after
+  2.5 s x 1.6^n (max 30 s) until it settles, the process exits or the daemon stops; a match is by project dir (prefix),
+  latest user prompt hint, or "modified since start - 5 min"; ids of other agents are skipped.
 * Requests of one connection are answered **in order** (so `SendRaw` keystrokes never reorder); use several
   connections or pipeline by id for parallelism.
 * Handshake: first request is `Hello { client_version }`; the reply carries daemon version, `PROTOCOL_VERSION` and pid.
@@ -78,17 +97,17 @@
 
 | Path | Used for |
 |------|----------|
-| `~/.claude*/projects/<slug>/<session>.jsonl` (+ `$CLAUDE_CONFIG_DIR`) | session catalog, resume, usage, transcript tail |
+| `~/.claude*/projects/<slug>/<session>.jsonl` (+ `$CLAUDE_CONFIG_DIR`, optional `sessions-index.json`) | session catalog (P4), resume, usage, transcript history |
 | `~/.claude*/sessions/<pid>.json` | live status / "needs you" (undocumented) |
 | `~/.claude*/.credentials.json` / macOS keychain | OAuth token for plan-limits endpoint |
-| `~/.codex/sessions/**/rollout-*.jsonl` | Codex session catalog + usage |
+| `~/.codex/sessions/**/rollout-*.jsonl` (`$CODEX_HOME`) | Codex session catalog (P4) + usage |
 | `~/.claude/settings.json`, `~/.claude/plugins`, `~/.codex/skills` | skills tab |
 
 ## Crates
 
 | Crate | Responsibility |
 |-------|---------------|
-| `as-core` | all domain services, synchronous or tokio-based, no UI, no socket |
+| `as-core` | all domain services, synchronous or tokio-based, no UI, no socket (`agents::{manager, startup, model_catalog}`, `sessions::{claude, codex, transcript, profiles, locator}`) |
 | `as-proto` | `Request`/`Response`/`Event` enums and frame codec helpers |
 | `as-daemon` | socket server, client registry, event fan-out, lock/lifecycle, MCP server, OS notifications |
 | `as-tui` | daemon client, app state, views, widgets, keymap, theme |

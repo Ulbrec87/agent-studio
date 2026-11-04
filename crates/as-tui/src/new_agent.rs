@@ -1,14 +1,20 @@
-//! State and logic of the "New agent" dialog (Hydra `NewAgentDialog.tsx`, minus session resume).
+//! State and logic of the "New agent" dialog (Hydra `NewAgentDialog.tsx`), including resuming a
+//! session (picker popup) and the Claude profile of the project.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use as_core::paths::{expand_tilde, tildify};
+use as_core::sessions::profiles::{config_dir_for_transcript, resolve_profile};
+use as_core::sessions::{ClaudeProfile, SessionSummary};
 use as_core::{
-    AppConfig, CODEX_REASONING_LEVELS, CreateAgentPayload, ModelId, ProviderId,
-    get_default_model_for_provider, is_valid_model_for_provider, provider_models,
+    AgentManager, AppConfig, CODEX_REASONING_LEVELS, CreateAgentPayload, ModelId, ProviderId,
+    ProviderModelOption, get_default_model_for_provider, is_valid_model_for_provider,
+    provider_models,
 };
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
+use crate::sessions::{PickerAction, PickerOrigin, SessionPicker};
 use crate::widgets::TextArea;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,17 +24,21 @@ pub enum Field {
     Provider,
     Model,
     Effort,
+    /// Claude profile of the project (only with more than one profile).
+    Profile,
     Yolo,
-    /// Resume a session: P4. Shown disabled, never focusable.
-    Session,
+    /// Resume a previous session (opens the session picker).
+    Resume,
     Prompt,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FormAction {
     None,
     Cancel,
     Submit,
+    /// The session picker inside the dialog wants something done (load, hide).
+    Picker(PickerAction),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,13 +58,27 @@ pub struct NewAgentForm {
     pub submitting: bool,
     /// Directory candidates of the last Tab completion (shown under the field).
     pub completions: Vec<String>,
+    /// Models offered for `provider` (the daemon's discovered list, the built-in one until then).
+    models: Vec<ProviderModelOption>,
+    models_provider: ProviderId,
+    /// Set when the provider changed: the app asks the daemon for its models.
+    pub models_wanted: Option<ProviderId>,
+    /// Claude profiles on this machine, and the project -> profile mapping of the config.
+    pub profiles: Vec<ClaudeProfile>,
+    profile_by_project: BTreeMap<String, String>,
+    /// Index into `profiles`.
+    pub profile_idx: usize,
+    profile_touched: bool,
+    /// The session to resume.
+    pub resume: Option<SessionSummary>,
+    pub picker: Option<Box<SessionPicker>>,
+    session_max_age_days: u32,
     /// The configured default model, preferred whenever the provider offers it.
     preferred: String,
     cwd: PathBuf,
 }
 
-fn default_model_index(provider: ProviderId, preferred: &str) -> usize {
-    let models = provider_models(provider);
+fn default_model_index(models: &[ProviderModelOption], preferred: &str) -> usize {
     models
         .iter()
         .position(|m| m.id == preferred)
@@ -66,7 +90,8 @@ impl NewAgentForm {
     /// `default_dir` is the selected agent's project, the config's default or the cwd.
     pub fn new(config: &AppConfig, default_dir: &str, cwd: &Path) -> Self {
         let provider = config.default_provider;
-        let idx = default_model_index(provider, &config.default_model);
+        let models = provider_models(provider);
+        let idx = default_model_index(&models, &config.default_model);
         let mut dir = TextArea::single_line(default_dir);
         dir.move_end();
         Self {
@@ -82,9 +107,115 @@ impl NewAgentForm {
             error: None,
             submitting: false,
             completions: Vec::new(),
+            models,
+            models_provider: provider,
+            models_wanted: Some(provider),
+            profiles: Vec::new(),
+            profile_by_project: config.claude_profile_by_project.clone(),
+            profile_idx: 0,
+            profile_touched: false,
+            resume: None,
+            picker: None,
+            session_max_age_days: config.session_max_age_days,
             preferred: config.default_model.clone(),
             cwd: cwd.to_path_buf(),
         }
+    }
+
+    /// The daemon's model list for `provider` (ignored when the provider changed meanwhile).
+    /// Keeps the selected model when it is still offered.
+    pub fn set_models(&mut self, provider: ProviderId, models: Vec<ProviderModelOption>) {
+        if provider != self.provider || models.is_empty() {
+            return;
+        }
+        let current = self
+            .model_idx
+            .and_then(|i| self.models.get(i))
+            .map(|m| m.id.clone());
+        let wanted = current.unwrap_or_else(|| self.preferred.clone());
+        self.model_idx = self
+            .model_idx
+            .map(|_| default_model_index(&models, &wanted));
+        self.models = models;
+        self.models_provider = provider;
+    }
+
+    /// The Claude profiles of this machine; selects the one mapped to the project.
+    pub fn set_profiles(&mut self, profiles: Vec<ClaudeProfile>) {
+        self.profiles = profiles;
+        self.profile_touched = false;
+        self.default_profile();
+    }
+
+    /// Select the profile the project is mapped to (or the default one).
+    fn default_profile(&mut self) {
+        if self.profile_touched || self.profiles.is_empty() {
+            return;
+        }
+        let dir = self.project_dir_text();
+        let mapped = resolve_profile(&dir, &self.profile_by_project);
+        self.profile_idx = self.profile_position(mapped.as_deref().unwrap_or(""));
+    }
+
+    /// Position of a mapped config dir (`""` = default) in `profiles`; the default when unknown.
+    fn profile_position(&self, mapped: &str) -> usize {
+        self.profiles
+            .iter()
+            .position(|p| {
+                if mapped.is_empty() {
+                    p.is_default
+                } else {
+                    p.config_dir == mapped
+                }
+            })
+            .or_else(|| self.profiles.iter().position(|p| p.is_default))
+            .unwrap_or(0)
+    }
+
+    fn project_dir_text(&self) -> String {
+        let text = self.dir.text();
+        let mut dir = expand_tilde(text.trim());
+        if dir.is_relative() {
+            dir = self.cwd.join(dir);
+        }
+        dir.to_string_lossy()
+            .trim_end_matches(['/', '\\'])
+            .to_string()
+    }
+
+    /// Does the dialog offer a profile choice?
+    pub fn shows_profile(&self) -> bool {
+        self.provider == ProviderId::Claude && self.profiles.len() > 1
+    }
+
+    /// The profile of the session being resumed (a resumed session lives in the profile that saved it).
+    pub fn resume_profile(&self) -> Option<&ClaudeProfile> {
+        let session = self.resume.as_ref()?;
+        let dir =
+            config_dir_for_transcript(Path::new(&session.source_path), &as_core::paths::home_dir());
+        self.profiles.iter().find(|p| {
+            if dir.is_empty() {
+                p.is_default
+            } else {
+                p.config_dir == dir
+            }
+        })
+    }
+
+    /// `(project_dir, config_dir)` to map before creating the agent, when the user picked a
+    /// profile other than the project's current one. `""` = the default profile.
+    pub fn profile_change(&self, project_dir: &str) -> Option<(String, String)> {
+        if !self.shows_profile() || self.resume.is_some() {
+            return None;
+        }
+        let chosen = self.profiles.get(self.profile_idx)?;
+        let chosen_dir = if chosen.is_default {
+            ""
+        } else {
+            chosen.config_dir.as_str()
+        };
+        let current = resolve_profile(project_dir, &self.profile_by_project).unwrap_or_default();
+        (chosen_dir != current).then(|| (project_dir.to_string(), chosen_dir.to_string()))
     }
 
     /// Focusable fields in order.
@@ -98,13 +229,21 @@ impl NewAgentForm {
         if self.provider == ProviderId::Codex {
             f.push(Field::Effort);
         }
+        if self.shows_profile() && self.resume.is_none() {
+            f.push(Field::Profile);
+        }
         f.push(Field::Yolo);
+        f.push(Field::Resume);
         f.push(Field::Prompt);
         f
     }
 
-    pub fn model_options(&self) -> Vec<as_core::ProviderModelOption> {
-        provider_models(self.provider)
+    pub fn model_options(&self) -> Vec<ProviderModelOption> {
+        if self.models_provider == self.provider {
+            self.models.clone()
+        } else {
+            provider_models(self.provider)
+        }
     }
 
     /// The model that would be created.
@@ -132,8 +271,12 @@ impl NewAgentForm {
         let fields = self.fields();
         let pos = fields.iter().position(|f| *f == self.field).unwrap_or(0);
         let next = (pos as isize + delta).rem_euclid(fields.len() as isize) as usize;
+        let left = self.field;
         self.field = fields[next];
         self.completions.clear();
+        if left == Field::ProjectDir && self.field != Field::ProjectDir {
+            self.default_profile();
+        }
     }
 
     fn set_provider(&mut self, provider: ProviderId) {
@@ -141,9 +284,16 @@ impl NewAgentForm {
             return;
         }
         self.provider = provider;
-        self.model_idx = Some(default_model_index(provider, &self.preferred));
+        self.models = provider_models(provider);
+        self.models_provider = provider;
+        self.models_wanted = Some(provider);
+        self.model_idx = Some(default_model_index(&self.model_options(), &self.preferred));
         self.model_text.clear();
         self.effort_idx = 0;
+        // A session belongs to the provider that saved it.
+        if self.resume.as_ref().is_some_and(|s| s.provider != provider) {
+            self.resume = None;
+        }
     }
 
     fn cycle_provider(&mut self, delta: isize) {
@@ -193,6 +343,9 @@ impl NewAgentForm {
         if key.kind == KeyEventKind::Release || self.submitting {
             return FormAction::None;
         }
+        if self.picker.is_some() {
+            return self.picker_key(key);
+        }
         let mods = key.modifiers;
         let ctrl = mods.contains(KeyModifiers::CONTROL);
         let alt = mods.contains(KeyModifiers::ALT) || mods.contains(KeyModifiers::SHIFT);
@@ -241,10 +394,20 @@ impl NewAgentForm {
                 KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(' ') => self.cycle_effort(1),
                 _ => self.nav(key),
             },
+            Field::Profile => match key.code {
+                KeyCode::Left | KeyCode::Char('h') => self.cycle_profile(-1),
+                KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(' ') => self.cycle_profile(1),
+                _ => self.nav(key),
+            },
             Field::Yolo => match key.code {
                 KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right | KeyCode::Char('y') => {
                     self.yolo = !self.yolo;
                 }
+                _ => self.nav(key),
+            },
+            Field::Resume => match key.code {
+                KeyCode::Char(' ' | 'o') | KeyCode::Right => return self.open_picker(),
+                KeyCode::Backspace | KeyCode::Delete | KeyCode::Left => self.resume = None,
                 _ => self.nav(key),
             },
             Field::Prompt => {
@@ -252,9 +415,66 @@ impl NewAgentForm {
                     self.move_field(-1);
                 }
             }
-            Field::Session => {}
         }
         FormAction::None
+    }
+
+    fn cycle_profile(&mut self, delta: isize) {
+        let n = self.profiles.len() as isize;
+        if n > 0 {
+            self.profile_idx = (self.profile_idx as isize + delta).rem_euclid(n) as usize;
+            self.profile_touched = true;
+        }
+    }
+
+    /// Open the session picker for the dialog's provider and directory.
+    fn open_picker(&mut self) -> FormAction {
+        let picker = SessionPicker::new(
+            PickerOrigin::Form,
+            self.provider,
+            &self.project_dir_text(),
+            self.session_max_age_days,
+        );
+        self.picker = Some(Box::new(picker));
+        FormAction::Picker(PickerAction::Load {
+            provider: self.provider,
+            force: false,
+        })
+    }
+
+    fn picker_key(&mut self, key: &KeyEvent) -> FormAction {
+        let Some(picker) = self.picker.as_mut() else {
+            return FormAction::None;
+        };
+        match picker.handle_key(key) {
+            PickerAction::None => FormAction::None,
+            PickerAction::Cancel => {
+                self.picker = None;
+                FormAction::None
+            }
+            PickerAction::Pick(session) => {
+                self.picker = None;
+                self.apply_session(*session);
+                FormAction::None
+            }
+            other => FormAction::Picker(other),
+        }
+    }
+
+    /// A session was picked: its project and provider fill the dialog.
+    pub fn apply_session(&mut self, session: SessionSummary) {
+        if !session.project_path.is_empty() {
+            self.dir
+                .set_text(&tildify(Path::new(&session.project_path)));
+        }
+        self.set_provider(session.provider);
+        if self.name.is_empty() {
+            self.name.set_text(&AgentManager::generate_name(
+                &session.first_prompt,
+                &session.project_path,
+            ));
+        }
+        self.resume = Some(session);
     }
 
     /// Up/Down move between fields where the field itself has no use for them.
@@ -271,7 +491,7 @@ impl NewAgentForm {
         match key.code {
             KeyCode::Char('k') if ctrl => {
                 // Back to the catalog list.
-                self.model_idx = Some(default_model_index(self.provider, &self.preferred));
+                self.model_idx = Some(default_model_index(&self.model_options(), &self.preferred));
                 self.model_text.clear();
             }
             KeyCode::Left if self.model_idx.is_some() || self.model_text.is_empty() => {
@@ -315,6 +535,16 @@ impl NewAgentForm {
         }
     }
 
+    pub fn handle_picker_paste(&mut self, text: &str) -> bool {
+        match self.picker.as_mut() {
+            Some(p) => {
+                p.handle_paste(text);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Validate and build the creation request.
     pub fn build_payload(&self) -> Result<CreateAgentPayload, String> {
         let dir_text = self.dir.text();
@@ -337,6 +567,7 @@ impl NewAgentForm {
             return Err("Model ids cannot contain spaces".into());
         }
         Ok(CreateAgentPayload {
+            resume_session_id: self.resume.as_ref().map(|s| s.session_id.clone()),
             name: self.name.text().trim().to_string(),
             project_dir: dir
                 .to_string_lossy()

@@ -18,15 +18,38 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use as_core::agents::ManagerOptions;
 use as_core::paths::Paths;
+use as_core::sessions::{ClaudeSessionCatalog, CodexSessionCatalog};
 use as_proto::lock::{self, LockData, Probe};
 use as_proto::transport;
 use tokio_util::sync::CancellationToken;
 
 pub use services::Daemon;
 
+/// The provider session catalogs the daemon lists, imports and resolves profiles from.
+#[derive(Clone)]
+pub struct SessionCatalogs {
+    pub claude: Arc<ClaudeSessionCatalog>,
+    pub codex: Arc<CodexSessionCatalog>,
+}
+
+impl SessionCatalogs {
+    /// The real ones: every Claude profile of this machine and `~/.codex/sessions`.
+    pub fn discover() -> Self {
+        Self {
+            claude: Arc::new(ClaudeSessionCatalog::discover()),
+            codex: Arc::new(CodexSessionCatalog::discover()),
+        }
+    }
+}
+
 /// Knobs that tests override; `Default` is the production setup.
 pub struct DaemonOptions {
     pub manager: ManagerOptions,
+    pub catalogs: SessionCatalogs,
+    /// Discover session ids from the catalogs after a spawn (replaces `manager.locator`).
+    pub catalog_locator: bool,
+    /// Import catalog sessions on startup (when the config asks for it).
+    pub import_sessions: bool,
     /// Check the provider CLI before creating an agent (off with a fake backend).
     pub preflight_on_create: bool,
     /// Hand agents the login-shell PATH (`shell::fixed_path`).
@@ -39,6 +62,9 @@ impl Default for DaemonOptions {
     fn default() -> Self {
         Self {
             manager: ManagerOptions::default(),
+            catalogs: SessionCatalogs::discover(),
+            catalog_locator: true,
+            import_sessions: true,
             preflight_on_create: true,
             apply_fixed_path: true,
             os_notifications: true,

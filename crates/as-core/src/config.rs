@@ -166,6 +166,24 @@ impl ConfigStore {
         Ok(next)
     }
 
+    /// Edit the config in place under the store's lock (so two clients changing different parts of
+    /// a map, e.g. `claudeProfileByProject`, cannot overwrite each other), then validate, save and notify.
+    pub fn modify(&self, edit: impl FnOnce(&mut AppConfig)) -> Result<AppConfig> {
+        let mut state = self.state.lock();
+        let mut next = state.config.clone();
+        edit(&mut next);
+        let next = sanitize(next);
+        write_atomic(&self.path, &serialize(&next)?)?;
+        state.stamp = stamp_of(&self.path);
+        let changed = next != state.config;
+        state.config = next.clone();
+        drop(state);
+        if changed {
+            self.tx.send_replace(next.clone());
+        }
+        Ok(next)
+    }
+
     /// Re-read the file when its mtime/size changed; notifies subscribers when
     /// the effective config differs. Returns whether a change was applied.
     pub fn reload_if_changed(&self) -> bool {
@@ -201,6 +219,24 @@ mod tests {
 
     fn store_in(dir: &Path) -> ConfigStore {
         ConfigStore::at(dir.join("config.json"))
+    }
+
+    #[test]
+    fn modify_edits_under_the_lock_saves_and_notifies() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path());
+        let rx = store.subscribe();
+        let next = store
+            .modify(|c| {
+                c.claude_profile_by_project.insert("/a".into(), "/p".into());
+                c.hidden_session_ids.push("s1".into());
+            })
+            .unwrap();
+        assert_eq!(next.claude_profile_by_project["/a"], "/p");
+        assert!(rx.has_changed().unwrap());
+        let reopened = store_in(dir.path()).get();
+        assert_eq!(reopened.hidden_session_ids, ["s1"]);
+        assert_eq!(reopened.claude_profile_by_project["/a"], "/p");
     }
 
     #[test]

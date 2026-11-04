@@ -11,6 +11,9 @@ use tokio::sync::mpsc;
 
 use crate::app::{Effect, Msg};
 
+/// Sessions asked of the daemon for the picker (the filters work on this list).
+const SESSION_LIST_LIMIT: usize = 3000;
+
 enum Ordered {
     Raw(String, Vec<u8>),
     Input(String, String),
@@ -90,6 +93,92 @@ impl Io {
                         .map(Box::new)
                         .map_err(|e| format!("{e:#}"));
                     let _ = tx.send(Msg::Created(result));
+                });
+            }
+            Effect::CreateAgentWithProfile {
+                project_dir,
+                config_dir,
+                payload,
+            } => {
+                tokio::spawn(async move {
+                    // The mapping first: the daemon reads it when it spawns the agent.
+                    match client
+                        .set_project_profile(&project_dir, Some(config_dir))
+                        .await
+                    {
+                        Ok(config) => {
+                            let _ = tx.send(Msg::Config(Box::new(config)));
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Msg::Created(Err(format!("{err:#}"))));
+                            return;
+                        }
+                    }
+                    let result = client
+                        .create_agent(payload)
+                        .await
+                        .map(Box::new)
+                        .map_err(|e| format!("{e:#}"));
+                    let _ = tx.send(Msg::Created(result));
+                });
+            }
+            Effect::LoadProfiles => {
+                tokio::spawn(async move {
+                    match client.list_claude_profiles().await {
+                        Ok(profiles) => {
+                            let _ = tx.send(Msg::Profiles(profiles));
+                        }
+                        Err(err) => tracing::debug!(%err, "listing Claude profiles failed"),
+                    }
+                });
+            }
+            Effect::LoadModels(provider) => {
+                tokio::spawn(async move {
+                    match client.list_provider_models(provider).await {
+                        Ok(models) => {
+                            let _ = tx.send(Msg::Models { provider, models });
+                        }
+                        Err(err) => tracing::debug!(%err, "listing models failed"),
+                    }
+                });
+            }
+            Effect::LoadSessions { provider, force } => {
+                tokio::spawn(async move {
+                    let options = as_core::sessions::ListSessionsOptions {
+                        provider,
+                        limit: Some(SESSION_LIST_LIMIT),
+                        include_hidden: true,
+                        force_refresh: force,
+                        ..Default::default()
+                    };
+                    let result = client
+                        .list_sessions(options)
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    let _ = tx.send(Msg::Sessions { provider, result });
+                });
+            }
+            Effect::HideSession(session_id, hidden) => {
+                tokio::spawn(async move {
+                    match client.hide_session(&session_id, hidden).await {
+                        Ok(config) => {
+                            let _ = tx.send(Msg::Config(Box::new(config)));
+                        }
+                        Err(err) => failure(&client, &tx, &err),
+                    }
+                });
+            }
+            Effect::SetProjectProfile {
+                project_dir,
+                config_dir,
+            } => {
+                tokio::spawn(async move {
+                    match client.set_project_profile(&project_dir, config_dir).await {
+                        Ok(config) => {
+                            let _ = tx.send(Msg::Config(Box::new(config)));
+                        }
+                        Err(err) => failure(&client, &tx, &err),
+                    }
                 });
             }
             Effect::Kill(id) => {
