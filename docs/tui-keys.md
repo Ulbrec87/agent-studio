@@ -19,7 +19,8 @@ The footer shows the current mode; after the prefix it shows `PREFIX` plus the a
 
 ## Views
 
-Header tabs: **Chat** (one agent), **Grid** (tiles per project), **Overview** (placeholder until P6). The saved view is
+Header tabs: **Chat** (one agent), **Grid** (tiles per project), **Overview** (cards, see below; an amber badge with the
+number of agents that need you shows next to the tab in every view, and the terminal title becomes `(2) Agent Studio`). The saved view is
 restored at start (`tui-state.json`); when `defaultViewMode` in the config changed since the state was saved, the config
 wins. `prefix g` / `prefix \` toggle Chat/Grid (Hydra `mod+\`), `prefix O` shows the Overview (again: back to Chat),
 `prefix v` cycles Chat -> Grid -> Overview. (`prefix o` stays "resume session".)
@@ -30,7 +31,7 @@ wins. `prefix g` / `prefix \` toggle Chat/Grid (Hydra `mod+\`), `prefix O` shows
 |-----|------------|--------|
 | `a`, `Ctrl+A` (the prefix itself) | `send-prefix` | send a literal prefix key (Ctrl+A) to the agent |
 | `g`, `\` | `toggle-view` | Chat <-> Grid |
-| `O` | `show-overview` | Overview (placeholder) |
+| `O` | `show-overview` | Overview |
 | `v` | `cycle-view` | next view |
 | `p`, `:` | `command-palette` | command palette |
 | `b` | `broadcast` | Grid: broadcast bar (opens the Grid first from Chat) |
@@ -101,6 +102,38 @@ Mouse (`--mouse`): click a tab to switch, a tile **header** to open that agent i
 `prefix b` / `b`: type, `Enter` sends the text to every **running** agent of the current tab (the Running tab: every
 running agent) with the submit-queue semantics of `SendInput`, then shows "Sent to N agents"; the bar stays open.
 `Alt+Enter` newline · `Esc` closes. Idle agents are not resumed (the daemon's `Broadcast` request would do that).
+
+## Overview view
+
+One scrollable page of cards (Hydra's Overview, modeled on agent-lookout): two columns when the main area is >= 110
+columns wide (Counts on top, then Needs you | Last hour, Sessions | Events, Timeline, Waits), one column otherwise.
+The focused card has a thick accent border; the page scrolls to keep it in view. The sidebar is still there
+(`prefix s`); `Esc`/`Tab` in the sidebar come back to the cards.
+
+| Key (Overview focus) | Action |
+|----------------------|--------|
+| `Tab` / `Shift+Tab` | next / previous card (Needs you, Sessions, Events, Last hour, Timeline, Waits) |
+| `j`/`k`, arrows | move the cursor (or scroll) inside the focused card |
+| `g`/`G`, `Home`/`End` | first / last item of the card |
+| `PgUp`/`PgDn` | scroll the page |
+| `Enter` | **Needs you**: **Jump** (select the agent, switch to Chat, keys go to its terminal) · **Sessions**/**Events**: open the details drawer (on a "Show N more" row: expand/collapse the group) |
+| `d`, `Space` | open the details drawer of the item under the cursor |
+| `m` | Sessions layout: List -> Repos -> Board |
+| `p` | project filter: All -> each project -> All (applies to every card) |
+| `t` | Waits: longest waiters today / 7 days |
+
+**Details drawer** (right side): status + since, reason and what it asks, agent, folder, repo/branch, start time, PID,
+tokens of the newest reply, waits in the last hour, last message (read from the transcript every 2 s while open), own
+events and own timeline row. `Enter`/`J` jump, `j`/`k`/`PgUp`/`PgDn` scroll, `Esc`/`q` close.
+
+Cards: **Counts** (working, idle, stale, needs you, finished, failed, each with a last-hour sparkline) · **Needs you**
+(longest wait first: name, reason, project/branch, what it asks, live timer; plus the "waited on you" bars of the last
+hour) · **Last hour** (12 bars of 5 min: needs-you amber / working green / idle grey, `░` = not measured) · **Sessions**
+(grouped Working, Idle, Finished/Failed newest first, Not running; "quiet for 12m", "ended 3h ago · exit 1", groups of
+ended sessions show 10 and "Show N more") · **Events** (newest first, `── new since 14:02 ──` marks what happened while
+you were elsewhere; it goes away after 10 s in view) · **Timeline** (one row per session, each cell a slice of the last
+hour) · **Waits** (today / 7 days totals, by-day bars, five longest waiters). Time is shown in local time. History and
+the wait ledger are refreshed when the view opens and every 30 s. The usage card slot arrives with P7.
 
 ## Command palette (`prefix p`, `prefix :`)
 

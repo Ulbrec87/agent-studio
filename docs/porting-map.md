@@ -28,8 +28,13 @@ Update the row (and add new rows) in the same commit that ports the code.
 | `src/components/CommandPalette`, `Shortcuts`, `src/lib/fuzzy.ts` | `as-tui::palette` (nucleo), `ui::dialogs::{help_lines,help,palette}` | P5 | done |
 | `src/components/Sidebar/{FilterChips,SortDropdown,FilterDropdown,SearchBar}.tsx`, `useFilterSort.ts` | `as-tui::sidebar` (`StatusChip`, `SortKey`, `ViewOpts`), `ui::sidebar` | P5 | done (single status chip All/Running/Waiting/Idle/Errored + sort created/recent/name/status/provider + search; Hydra's provider/yolo/age dropdown filters not ported) |
 | `localStorage` UI state (view, tile order, expanded tile, ...) | `as-tui::state` (`<root>/tui-state.json`) | P5 | done |
-| `electron/overview/*`, `shared/overview/*` | `as-core::overview` | P6 | todo |
-| `src/components/Overview/*` | `as-tui::views::overview` | P6 | todo |
+| `shared/overview/{types,status,diff,buckets,grouping,waits,waitingText,details}.ts` | `as-core::overview::{types,status,diff,buckets,grouping,waits,waiting_text,details}` (all tests ported) | P6 | done (`CountKey` gained `Finished`/`Failed` for the counts sparklines) |
+| `electron/overview/{claudeRegistry,processTree,gitInfo,waitingText,agentDetails}.ts` | `as-core::overview::{claude_registry,process_tree,git_info,transcript_tail}` | P6 | done (`ps` replaced by `sysinfo`, also on Windows; git info is read from `.git` files like Hydra, not the `git` CLI; no `O_NOFOLLOW`: `symlink_metadata` check before opening) |
+| `electron/overview/{OverviewTracker,HistoryStore,historyFiles,WaitLedger}.ts` | `as-core::overview::{tracker,history_store,history_files,wait_ledger}` | P6 | done (tracker is synchronous and clock-injected, run from `spawn_blocking` by the daemon; the store has no timer, the daemon calls `flush()` every 5 s) |
+| overview wiring in `electron/daemon/{index,DaemonServer,protocol}.ts`, IPC `OVERVIEW_*` | `as-proto` `Get{Overview,OverviewHistory,OverviewWaits,OverviewEvents,AgentDetails}` + events `OverviewSnapshot`/`OverviewEvents`; `as-daemon::services::{overview_loop,publish_overview}` | P6 | done |
+| `DaemonNotificationService.connectOverviewEvents` + `hasRegistryMatch` suppression | `as-daemon::{notifications,services}` (`needs_you_body`, 5 s rule skipped for matched Claude agents) | P6 | done |
+| `src/hooks/{useOverview,useOverviewHistory,useOverviewWaits,useNeedsYouTitle}.ts`, `Overview/{newSince,format,historyFacts,sessionFacts}.ts` | `as-tui::overview::{state,format}` (merge, marker, refresh timers, needs-you count/title) | P6 | done |
+| `src/components/Overview/*` | `as-tui::{overview::model, ui::overview, app::overview}` | P6 | done (cards as ratatui blocks; no usage card yet (P7), no click-to-chart count history, no Stop/Restart buttons in the drawer, no copy-path) |
 | `electron/usage/*`, `shared/usage/*` | `as-core::usage` | P7 | todo |
 | `src/components/Usage*` | `as-tui::views::usage` | P7 | todo |
 | `electron/mcp/*` | `as-daemon::mcp` (rmcp) | P8 | todo |

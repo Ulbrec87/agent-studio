@@ -667,7 +667,7 @@ fn help_overlay_shows_user_overrides_and_unbound_commands() {
 }
 
 #[test]
-fn overview_placeholder_and_header_tabs() {
+fn header_tabs_and_the_overview_waiting_for_the_daemon() {
     let mut app = new_app(mixed_agents(), 100, 20);
     let header = text(&draw(&mut app, 100, 20));
     assert!(
@@ -678,8 +678,8 @@ fn overview_placeholder_and_header_tabs() {
             .contains("Chat  Grid  Overview")
     );
     app.exec(crate::keymap::Command::ShowOverview);
-    let t = draw(&mut app, 100, 20);
-    insta::assert_snapshot!(text(&t));
+    let screen = text(&draw(&mut app, 100, 20));
+    assert!(screen.contains("Loading overview"), "{screen}");
 }
 
 #[test]

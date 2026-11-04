@@ -2,6 +2,9 @@
 //! names, so adding a variant never changes the encoding of the others. Binary data is base64.
 
 use as_core::agents::providers::PreflightResult;
+use as_core::overview::{
+    AgentDetails, HistoryResponse, OverviewEvent, OverviewSnapshot, WaitLedgerData,
+};
 use as_core::sessions::{ClaudeProfile, ListSessionsOptions, SessionSummary};
 use as_core::{
     AgentStatus, AppConfig, CreateAgentPayload, ModelId, ProviderId, ProviderModelOption,
@@ -133,6 +136,30 @@ pub enum Request {
     ListProviderModels {
         provider: ProviderId,
     },
+    /// The Overview snapshot (Hydra `OVERVIEW_GET`); answers `Overview`.
+    GetOverview,
+    /// Overview history from `since_ms` (epoch ms) on, default the last 6 h (Hydra
+    /// `OVERVIEW_HISTORY`); answers `OverviewHistory`.
+    GetOverviewHistory {
+        #[serde(default)]
+        since_ms: Option<i64>,
+    },
+    /// The wait ledger the totals are worked out from (Hydra `OVERVIEW_WAITS`); answers
+    /// `OverviewWaits`.
+    GetOverviewWaits,
+    /// Overview events from `since_ms` on, newest `limit` of them, oldest first (Hydra
+    /// `OVERVIEW_EVENTS`); answers `OverviewEvents`.
+    GetOverviewEvents {
+        #[serde(default)]
+        since_ms: Option<i64>,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    /// Last message and token counts of an agent for the details drawer (Hydra
+    /// `OVERVIEW_AGENT_DETAILS`); answers `AgentDetails` (`None` for an unknown agent).
+    GetAgentDetails {
+        agent_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -156,6 +183,11 @@ pub enum Response {
     Sessions(Vec<SessionSummary>),
     Profiles(Vec<ClaudeProfile>),
     Models(Vec<ProviderModelOption>),
+    Overview(Box<OverviewSnapshot>),
+    OverviewHistory(Box<HistoryResponse>),
+    OverviewWaits(Box<WaitLedgerData>),
+    OverviewEvents(Vec<OverviewEvent>),
+    AgentDetails(Option<Box<AgentDetails>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -208,6 +240,10 @@ pub enum Event {
     DaemonShuttingDown,
     /// Something the user should know about (toast in the TUI, OS notification when unfocused).
     Notification(StudioNotification),
+    /// The Overview snapshot, pushed only when something meaningful changed (not for timers).
+    OverviewSnapshot(Box<OverviewSnapshot>),
+    /// New Overview events of a poll, oldest first.
+    OverviewEvents(Vec<OverviewEvent>),
 }
 
 /// Hydra `NotificationType` (agent part).
@@ -348,6 +384,17 @@ mod tests {
             Request::Status,
             Request::Shutdown { stop_agents: true },
             Request::ClientFocus(true),
+            Request::GetOverview,
+            Request::GetOverviewHistory { since_ms: Some(5) },
+            Request::GetOverviewHistory { since_ms: None },
+            Request::GetOverviewWaits,
+            Request::GetOverviewEvents {
+                since_ms: Some(1),
+                limit: Some(10),
+            },
+            Request::GetAgentDetails {
+                agent_id: "a".into(),
+            },
         ];
         for r in all {
             round_trip(ClientMsg::Request { id: 1, req: r });
@@ -380,6 +427,12 @@ mod tests {
                     error: Some("nope".into()),
                 },
             }]),
+            Response::Overview(Box::default()),
+            Response::OverviewHistory(Box::default()),
+            Response::OverviewWaits(Box::default()),
+            Response::OverviewEvents(Vec::new()),
+            Response::AgentDetails(Some(Box::new(AgentDetails::unavailable("x")))),
+            Response::AgentDetails(None),
             Response::Status(DaemonStatus {
                 pid: 1,
                 version: "v".into(),
@@ -412,6 +465,8 @@ mod tests {
             Event::AgentsChanged,
             Event::ConfigChanged(Box::default()),
             Event::DaemonShuttingDown,
+            Event::OverviewSnapshot(Box::default()),
+            Event::OverviewEvents(Vec::new()),
             Event::Notification(StudioNotification {
                 id: "n1".into(),
                 kind: NotificationKind::AgentWaiting,

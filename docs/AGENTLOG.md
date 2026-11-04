@@ -141,3 +141,30 @@ Format: `## <short title>` + what happened + what to do instead.
   selection changed on purpose (`GridState::follow`), otherwise the tab jumps away while the last running agent finishes.
 - **Manual checks start real imports.** A fresh `AGENT_STUDIO_HOME` imports every session in `~/.claude*` as idle agents
   (`importSessionsOnStartup`); write `{"importSessionsOnStartup": false}` into `<home>/config.json` first.
+
+## P6 (Overview) gotchas
+
+- **Claude only writes a pending tool use to the transcript when it finishes.** With Claude Code 2.1.318 the
+  `AskUserQuestion` (and a permission prompt) is not in `<session>.jsonl` while the prompt is on screen, so `waitingText`
+  can be empty for a needs-you agent ("Asked you a question" without the question). A `Bash` approval that was written
+  before the prompt shows "Run: ...". Hydra has the same limit; nothing to fix on our side.
+- **A user with Claude's `auto` permission mode never sees prompts.** To produce a needs-you in a manual check, press
+  `Shift+Tab` in the agent until the footer says "manual mode", or use `AskUserQuestion`.
+- **sysinfo 0.40: `System::new()` returns a `Result`**; `refresh_processes(ProcessesToUpdate, remove_dead)` and
+  `Process::parent()` are what the process tree needs (`ProcessesToUpdate::All` for the table, `Some(&[pid])` for liveness).
+- **Matching an agent to its registry entry across a login shell.** `agent.pid` is the PTY child, which with
+  `shellMode: login|auto` is the shell wrapping `claude`; the registry pid is `claude` itself. Tier 2 therefore also
+  accepts descendants of the agent pid (process table read at most every 10 s, only for unmatched agents). A brand-new
+  agent can be unmatched for a few seconds (no session id yet, stale process table); it is `working/idle` by output until then.
+- **An agent whose very first poll already says needs-you has an `appeared` event, not a `status` one**, so it does not
+  notify (Hydra's rule). It cannot really happen: an agent starts, then waits.
+- **The tracker never writes to disk inside a poll**; the history store buffers lines and the daemon flushes every 5 s
+  (and on shutdown). Delta point lines list keys in sorted order (Hydra: insertion order); readers do not care.
+- **Snapshot tests must not depend on the machine's time zone**: the Overview reads `OverviewState::clock()`; tests set
+  `clock_override` (UTC, fixed `now`). In production it is `Local` and `Utc::now()`.
+- **Daemon tests**: the Overview loop starts a poll at once and pushes an `OverviewSnapshot` to every connected client
+  (even an empty one), so a raw-socket test that reads "the next frame" must skip events. `DaemonOptions::overview_config_dirs`
+  keeps tests away from the real `~/.claude*/sessions`.
+- **Manual checks write into the real Claude profile.** New agents create `<profile>/projects/-tmp-...` session files, add
+  lines to `<profile>/history.jsonl` and trust entries (`projects["/tmp/..."]`) to `<profile>/.claude.json`; only the project
+  folders are safe to delete afterwards.

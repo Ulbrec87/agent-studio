@@ -14,7 +14,7 @@ Tick a phase when it is pushed to `origin/main` with fmt + clippy + tests green.
 - [x] P3 TUI MVP
 - [x] P4 Sessions
 - [x] P5 Grid + broadcast + palette
-- [ ] P6 Overview
+- [x] P6 Overview
 - [ ] P7 Usage & limits
 - [ ] P8 MCP manager + headless
 - [ ] P9 Git, files, free terminals, settings, skills, open-in

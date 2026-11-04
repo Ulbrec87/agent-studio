@@ -34,11 +34,16 @@
     `ToggleYolo`, `SetGlobalYolo`, `Subscribe`, `Unsubscribe`, `GetConfig`, `UpdateConfig` (JSON patch), `Preflight`,
     `Status`, `Shutdown { stop_agents }`, `ClientFocus(bool)` (P3),
     `ListSessions(ListSessionsOptions)`, `HideSession { session_id, hidden }`, `ListClaudeProfiles`,
-    `SetProjectProfile { project_dir, config_dir }`, `ListProviderModels { provider }` (P4, see *Sessions* below).
+    `SetProjectProfile { project_dir, config_dir }`, `ListProviderModels { provider }` (P4, see *Sessions* below),
+    `GetOverview`, `GetOverviewHistory { since_ms }`, `GetOverviewWaits`, `GetOverviewEvents { since_ms, limit }`,
+    `GetAgentDetails { agent_id }` (P6, see *Overview* below).
   * `Response`: `Ok`, `Pong`, `Flag(bool)`, `Hello(HelloInfo)`, `Agents`, `Agent(Option)`, `Ids`, `Buffer { data }`,
-    `Config`, `Preflight`, `Status`, `Sessions`, `Profiles`, `Models` (P4).
+    `Config`, `Preflight`, `Status`, `Sessions`, `Profiles`, `Models` (P4), `Overview`, `OverviewHistory`,
+    `OverviewWaits`, `OverviewEvents`, `AgentDetails(Option)` (P6).
   * `Event`: `AgentOutput { agent_id, data }`, `AgentStatus { agent_id, status, session_id, model }`, `AgentWaiting`,
-    `AgentsChanged`, `ConfigChanged`, `DaemonShuttingDown`, `Notification(StudioNotification)` (P3). New phases add variants only.
+    `AgentsChanged`, `ConfigChanged`, `DaemonShuttingDown`, `Notification(StudioNotification)` (P3),
+    `OverviewSnapshot`, `OverviewEvents` (P6). New phases add variants only. A client that talks to an older daemon
+    gets an error for the Overview requests; the TUI then shows "The overview is not available" and keeps working.
 * **Sessions (P4)**: `ListSessions` returns `SessionSummary`s (camelCase like Hydra's `ClaudeSessionSummary`, plus
   `provider` and `hidden`) newest first; the daemon scans off the async runtime (`spawn_blocking`) and adds the config's
   `hiddenSessionIds` (hidden sessions are left out unless `includeHidden`). Filters: provider, `limit`, `maxAgeDays`,
@@ -49,6 +54,34 @@
   that owns the session file, otherwise the project mapping (`claudeProfileByProject`, longest prefix wins).
   `ListProviderModels` merges nothing: discovered models (`codex app-server`, `opencode models --verbose`) replace the
   built-in list, which is the fallback (Claude: built-in aliases only); cached 5 min (failures 30 s).
+* **Overview (P6, `as_core::overview` + `as-daemon::services`)**: the daemon runs one `OverviewTracker` (poll every 2 s and
+  100 ms after an agent status event, in `spawn_blocking`). Per poll: running Claude agents are matched to the live
+  registry entries `<configDir>/sessions/<pid>.json` of every Claude profile (files > 64 KB, symlinks, `.key` files and
+  dead pids are ignored; an entry that fails to parse once is reused for one poll) in three tiers, each across all
+  agents so an entry is never taken twice: (1) `sessionId`, (2) the entry pid is the agent's PTY pid **or one of its
+  descendants** (`sysinfo` process table, at most every 10 s, only when tiers 1 and the agent pid did not match: the
+  PTY child may be the login shell wrapping `claude`), (3) same cwd and start time within 10 s, when unambiguous.
+  Status = registry (`busy|shell` working, `waiting` needs-you with reason `permission prompt|input needed|other`, `idle`)
+  or, without an entry and for Codex/OpenCode, output within 5 s = working else idle; process states give
+  starting/finished (exit seen in this run)/failed/not-running (restored or imported, never ran). `quietFor` (working,
+  silent >= 5 min) and stale (idle >= 24 h) are flags. A needs-you Claude session also gets `waitingText` from the last
+  256 KB of its transcript ("Run: npm test"; cached per agent on file size/mtime/inode). `OverviewSnapshot` is pushed
+  only when something meaningful changed (never for timers; clients tick their own clock), `OverviewEvents` with every
+  poll's new events (appeared / status with `waitedMs` when leaving needs-you / ended / resumed after a gap > 15 s).
+  `GetAgentDetails` reads the last message and the token counts of the newest reply from the transcript on demand.
+  **Notifications**: a Claude agent entering needs-you raises "Needs you" / `<name> needs permission: Run: ls`; the 5 s
+  silence notification (`AgentWaiting`) is suppressed for a Claude agent the tracker matched to a registry entry and kept
+  for Codex, OpenCode and unmatched Claude agents (the `AgentWaiting` event itself still goes to the clients for the
+  sidebar flag).
+* **Overview history (`<root>/overview-history/v1-YYYY-MM-DD.jsonl`, mode 600, folder 700)**: one writer (the daemon).
+  Lines: `{"start":<ms>}` (each daemon start; time between the last point and the next one is *unmeasured*),
+  `{"point":[at,needsYou,working,idle,total,{agentId:status}]}` every 5 s (a trailing `1` marks a delta line: only the
+  changed statuses, `null` for a gone agent; the first point of a run and of each file is full; agents ended for over an
+  hour and not-running ones are not written), `{"event":{...}}` (written field by field). Flushed every 5 s and on
+  shutdown; files of days that ended more than 8 days ago are deleted, then the oldest until the total is <= 20 MB; a
+  day over 2 MB goes on in `-2`, `-3`. Memory: 1 000 events, 6 h of points; the wait ledger (moves in/out of needs-you,
+  measured stretches, starts; 9 days) is rebuilt from every file at start. Unknown formats, links, other file types and
+  files > 4 MB are never read; malformed lines and records dated > 1 min ahead are skipped.
 * **Startup import**: after the daemon is up, when `importSessionsOnStartup` is set, every catalog's sessions
   (`sessionImportLimit`, `sessionMaxAgeDays`, `sessionImportProjectPrefix`, minus `hiddenSessionIds`, minus sessions
   without prompt and messages) become idle `sess-<id8>` agents without process, each with the provider that saved it; they

@@ -12,6 +12,7 @@ pub mod client;
 pub mod grid;
 pub mod keymap;
 pub mod new_agent;
+pub mod overview;
 pub mod palette;
 pub mod runner;
 pub mod sessions;

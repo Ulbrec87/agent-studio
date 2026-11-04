@@ -88,6 +88,10 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
             "APP",
             "j/k move \u{00B7} Enter attach \u{00B7} Space fold \u{00B7} / search \u{00B7} f status \u{00B7} S sort \u{00B7} n new \u{00B7} o resume \u{00B7} Esc back".into(),
         ),
+        Focus::Overview => (
+            "OVERVIEW",
+            "Tab card \u{00B7} j/k move \u{00B7} Enter jump/details \u{00B7} m mode \u{00B7} p project \u{00B7} t waits \u{00B7} PgUp/PgDn scroll \u{00B7} Esc close".into(),
+        ),
         Focus::Input => (
             "INPUT",
             "Enter send \u{00B7} Alt+Enter newline \u{00B7} Esc terminal".into(),

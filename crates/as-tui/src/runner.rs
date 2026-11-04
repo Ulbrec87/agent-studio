@@ -213,6 +213,7 @@ async fn run_async(paths: Paths, options: TuiOptions) -> Result<()> {
             _ = tick.tick() => {
                 let now = Instant::now();
                 app.tick(now);
+                effects = app.poll_effects(now);
                 if now.duration_since(last_housekeeping) >= HOUSEKEEPING_INTERVAL {
                     last_housekeeping = now;
                     housekeeping(&mut app, &mut bindings, &state_path, &mut saved_state);

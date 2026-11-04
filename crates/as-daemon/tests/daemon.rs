@@ -39,6 +39,9 @@ fn options(backend: &FakePtyBackend) -> DaemonOptions {
         preflight_on_create: false,
         apply_fixed_path: false,
         os_notifications: false,
+        overview: true,
+        // Never the developer's real Claude registry.
+        overview_config_dirs: Some(Vec::new()),
     }
 }
 
@@ -324,9 +327,16 @@ async fn malformed_frames_get_an_error_and_do_not_kill_the_daemon() {
     )
     .await
     .unwrap();
-    let frame = stream.next().await.unwrap().unwrap();
+    // Pushed events (the first Overview snapshot) may come first.
+    let reply = loop {
+        let frame = stream.next().await.unwrap().unwrap();
+        match codec::decode::<ServerMsg>(&frame).unwrap() {
+            ServerMsg::Event(_) => {}
+            response => break response,
+        }
+    };
     assert!(matches!(
-        codec::decode::<ServerMsg>(&frame).unwrap(),
+        reply,
         ServerMsg::Response {
             id: 10,
             result: Ok(as_proto::Response::Pong)
@@ -561,4 +571,226 @@ async fn sessions_import_hide_profiles_and_models() {
         .unwrap()
         .unwrap()
         .unwrap();
+}
+
+// ── Overview (P6) ───────────────────────────────────────────────────────────
+
+fn registry_entry(
+    cfg: &std::path::Path,
+    pid: u32,
+    session: &str,
+    status: &str,
+    waiting: Option<&str>,
+) {
+    let mut v = serde_json::json!({"pid": pid, "sessionId": session, "status": status});
+    if let Some(w) = waiting {
+        v["waitingFor"] = serde_json::json!(w);
+    }
+    write_file(
+        &cfg.join("sessions").join(format!("{pid}.json")),
+        &v.to_string(),
+    );
+}
+
+#[tokio::test]
+async fn overview_snapshot_events_history_and_details() {
+    let h = start().await;
+    let client = DaemonClient::connect(&h.paths).await.unwrap();
+    let mut events = client.take_events().unwrap();
+    client.hello().await.unwrap();
+    assert!(client.get_overview().await.unwrap().sessions.is_empty());
+
+    let agent = client.create_agent(payload()).await.unwrap();
+    // Pushed only when something changed: the new agent shows up in a snapshot.
+    let Event::OverviewSnapshot(snapshot) = next_event(&mut events, "overview snapshot", |e| {
+        matches!(e, Event::OverviewSnapshot(s) if s.sessions.iter().any(|x| x.agent_id == agent.id))
+    })
+    .await
+    else {
+        unreachable!()
+    };
+    assert_eq!(snapshot.sessions[0].name, "demo");
+    assert_eq!(snapshot.counts.total, 1);
+    let polled = client.get_overview().await.unwrap();
+    assert_eq!(polled.sessions.len(), 1);
+
+    // The agent exits: an event is pushed and lands in the history.
+    h.backend.ptys()[0].emit_exit(0);
+    let Event::OverviewEvents(evs) = next_event(
+        &mut events,
+        "overview events",
+        |e| matches!(e, Event::OverviewEvents(v) if v.iter().any(|x| x.agent_id == agent.id)),
+    )
+    .await
+    else {
+        unreachable!()
+    };
+    assert!(
+        evs.iter()
+            .any(|e| e.to == Some(as_core::overview::OverviewStatus::Finished))
+    );
+    let history = client.get_overview_history(Some(0)).await.unwrap();
+    assert!(!history.points.is_empty(), "points are sampled");
+    assert_eq!(history.starts.len(), 1);
+    let listed = client.get_overview_events(Some(0), Some(1)).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert!(client.get_overview_waits().await.unwrap().spans.len() <= 1);
+
+    let details = client.get_agent_details(&agent.id).await.unwrap().unwrap();
+    assert!(matches!(
+        details.last_message,
+        as_core::overview::LastMessage::Unavailable { .. }
+    ));
+    assert!(client.get_agent_details("nope").await.unwrap().is_none());
+
+    h.stop.cancel();
+    h.task.await.unwrap().unwrap();
+    // The history is on disk, private to the data root.
+    let files: Vec<_> = std::fs::read_dir(h.paths.overview_history_dir())
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    assert_eq!(files.len(), 1);
+    let text = std::fs::read_to_string(files[0].path()).unwrap();
+    assert!(text.starts_with("{\"start\":"), "{text}");
+    assert!(text.contains("\"point\""), "{text}");
+}
+
+#[tokio::test]
+async fn a_waiting_claude_registry_entry_notifies_needs_you_once_with_what_it_asks() {
+    let cfg = tempfile::tempdir().unwrap();
+    let transcripts = cfg.path().join("projects/p");
+    write_file(
+        &transcripts.join("sess-1.jsonl"),
+        &serde_json::json!({"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}).to_string(),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::at(dir.path());
+    let backend = FakePtyBackend::new();
+    let mut opts = options(&backend);
+    opts.overview_config_dirs = Some(vec![cfg.path().to_path_buf()]);
+    let stop = CancellationToken::new();
+    let task = tokio::spawn(serve(paths.clone(), opts, stop.clone()));
+    wait_for_socket(&paths).await;
+    let client = DaemonClient::connect(&paths).await.unwrap();
+    let mut events = client.take_events().unwrap();
+    client.hello().await.unwrap();
+
+    let agent = client
+        .create_agent(CreateAgentPayload {
+            resume_session_id: Some("sess-1".into()),
+            ..payload()
+        })
+        .await
+        .unwrap();
+    // The agent is tracked (idle: no output yet) before it starts waiting.
+    next_event(&mut events, "agent in the snapshot", |e| {
+        matches!(e, Event::OverviewSnapshot(s) if s.sessions.iter().any(|x| x.agent_id == agent.id))
+    })
+    .await;
+    // The registry entry's pid must be alive: use this test process.
+    registry_entry(
+        cfg.path(),
+        std::process::id(),
+        "sess-1",
+        "waiting",
+        Some("permission prompt"),
+    );
+
+    let Event::Notification(n) = next_event(
+        &mut events,
+        "needs-you notification",
+        |e| matches!(e, Event::Notification(n) if n.title == "Needs you"),
+    )
+    .await
+    else {
+        unreachable!()
+    };
+    assert_eq!(n.kind, NotificationKind::AgentWaiting);
+    assert_eq!(n.agent_id.as_deref(), Some(agent.id.as_str()));
+    assert_eq!(n.body, "demo needs permission: Run: ls");
+    let snapshot = client.get_overview().await.unwrap();
+    assert_eq!(snapshot.counts.needs_you, 1);
+    assert_eq!(
+        snapshot.sessions[0].waiting_text.as_deref(),
+        Some("Run: ls")
+    );
+    stop.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn the_silence_rule_is_kept_for_unmatched_agents_and_skipped_for_matched_claude_agents() {
+    use as_core::AgentManager;
+    let cfg = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::at(dir.path());
+    paths.ensure().unwrap();
+    let backend = FakePtyBackend::new();
+    let mut opts = options(&backend);
+    opts.overview_config_dirs = Some(vec![cfg.path().to_path_buf()]);
+    let daemon = as_daemon::Daemon::start(paths, opts).await;
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+    daemon.registry.add(tx, CancellationToken::new());
+
+    let matched = daemon
+        .manager
+        .create(CreateAgentPayload {
+            name: "matched".into(),
+            resume_session_id: Some("s-match".into()),
+            ..payload()
+        })
+        .await
+        .unwrap();
+    let unmatched = daemon
+        .manager
+        .create(CreateAgentPayload {
+            name: "unmatched".into(),
+            provider: ProviderId::Codex,
+            model: "gpt-5.4".into(),
+            ..payload()
+        })
+        .await
+        .unwrap();
+    registry_entry(cfg.path(), std::process::id(), "s-match", "busy", None);
+    daemon.manager.get(&matched.id).unwrap();
+    // The tracker sees the registry entry on its next poll.
+    for _ in 0..100 {
+        if daemon.overview.lock().has_registry_match(&matched.id) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(daemon.overview.lock().has_registry_match(&matched.id));
+
+    // Both agents write something, then go quiet for longer than 5 s.
+    for pty in backend.ptys() {
+        pty.emit_data(b"hello");
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    daemon
+        .manager
+        .poll_activity_at(u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap() + 60_000);
+
+    let mut waiting_bodies = Vec::new();
+    let mut flagged = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(800);
+    while let Ok(Some(msg)) = tokio::time::timeout_at(deadline, rx.recv()).await {
+        if let ServerMsg::Event(Event::Notification(n)) = &msg
+            && n.kind == NotificationKind::AgentWaiting
+        {
+            waiting_bodies.push(n.body.clone());
+        }
+        if let ServerMsg::Event(Event::AgentWaiting { agent_id }) = msg {
+            flagged.push(agent_id);
+        }
+    }
+    assert_eq!(waiting_bodies, ["unmatched is waiting for input"]);
+    // The sidebar flag is still sent for both (Hydra keeps `agent_waiting` for the UI).
+    assert!(
+        flagged.contains(&matched.id) && flagged.contains(&unmatched.id),
+        "{flagged:?}"
+    );
+    let _: &AgentManager = &daemon.manager;
+    daemon.shutdown_services(true).await;
 }

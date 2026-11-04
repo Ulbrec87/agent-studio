@@ -16,7 +16,7 @@ impl App {
         match self.view {
             ViewMode::Chat => Focus::Terminal,
             ViewMode::Grid => Focus::Grid,
-            ViewMode::Overview => Focus::App,
+            ViewMode::Overview => Focus::Overview,
         }
     }
 
@@ -39,7 +39,13 @@ impl App {
         if self.view == view {
             return Vec::new();
         }
+        if self.view == ViewMode::Overview {
+            self.overview.left(self.wall_ms());
+        }
         self.view = view;
+        if view == ViewMode::Overview {
+            self.overview.entered(self.wall_ms(), self.now);
+        }
         self.enter_view()
     }
 

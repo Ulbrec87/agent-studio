@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use as_core::keybindings::KeybindingRule;
+use as_core::overview::{
+    AgentDetails, HistoryResponse, OverviewSnapshot, OverviewStatus, WaitLedgerData,
+};
 use as_core::sessions::profiles::resolve_profile;
 use as_core::sessions::{ClaudeProfile, SessionSummary};
 use as_core::{
@@ -21,6 +24,7 @@ use ratatui::layout::Rect;
 use crate::grid::{self, TileOrder};
 use crate::keymap::{Command, KeyChord, Keymap};
 use crate::new_agent::{FormAction, NewAgentForm};
+use crate::overview::OverviewState;
 use crate::palette::{Palette, PaletteAction, PaletteOutcome};
 use crate::sessions::{PickerAction, PickerOrigin, SessionPicker};
 use crate::sidebar::{self, Row, RowKey, SortKey, StatusChip, ViewOpts};
@@ -52,6 +56,8 @@ pub enum Focus {
     Grid,
     /// Grid view: the broadcast bar.
     Broadcast,
+    /// Overview view: the cards (and the details drawer).
+    Overview,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,6 +203,13 @@ pub enum Effect {
     Suspend(ExternalCommand),
     /// Persist `gridColumns` in the config.
     SetGridColumns(GridColumns),
+    /// Snapshot, history (last 6 h) and wait ledger of the Overview.
+    LoadOverview,
+    /// History from this moment on (epoch ms).
+    LoadOverviewHistory(i64),
+    LoadOverviewWaits,
+    /// Last message and tokens of an agent, for the details drawer.
+    LoadAgentDetails(String),
 }
 
 /// Results of asynchronous work, fed back into [`App::handle_msg`].
@@ -220,6 +233,15 @@ pub enum Msg {
         provider: ProviderId,
         result: Result<Vec<SessionSummary>, String>,
     },
+    Overview(Box<OverviewSnapshot>),
+    OverviewHistory(Box<HistoryResponse>),
+    OverviewWaits(Box<WaitLedgerData>),
+    AgentDetails {
+        agent_id: String,
+        details: Box<AgentDetails>,
+    },
+    /// The daemon could not answer an Overview request (an older daemon, for instance).
+    OverviewFailed(String),
 }
 
 pub enum SubState {
@@ -287,6 +309,8 @@ pub struct App {
     pub sidebar_width: u16,
     pub view: ViewMode,
     pub grid: GridState,
+    /// Overview view state: snapshot, history, ledger, cards and drawer.
+    pub overview: OverviewState,
     pub broadcast: TextArea,
     /// First visible line of the help overlay.
     pub help_scroll: usize,
@@ -339,6 +363,7 @@ impl App {
             sidebar_width: DEFAULT_SIDEBAR,
             view: ViewMode::Chat,
             grid: GridState::default(),
+            overview: OverviewState::default(),
             broadcast: TextArea::multi_line(),
             help_scroll: 0,
             user_bindings: Vec::new(),
@@ -367,7 +392,11 @@ impl App {
         let mut fx = vec![
             Effect::SetFocus(self.terminal_focused),
             Effect::LoadProfiles,
+            Effect::LoadOverview,
         ];
+        if self.view == ViewMode::Overview {
+            self.overview.entered(self.wall_ms(), self.now);
+        }
         let restored = self
             .restored_selection
             .take()
@@ -395,12 +424,42 @@ impl App {
         self.agents.iter().find(|a| a.id == id)
     }
 
+    /// Waiting for the user: it went quiet (the 5 s rule) or the Overview says `needs-you`.
     pub fn is_waiting(&self, agent: &AgentState) -> bool {
-        agent.status == AgentStatus::Running && self.waiting.contains(&agent.id)
+        agent.status == AgentStatus::Running
+            && (self.waiting.contains(&agent.id) || self.overview_needs_you(&agent.id))
     }
 
+    /// The Overview marks this agent as needing the user (Claude's registry says so).
+    pub fn overview_needs_you(&self, agent_id: &str) -> bool {
+        self.overview
+            .all_sessions()
+            .iter()
+            .any(|s| s.agent_id == agent_id && s.status == OverviewStatus::NeedsYou)
+    }
+
+    /// Agents that need the user: once the Overview has reported, its `needs-you` count (Claude
+    /// agents read from the registry, Hydra's `needsYouCount`) plus the quiet non-Claude agents
+    /// (the 5 s rule, the only signal Codex and OpenCode have); before that, the quiet agents.
     pub fn waiting_count(&self) -> usize {
-        self.agents.iter().filter(|a| self.is_waiting(a)).count()
+        if self.overview.snapshot.is_none() {
+            return self.agents.iter().filter(|a| self.is_waiting(a)).count();
+        }
+        let quiet_other = self
+            .agents
+            .iter()
+            .filter(|a| {
+                a.provider != ProviderId::Claude
+                    && a.status == AgentStatus::Running
+                    && self.waiting.contains(&a.id)
+            })
+            .count();
+        self.overview.needs_you_count() + quiet_other
+    }
+
+    /// Wall clock in epoch milliseconds (the Overview cards read it).
+    pub fn wall_ms(&self) -> i64 {
+        self.overview.clock().now
     }
 
     /// Terminal title: `(N) Agent Studio` while N agents wait for you.
@@ -565,6 +624,17 @@ impl App {
                 self.toast(ToastKind::Warn, "Daemon", "The daemon is shutting down");
             }
             Event::Notification(n) => fx.extend(self.on_notification(&n)),
+            Event::OverviewSnapshot(snapshot) => {
+                self.overview.set_snapshot(*snapshot);
+                self.dirty = true;
+            }
+            Event::OverviewEvents(events) => {
+                let moved = self.overview.add_events(&events);
+                if moved && self.view == ViewMode::Overview {
+                    fx.push(Effect::LoadOverviewWaits);
+                }
+                self.dirty = true;
+            }
         }
         fx
     }
@@ -687,6 +757,29 @@ impl App {
                 self.models.insert(provider, models);
                 self.dirty = true;
             }
+            Msg::Overview(snapshot) => {
+                self.overview.set_snapshot(*snapshot);
+                self.dirty = true;
+            }
+            Msg::OverviewHistory(history) => {
+                self.overview.apply_history(*history, self.wall_ms());
+                self.dirty = true;
+            }
+            Msg::OverviewWaits(ledger) => {
+                self.overview.apply_ledger(*ledger);
+                self.dirty = true;
+            }
+            Msg::AgentDetails { agent_id, details } => {
+                self.overview.set_details(&agent_id, *details);
+                self.dirty = true;
+            }
+            Msg::OverviewFailed(error) => {
+                tracing::debug!(%error, "overview request failed");
+                self.overview.history_loading = false;
+                self.overview.waits_loading = false;
+                self.overview.set_error(error);
+                self.dirty = true;
+            }
             Msg::Sessions { provider, result } => {
                 match &mut self.modal {
                     Some(Modal::Resume(picker)) => picker.set_sessions(provider, result),
@@ -798,6 +891,7 @@ impl App {
             Effect::Refresh,
             Effect::SetFocus(self.terminal_focused),
             Effect::LoadProfiles,
+            Effect::LoadOverview,
         ];
         for (id, term) in &mut self.terms {
             term.emu = Box::new(Vt100Emulator::new(cols, rows));
@@ -1013,6 +1107,7 @@ impl App {
             Focus::Input => self.input_key(key),
             Focus::Grid => self.grid_key(key),
             Focus::Broadcast => self.broadcast_key(key),
+            Focus::Overview => self.overview_key(key),
         }
     }
 
@@ -1148,7 +1243,7 @@ impl App {
                 self.broadcast.insert_str(text);
                 self.sync_layout()
             }
-            Focus::Grid => Vec::new(),
+            Focus::Grid | Focus::Overview => Vec::new(),
             Focus::App => {
                 if self.sidebar.filtering {
                     self.sidebar.filter.push_str(text.trim());
@@ -1811,6 +1906,7 @@ impl App {
     }
 }
 
+mod overview;
 mod view;
 
 #[cfg(test)]

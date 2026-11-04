@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 use as_core::agents::env::{EnvOverrides, process_env};
 use as_core::agents::shell::{Os, ShellConfig, fixed_path};
 use as_core::agents::{ProviderModelCatalog, SessionLocator};
+use as_core::overview::history_store::{HistoryStore, HistoryStoreOptions};
+use as_core::overview::tracker::{OverviewTracker, PollResult, TrackerDeps};
+use as_core::overview::{EventKind, OverviewStatus};
 use as_core::paths::Paths;
 use as_core::sessions::{
     CatalogSessionLocator, ListSessionsOptions, SessionSummary, profiles::make_resolver,
@@ -18,6 +21,7 @@ use as_core::{
     get_default_model_for_provider,
 };
 use as_proto::Event;
+use parking_lot::Mutex;
 use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 
 use crate::notifications::{self, NotificationService};
@@ -27,6 +31,14 @@ use crate::{DaemonOptions, SessionCatalogs};
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 const CONFIG_POLL: Duration = Duration::from_millis(500);
 const STOP_AGENTS_TIMEOUT: Duration = Duration::from_secs(5);
+/// How often the Overview tracker polls (Hydra: 2 s).
+const OVERVIEW_POLL: Duration = Duration::from_secs(2);
+/// Delay before re-polling after an agent status event (Hydra: 100 ms debounce).
+const OVERVIEW_STATUS_DEBOUNCE: Duration = Duration::from_millis(100);
+/// How often buffered history lines are appended to disk.
+const HISTORY_FLUSH: Duration = Duration::from_secs(5);
+/// What `GetOverviewHistory` returns without `since_ms`.
+const HISTORY_DEFAULT_WINDOW_MS: i64 = 6 * 60 * 60 * 1000;
 
 /// Messages for the dispatcher task, which owns the ordering of output events.
 pub enum Control {
@@ -46,6 +58,10 @@ pub struct Daemon {
     pub models: ProviderModelCatalog,
     pub registry: Registry,
     pub notifications: NotificationService,
+    /// Overview tracker + its history; one writer (this daemon is single-instance).
+    pub overview: Arc<Mutex<OverviewTracker>>,
+    pub history: Arc<Mutex<HistoryStore>>,
+    overview_kick: Notify,
     pub started: Instant,
     pub preflight_on_create: bool,
     os_notifications: bool,
@@ -99,6 +115,17 @@ impl Daemon {
         let restored = manager.hydrate_workspace_agents(&workspace.get_agents());
         tracing::info!(restored, "workspace restored");
 
+        let history = Arc::new(Mutex::new(HistoryStore::new(HistoryStoreOptions::new(
+            paths.overview_history_dir(),
+        ))));
+        history.lock().start();
+        let mut deps =
+            TrackerDeps::production(Box::new(manager.clone()), Box::new(history.clone()));
+        if let Some(dirs) = options.overview_config_dirs.clone() {
+            deps.config_dirs = Box::new(move || dirs.clone());
+        }
+        let overview = Arc::new(Mutex::new(OverviewTracker::new(deps)));
+
         let (control, control_rx) = mpsc::unbounded_channel();
         let daemon = Arc::new(Self {
             paths,
@@ -109,6 +136,9 @@ impl Daemon {
             models,
             registry: Registry::default(),
             notifications: NotificationService::default(),
+            overview,
+            history,
+            overview_kick: Notify::new(),
             started: Instant::now(),
             preflight_on_create: options.preflight_on_create,
             os_notifications: options.os_notifications,
@@ -119,6 +149,9 @@ impl Daemon {
             control,
         });
         daemon.spawn_tasks(control_rx);
+        if options.overview {
+            tokio::spawn(overview_loop(daemon.clone()));
+        }
         if options.import_sessions {
             daemon.spawn_session_import();
         }
@@ -268,6 +301,7 @@ impl Daemon {
         }
         tracing::info!(stop_agents, "stopping services");
         self.persist(true);
+        self.history.lock().stop();
         if stop_agents {
             self.manager.kill_all();
             if !self.manager.wait_all_stopped(STOP_AGENTS_TIMEOUT).await {
@@ -293,6 +327,54 @@ impl Daemon {
         self.registry.broadcast(&Event::Notification(notification));
     }
 
+    /// Push the result of an Overview poll to the clients, and raise "needs you" notifications
+    /// for Claude agents that just started waiting.
+    fn publish_overview(&self, poll: PollResult) {
+        if !poll.events.is_empty() {
+            for event in &poll.events {
+                if event.kind != EventKind::Status || event.to != Some(OverviewStatus::NeedsYou) {
+                    continue;
+                }
+                let session = poll
+                    .snapshot
+                    .sessions
+                    .iter()
+                    .find(|s| s.agent_id == event.agent_id);
+                self.notify(
+                    self.notifications.needs_you(
+                        &event.agent_id,
+                        session.map_or(event.name.as_str(), |s| s.name.as_str()),
+                        session
+                            .and_then(|s| s.waiting_reason)
+                            .or(event.waiting_reason),
+                        session.and_then(|s| s.waiting_text.as_deref()),
+                    ),
+                );
+            }
+            self.registry.broadcast(&Event::OverviewEvents(poll.events));
+        }
+        if poll.changed {
+            self.registry
+                .broadcast(&Event::OverviewSnapshot(Box::new(poll.snapshot)));
+        }
+    }
+
+    /// Poll the tracker off the async threads and publish the result.
+    async fn poll_overview(self: &Arc<Self>) {
+        let this = self.clone();
+        match tokio::task::spawn_blocking(move || this.overview.lock().refresh()).await {
+            Ok(poll) => self.publish_overview(poll),
+            Err(err) => tracing::warn!(%err, "overview poll failed"),
+        }
+    }
+
+    /// `GetOverviewHistory`.
+    pub fn history_since(&self, since_ms: Option<i64>) -> as_core::overview::HistoryResponse {
+        let since = since_ms
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() - HISTORY_DEFAULT_WINDOW_MS);
+        self.history.lock().query(since)
+    }
+
     fn dispatch(&self, event: AgentEvent) {
         match event {
             AgentEvent::Output { agent_id, data } => self.registry.output(&agent_id, &data),
@@ -306,6 +388,7 @@ impl Daemon {
                 if let Some(n) = self.notifications.status(&agent_id, &name, status) {
                     self.notify(n);
                 }
+                self.overview_kick.notify_one();
                 self.registry.broadcast(&Event::AgentStatus {
                     agent_id,
                     status,
@@ -316,7 +399,16 @@ impl Daemon {
             }
             AgentEvent::Waiting { agent_id } => {
                 let name = self.agent_name(&agent_id);
-                self.notify(self.notifications.waiting(&agent_id, &name));
+                // The 5 s silence rule fires falsely for a busy-but-quiet Claude agent: when the
+                // tracker reads that agent's registry entry, its own `needs-you` notification
+                // (see `publish_overview`) replaces it.
+                let tracked = self.manager.get(&agent_id).is_some_and(|a| {
+                    a.provider == ProviderId::Claude
+                        && self.overview.lock().has_registry_match(&agent_id)
+                });
+                if !tracked {
+                    self.notify(self.notifications.waiting(&agent_id, &name));
+                }
                 self.registry.broadcast(&Event::AgentWaiting { agent_id });
             }
             AgentEvent::Changed => {
@@ -324,6 +416,31 @@ impl Daemon {
                 self.request_save();
             }
         }
+    }
+}
+
+/// Polls the Overview tracker every 2 s and shortly after agent status changes, and flushes the
+/// history to disk every 5 s, until the services stop.
+async fn overview_loop(daemon: Arc<Daemon>) {
+    let mut poll = tokio::time::interval(OVERVIEW_POLL);
+    let mut flush = tokio::time::interval(HISTORY_FLUSH);
+    flush.tick().await;
+    loop {
+        tokio::select! {
+            _ = poll.tick() => {}
+            () = daemon.overview_kick.notified() => {
+                tokio::time::sleep(OVERVIEW_STATUS_DEBOUNCE).await;
+            }
+            _ = flush.tick() => {
+                let d = daemon.clone();
+                let _ = tokio::task::spawn_blocking(move || d.history.lock().flush()).await;
+                continue;
+            }
+        }
+        if daemon.services_stopped.load(Ordering::SeqCst) {
+            break;
+        }
+        daemon.poll_overview().await;
     }
 }
 

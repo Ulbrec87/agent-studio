@@ -1,4 +1,4 @@
-//! Grid view: project tabs, agent tiles, broadcast bar. The overview placeholder lives here too.
+//! Grid view: project tabs, agent tiles, broadcast bar.
 //!
 //! Tiles show a *window* of the agent's live screen instead of resizing the agent's PTY (that
 //! would reflow Claude's UI in the Chat view): the rows end at the last line with content (or the
@@ -290,42 +290,4 @@ fn render_tile(
         }
     }
     None
-}
-
-/// Overview is ported in phase P6; the tab exists already.
-pub fn render_overview_placeholder(app: &App, l: &Layout, buf: &mut Buffer) {
-    let t = &app.theme;
-    let base = Style::default().fg(t.text_muted).bg(t.bg);
-    for area in [l.title, l.terminal] {
-        for y in area.y..area.bottom() {
-            for x in area.x..area.right() {
-                if let Some(c) = buf.cell_mut((x, y)) {
-                    c.set_symbol(" ");
-                    c.set_style(base);
-                }
-            }
-        }
-    }
-    if l.title.height > 0 {
-        buf.set_string(
-            l.title.x,
-            l.title.y,
-            " Overview",
-            Style::default().fg(t.text_secondary).bg(t.bg),
-        );
-    }
-    let area = l.terminal;
-    if area.height == 0 {
-        return;
-    }
-    let text = "Overview \u{2014} coming in P6";
-    let w = u16::try_from(text.chars().count())
-        .unwrap_or(0)
-        .min(area.width);
-    buf.set_string(
-        area.x + (area.width - w) / 2,
-        area.y + area.height / 2,
-        clip(text, usize::from(area.width)),
-        base,
-    );
 }

@@ -197,6 +197,37 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
         Request::ListProviderModels { provider } => {
             Ok(Response::Models(daemon.models.list(provider).await))
         }
+        Request::GetOverview => {
+            let daemon = daemon.clone();
+            let snapshot =
+                tokio::task::spawn_blocking(move || daemon.overview.lock().get_snapshot())
+                    .await
+                    .map_err(|e| format!("overview failed: {e}"))?;
+            Ok(Response::Overview(Box::new(snapshot)))
+        }
+        Request::GetOverviewHistory { since_ms } => Ok(Response::OverviewHistory(Box::new(
+            daemon.history_since(since_ms),
+        ))),
+        Request::GetOverviewWaits => Ok(Response::OverviewWaits(Box::new(
+            daemon.history.lock().waits(),
+        ))),
+        Request::GetOverviewEvents { since_ms, limit } => {
+            let mut events = daemon.history_since(Some(since_ms.unwrap_or(0))).events;
+            if let Some(limit) = limit
+                && events.len() > limit
+            {
+                events.drain(..events.len() - limit);
+            }
+            Ok(Response::OverviewEvents(events))
+        }
+        Request::GetAgentDetails { agent_id } => {
+            let daemon = daemon.clone();
+            let details =
+                tokio::task::spawn_blocking(move || daemon.overview.lock().get_details(&agent_id))
+                    .await
+                    .map_err(|e| format!("agent details failed: {e}"))?;
+            Ok(Response::AgentDetails(details.map(Box::new)))
+        }
         Request::Shutdown { stop_agents } => {
             if !stop_agents && m.active_count() > 0 {
                 return Err(format!(

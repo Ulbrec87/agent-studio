@@ -56,6 +56,11 @@ pub struct DaemonOptions {
     pub apply_fixed_path: bool,
     /// Show OS notifications when no client is focused (off in tests).
     pub os_notifications: bool,
+    /// Run the Overview tracker (polls agents + Claude's registry, writes the history).
+    pub overview: bool,
+    /// Claude config dirs the tracker reads `sessions/<pid>.json` from; `None` discovers them
+    /// (every `~/.claude*` profile and `$CLAUDE_CONFIG_DIR`).
+    pub overview_config_dirs: Option<Vec<std::path::PathBuf>>,
 }
 
 impl Default for DaemonOptions {
@@ -68,6 +73,8 @@ impl Default for DaemonOptions {
             preflight_on_create: true,
             apply_fixed_path: true,
             os_notifications: true,
+            overview: true,
+            overview_config_dirs: None,
         }
     }
 }

@@ -100,11 +100,11 @@ fn prefix_g_and_backslash_toggle_chat_and_grid() {
 }
 
 #[test]
-fn overview_is_a_placeholder_view_and_v_cycles() {
+fn prefix_o_toggles_the_overview_and_v_cycles() {
     let mut app = new_app();
     prefix(&mut app, 'O');
     assert_eq!(app.view, ViewMode::Overview);
-    assert_eq!(app.focus, Focus::App);
+    assert_eq!(app.focus, Focus::Overview);
     // Typing goes nowhere in the overview.
     assert!(app.handle_key(chr('z')).is_empty());
     prefix(&mut app, 'O');

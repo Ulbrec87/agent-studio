@@ -3,7 +3,10 @@
 //!
 //! Rules mirrored from Hydra (no cooldown exists there, only de-duplication):
 //! * `AgentWaiting` event (running agent silent for 5 s) -> "Agent Finished" / "<name> is waiting for input".
-//!   The Overview-tracker suppression for Claude agents arrives with P6.
+//!   Suppressed for Claude agents the Overview tracker matched to a registry entry (the silence
+//!   heuristic fires falsely for busy-but-quiet agents); those get the tracker's notification
+//!   instead: a Claude agent entering `needs-you` -> "Needs you" / "<name> needs permission: Run:
+//!   ls" (`needs_you_body`). Codex, OpenCode and unmatched Claude agents keep the 5 s rule.
 //! * Status change, de-duplicated per agent (same status twice in a row is ignored):
 //!   `idle` -> "Agent Completed" / "<name> has finished", `errored` -> "Agent Error" /
 //!   "<name> encountered an error", `running` -> "Agent Started" / "<name> is now running";
@@ -16,6 +19,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use as_core::AgentStatus;
+use as_core::overview::WaitingReason;
 use as_proto::{NotificationKind, StudioNotification};
 use parking_lot::Mutex;
 
@@ -38,6 +42,19 @@ fn make(kind: NotificationKind, title: &str, body: String, agent_id: &str) -> St
     }
 }
 
+/// Hydra `needsYouBody`.
+pub fn needs_you_body(name: &str, reason: Option<WaitingReason>, text: Option<&str>) -> String {
+    let detail = text.map(|t| format!(": {t}")).unwrap_or_default();
+    match reason {
+        Some(WaitingReason::Permission) => format!("{name} needs permission{detail}"),
+        Some(WaitingReason::Question) => match text {
+            Some(t) => format!("{name} asked a question: {t}"),
+            None => format!("{name} asked a question"),
+        },
+        _ => format!("{name} is waiting for you{detail}"),
+    }
+}
+
 impl NotificationService {
     /// The agent went quiet while running.
     pub fn waiting(&self, agent_id: &str, name: &str) -> StudioNotification {
@@ -45,6 +62,22 @@ impl NotificationService {
             NotificationKind::AgentWaiting,
             "Agent Finished",
             format!("{name} is waiting for input"),
+            agent_id,
+        )
+    }
+
+    /// A Claude agent entered `needs-you` according to the Overview tracker.
+    pub fn needs_you(
+        &self,
+        agent_id: &str,
+        name: &str,
+        reason: Option<WaitingReason>,
+        text: Option<&str>,
+    ) -> StudioNotification {
+        make(
+            NotificationKind::AgentWaiting,
+            "Needs you",
+            needs_you_body(name, reason, text),
             agent_id,
         )
     }
@@ -142,6 +175,41 @@ mod tests {
         // forgotten agents notify again
         s.forget("a");
         assert!(s.status("a", "api", AgentStatus::Errored).is_some());
+    }
+
+    #[test]
+    fn needs_you_bodies_follow_hydra() {
+        use WaitingReason::{Other, Permission, Question};
+        assert_eq!(
+            needs_you_body("api", Some(Permission), Some("Run: ls")),
+            "api needs permission: Run: ls"
+        );
+        assert_eq!(
+            needs_you_body("api", Some(Permission), None),
+            "api needs permission"
+        );
+        assert_eq!(
+            needs_you_body("api", Some(Question), Some("Which DB?")),
+            "api asked a question: Which DB?"
+        );
+        assert_eq!(
+            needs_you_body("api", Some(Question), None),
+            "api asked a question"
+        );
+        assert_eq!(
+            needs_you_body("api", Some(Other), None),
+            "api is waiting for you"
+        );
+        assert_eq!(
+            needs_you_body("api", None, Some("x")),
+            "api is waiting for you: x"
+        );
+        let n =
+            NotificationService::default().needs_you("a", "api", Some(Permission), Some("Run: ls"));
+        assert_eq!(
+            (n.kind, n.title.as_str()),
+            (NotificationKind::AgentWaiting, "Needs you")
+        );
     }
 
     #[test]

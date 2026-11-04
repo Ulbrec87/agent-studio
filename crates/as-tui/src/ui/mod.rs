@@ -6,6 +6,7 @@ pub mod footer;
 pub mod grid;
 pub mod header;
 pub mod layout;
+pub mod overview;
 pub mod sidebar;
 pub mod toasts;
 
@@ -40,7 +41,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 }
             }
             ViewMode::Grid => cursor = grid::render(app, &l, buf),
-            ViewMode::Overview => grid::render_overview_placeholder(app, &l, buf),
+            ViewMode::Overview => overview::render(app, &l, buf),
         }
         footer::render(app, l.footer, buf);
         toasts::render(app, area, buf);
@@ -55,5 +56,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
 }
 
+#[cfg(test)]
+mod overview_tests;
 #[cfg(test)]
 mod tests;

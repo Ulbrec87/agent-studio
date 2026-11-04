@@ -12,6 +12,9 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
+use as_core::overview::{
+    AgentDetails, HistoryResponse, OverviewEvent, OverviewSnapshot, WaitLedgerData,
+};
 use as_core::paths::Paths;
 use as_core::sessions::{ClaudeProfile, ListSessionsOptions, SessionSummary};
 use as_core::{AppConfig, CreateAgentPayload, ModelId, ProviderId, ProviderModelOption};
@@ -409,6 +412,58 @@ impl DaemonClient {
             .await?
         {
             Response::Models(m) => Ok(m),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn get_overview(&self) -> Result<OverviewSnapshot> {
+        match self.request(Request::GetOverview).await? {
+            Response::Overview(o) => Ok(*o),
+            other => unexpected(other),
+        }
+    }
+
+    /// History from `since_ms` (epoch ms) on; `None` = the daemon's default (last 6 h).
+    pub async fn get_overview_history(&self, since_ms: Option<i64>) -> Result<HistoryResponse> {
+        match self
+            .request(Request::GetOverviewHistory { since_ms })
+            .await?
+        {
+            Response::OverviewHistory(h) => Ok(*h),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn get_overview_waits(&self) -> Result<WaitLedgerData> {
+        match self.request(Request::GetOverviewWaits).await? {
+            Response::OverviewWaits(w) => Ok(*w),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn get_overview_events(
+        &self,
+        since_ms: Option<i64>,
+        limit: Option<usize>,
+    ) -> Result<Vec<OverviewEvent>> {
+        match self
+            .request(Request::GetOverviewEvents { since_ms, limit })
+            .await?
+        {
+            Response::OverviewEvents(e) => Ok(e),
+            other => unexpected(other),
+        }
+    }
+
+    /// `None` when the daemon does not know the agent.
+    pub async fn get_agent_details(&self, agent_id: &str) -> Result<Option<AgentDetails>> {
+        match self
+            .request(Request::GetAgentDetails {
+                agent_id: agent_id.into(),
+            })
+            .await?
+        {
+            Response::AgentDetails(d) => Ok(d.map(|d| *d)),
             other => unexpected(other),
         }
     }

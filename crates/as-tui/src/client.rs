@@ -276,6 +276,73 @@ impl Io {
                     }
                 });
             }
+            Effect::LoadOverview => {
+                tokio::spawn(async move {
+                    match client.get_overview().await {
+                        Ok(snapshot) => {
+                            let _ = tx.send(Msg::Overview(Box::new(snapshot)));
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Msg::OverviewFailed(format!("{err:#}")));
+                            return;
+                        }
+                    }
+                    match client.get_overview_history(None).await {
+                        Ok(history) => {
+                            let _ = tx.send(Msg::OverviewHistory(Box::new(history)));
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Msg::OverviewFailed(format!("{err:#}")));
+                        }
+                    }
+                    match client.get_overview_waits().await {
+                        Ok(ledger) => {
+                            let _ = tx.send(Msg::OverviewWaits(Box::new(ledger)));
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Msg::OverviewFailed(format!("{err:#}")));
+                        }
+                    }
+                });
+            }
+            Effect::LoadOverviewHistory(since) => {
+                tokio::spawn(async move {
+                    match client.get_overview_history(Some(since)).await {
+                        Ok(history) => {
+                            let _ = tx.send(Msg::OverviewHistory(Box::new(history)));
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Msg::OverviewFailed(format!("{err:#}")));
+                        }
+                    }
+                });
+            }
+            Effect::LoadOverviewWaits => {
+                tokio::spawn(async move {
+                    match client.get_overview_waits().await {
+                        Ok(ledger) => {
+                            let _ = tx.send(Msg::OverviewWaits(Box::new(ledger)));
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Msg::OverviewFailed(format!("{err:#}")));
+                        }
+                    }
+                });
+            }
+            Effect::LoadAgentDetails(agent_id) => {
+                tokio::spawn(async move {
+                    match client.get_agent_details(&agent_id).await {
+                        Ok(Some(details)) => {
+                            let _ = tx.send(Msg::AgentDetails {
+                                agent_id,
+                                details: Box::new(details),
+                            });
+                        }
+                        Ok(None) => {}
+                        Err(err) => tracing::debug!(%err, "agent details failed"),
+                    }
+                });
+            }
             // Handled by the runner (needs the terminal).
             Effect::Quit | Effect::Bell | Effect::Suspend(_) => {}
         }

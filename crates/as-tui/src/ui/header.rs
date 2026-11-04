@@ -36,6 +36,18 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             Style::default().fg(t.text_muted)
         };
         left.push(Span::styled(format!(" {} ", view_label(view)), style));
+        // Hydra's amber badge: how many agents need you, visible from every view.
+        let needs_you = app.overview.needs_you_count();
+        if view == ViewMode::Overview && needs_you > 0 {
+            left.push(Span::styled(
+                format!(" {needs_you} "),
+                Style::default()
+                    .fg(t.accent_text)
+                    .bg(t.starting)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            left.push(Span::raw(" "));
+        }
     }
     let mut right: Vec<Span> = Vec::new();
 
