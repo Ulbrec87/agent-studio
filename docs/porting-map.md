@@ -5,17 +5,17 @@ Update the row (and add new rows) in the same commit that ports the code.
 
 | Hydra source | Rust target | Phase | Status |
 |--------------|-------------|-------|--------|
-| `shared/types.ts` (Agent*, Provider*, AppConfig, DEFAULT_CONFIG) | `as-core::types`, `as-core::config` | P1 | todo |
-| `electron/config/ConfigStore.ts` | `as-core::config::ConfigStore` | P1 | todo |
+| `shared/types.ts` (Agent*, Provider*, AppConfig, DEFAULT_CONFIG) | `as-core::types`, `as-core::usage_settings` | P1 | done (minus Electron-only terminal keys, plus `prefixKey`) |
+| `electron/config/ConfigStore.ts` | `as-core::config::ConfigStore` | P1 | done |
 | `electron/config/KeybindingStore.ts`, `shared/keybindings.ts` | `as-core::keybindings` (+ TUI key parsing in `as-tui::keymap`) | P5 | todo |
-| `electron/agents/providers.ts` | `as-core::agents::providers` | P1 | todo |
+| `electron/agents/providers.ts` | `as-core::agents::providers` | P1 | done |
 | `electron/agents/ProviderModelCatalog.ts` | `as-core::agents::model_catalog` | P4 | todo |
-| `electron/agents/shellWrapper.ts` | `as-core::agents::shell` | P1 | todo |
-| `electron/agents/agentEnv.ts` | `as-core::agents::env` | P1 | todo |
-| `electron/util/fix-path.ts` | `as-core::agents::shell` (login-shell PATH) | P1 | todo |
-| `electron/agents/AgentManager.ts` | `as-core::agents::manager` | P1 | todo |
-| `shared/terminalModelDetection.ts` | `as-core::agents::model_detect` | P1 | todo |
-| `electron/workspace/WorkspaceStore.ts` | `as-core::workspace` | P1 | todo |
+| `electron/agents/shellWrapper.ts` | `as-core::agents::shell` | P1 | done |
+| `electron/agents/agentEnv.ts` | `as-core::agents::env` | P1 | done |
+| `electron/util/fix-path.ts` | `as-core::agents::shell` (login-shell PATH) | P1 | done (`shell::fixed_path` returns the PATH; daemon applies it in P2) |
+| `electron/agents/AgentManager.ts` | `as-core::agents::manager` | P1 | wip — session discovery/import → P4, worktree → P10 (`SessionLocator` hook, `TODO(P4)`/`TODO(P10)`) |
+| `shared/terminalModelDetection.ts` | `as-core::agents::model_detect` | P1 | done |
+| `electron/workspace/WorkspaceStore.ts` | `as-core::workspace` | P1 | done |
 | `electron/daemon/*` (protocol, server, client, lock, lifecycle) | `as-proto`, `as-daemon`, `as-tui::client` | P2 | todo |
 | `electron/daemon/DaemonNotificationService.ts`, `notifications/*` | `as-daemon::notifications` | P3 | todo |
 | `src/components/{Sidebar,ChatView,Header,NewAgent,Notifications}` | `as-tui::views::{sidebar,chat,header,new_agent,toasts}` | P3 | todo |

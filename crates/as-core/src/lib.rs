@@ -3,6 +3,18 @@
 //! The daemon (`as-daemon`) owns an instance of these services; the TUI
 //! (`as-tui`) only talks to the daemon through `as-proto`.
 
+pub mod agents;
+pub mod config;
 pub mod paths;
+pub mod types;
+pub mod usage_settings;
+pub mod util;
+pub mod workspace;
+
+pub use agents::{AgentActivity, AgentEvent, AgentManager, ManagerError, ManagerOptions};
+pub use config::ConfigStore;
+pub use types::*;
+pub use usage_settings::{UsageChipProvider, UsageSettings};
+pub use workspace::{PersistedWorkspaceAgent, WorkspaceStore};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
