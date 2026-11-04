@@ -160,9 +160,13 @@ async fn agent_flow_output_status_and_clean_shutdown() {
     assert_eq!(buffered, b"before ");
 
     pty.emit_data(&[b'h', b'i', 0xe2, 0x82]); // ends inside a UTF-8 sequence
-    let Event::AgentOutput { agent_id, data } = next_event(&mut events, "output", |e| {
-        matches!(e, Event::AgentOutput { .. })
-    })
+    // A chunk racing the Subscribe may be delivered again as a live event
+    // (documented in AGENTLOG, P2): skip a duplicate of the buffered bytes.
+    let Event::AgentOutput { agent_id, data } = next_event(
+        &mut events,
+        "output",
+        |e| matches!(e, Event::AgentOutput { data, .. } if data.as_slice() != b"before "),
+    )
     .await
     else {
         unreachable!()
@@ -288,6 +292,20 @@ async fn second_daemon_refuses_to_start() {
     h.task.await.unwrap().unwrap();
 }
 
+/// Next `Response` frame, skipping pushed events (the overview tracker
+/// broadcasts snapshots/events to every client, also raw ones).
+async fn next_response<S>(stream: &mut S) -> (u64, Result<as_proto::Response, String>)
+where
+    S: futures_util::Stream<Item = std::io::Result<bytes::BytesMut>> + Unpin,
+{
+    loop {
+        let frame = stream.next().await.unwrap().unwrap();
+        if let ServerMsg::Response { id, result } = codec::decode(&frame).unwrap() {
+            return (id, result);
+        }
+    }
+}
+
 #[tokio::test]
 async fn malformed_frames_get_an_error_and_do_not_kill_the_daemon() {
     let h = start().await;
@@ -297,10 +315,7 @@ async fn malformed_frames_get_an_error_and_do_not_kill_the_daemon() {
     sink.send(Bytes::from_static(b"this is not json"))
         .await
         .unwrap();
-    let frame = stream.next().await.unwrap().unwrap();
-    let ServerMsg::Response { id, result } = codec::decode(&frame).unwrap() else {
-        panic!("expected a response")
-    };
+    let (id, result) = next_response(&mut stream).await;
     assert_eq!(id, 0);
     assert!(result.unwrap_err().contains("malformed"));
 
@@ -310,10 +325,7 @@ async fn malformed_frames_get_an_error_and_do_not_kill_the_daemon() {
     ))
     .await
     .unwrap();
-    let frame = stream.next().await.unwrap().unwrap();
-    let ServerMsg::Response { id, result } = codec::decode(&frame).unwrap() else {
-        panic!("expected a response")
-    };
+    let (id, result) = next_response(&mut stream).await;
     assert_eq!(id, 9);
     assert!(result.is_err());
 

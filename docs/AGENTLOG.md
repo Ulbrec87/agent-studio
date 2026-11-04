@@ -168,3 +168,13 @@ Format: `## <short title>` + what happened + what to do instead.
 - **Manual checks write into the real Claude profile.** New agents create `<profile>/projects/-tmp-...` session files, add
   lines to `<profile>/history.jsonl` and trust entries (`projects["/tmp/..."]`) to `<profile>/.claude.json`; only the project
   folders are safe to delete afterwards.
+
+## Verifying: never pipe `cargo test` into grep for the pass/fail decision
+A pipe hides cargo's exit code, and a failing test binary stops the run before later crates' tests
+execute. Run `cargo test --workspace -q > log 2>&1; echo $?` and read the exit code; grep the log only
+for the summary.
+
+## Raw-socket tests must skip pushed events (P6)
+Since P6 the daemon broadcasts `OverviewSnapshot`/`OverviewEvents` to every client, raw connections
+included, so a test reading "the next frame" can get an event instead of its response. Use the
+`next_response` helper in `crates/as-daemon/tests/daemon.rs`.
