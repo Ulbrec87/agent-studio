@@ -1,0 +1,13 @@
+[package]
+name = "as-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+as-core = { version = "0.1.0", path = "../as-core" }
