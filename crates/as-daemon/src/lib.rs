@@ -9,6 +9,7 @@
 
 mod connection;
 mod handler;
+mod notifications;
 mod registry;
 mod services;
 
@@ -30,6 +31,8 @@ pub struct DaemonOptions {
     pub preflight_on_create: bool,
     /// Hand agents the login-shell PATH (`shell::fixed_path`).
     pub apply_fixed_path: bool,
+    /// Show OS notifications when no client is focused (off in tests).
+    pub os_notifications: bool,
 }
 
 impl Default for DaemonOptions {
@@ -38,12 +41,16 @@ impl Default for DaemonOptions {
             manager: ManagerOptions::default(),
             preflight_on_create: true,
             apply_fixed_path: true,
+            os_notifications: true,
         }
     }
 }
 
 /// Process entry point. `foreground` only changes where logs go (decided by the caller).
 pub fn run(paths: Paths, foreground: bool) -> Result<()> {
+    if !foreground {
+        detach_from_terminal();
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("as-daemon")
@@ -59,6 +66,17 @@ pub fn run(paths: Paths, foreground: bool) -> Result<()> {
         }
         result
     })
+}
+
+/// New session, no controlling terminal: an interactive login shell (`bash -ilc`, used to find
+/// the PATH) otherwise stops on SIGTTIN/SIGTTOU in the daemon's background process group and
+/// every start would wait for its timeout.
+fn detach_from_terminal() {
+    #[cfg(unix)]
+    if let Err(err) = nix::unistd::setsid() {
+        // EPERM when already a group leader (started by hand); harmless.
+        tracing::debug!(%err, "setsid failed");
+    }
 }
 
 fn spawn_signal_handlers(stop: CancellationToken) {

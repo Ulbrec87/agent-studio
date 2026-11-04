@@ -353,6 +353,11 @@ impl DaemonClient {
         }
     }
 
+    /// Report whether this client's terminal is focused (drives OS notifications).
+    pub async fn set_focus(&self, focused: bool) -> Result<()> {
+        self.expect_ok(Request::ClientFocus(focused)).await
+    }
+
     /// Ask the daemon to exit. Waits for the agents to stop when `stop_agents` is set.
     pub async fn shutdown(&self, stop_agents: bool) -> Result<()> {
         match self

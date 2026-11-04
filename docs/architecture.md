@@ -32,11 +32,11 @@
   * `Request` (P2): `Hello`, `Ping`, `ListAgents`, `GetAgent`, `CreateAgent`, `KillAgent`, `RemoveAgent`,
     `RestartAgent`, `SendInput` (submit queue), `SendRaw` (bytes), `Resize`, `Broadcast`, `RenameAgent`, `SetModel`,
     `ToggleYolo`, `SetGlobalYolo`, `Subscribe`, `Unsubscribe`, `GetConfig`, `UpdateConfig` (JSON patch), `Preflight`,
-    `Status`, `Shutdown { stop_agents }`.
+    `Status`, `Shutdown { stop_agents }`, `ClientFocus(bool)` (P3).
   * `Response`: `Ok`, `Pong`, `Flag(bool)`, `Hello(HelloInfo)`, `Agents`, `Agent(Option)`, `Ids`, `Buffer { data }`,
     `Config`, `Preflight`, `Status`.
   * `Event`: `AgentOutput { agent_id, data }`, `AgentStatus { agent_id, status, session_id, model }`, `AgentWaiting`,
-    `AgentsChanged`, `ConfigChanged`, `DaemonShuttingDown`. New phases add variants only.
+    `AgentsChanged`, `ConfigChanged`, `DaemonShuttingDown`, `Notification(StudioNotification)` (P3). New phases add variants only.
 * Requests of one connection are answered **in order** (so `SendRaw` keystrokes never reorder); use several
   connections or pipeline by id for parallelism.
 * Handshake: first request is `Hello { client_version }`; the reply carries daemon version, `PROTOCOL_VERSION` and pid.
@@ -44,6 +44,7 @@
   (no running agent) is shut down (`Shutdown { stop_agents: false }`) and replaced; a daemon with running agents is
   never restarted automatically: the client keeps using it (warning) when the protocol matches and fails with an
   actionable error (`agent-studio stop --force`) when it does not.
+* Notifications (P3, `as-daemon::notifications`, rules of Hydra's `DaemonNotificationService`): `agent_waiting` ("Agent Finished" / "<name> is waiting for input"), `agent_idle` ("Agent Completed"), `agent_errored` ("Agent Error"), `agent_started` ("Agent Started"); status notifications are de-duplicated per agent. Every notification is broadcast as `Event::Notification`; an OS notification (`notify-rust`, cargo feature `desktop-notifications`, default on) is shown only while no client reported `ClientFocus(true)`.
 * Output streaming: `Subscribe { agent_id }` returns the buffered output (<= 2 MB raw bytes) and from then on
   `Event::AgentOutput` chunks are pushed to **that connection only**. Subscriptions belong to the connection: after a
   reconnect, subscribe again. Status/waiting/agents-changed/config events go to every client. A client whose outgoing

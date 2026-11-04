@@ -52,6 +52,7 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
             let removed = m.remove(&agent_id).await;
             if removed {
                 daemon.registry.drop_agent(&agent_id);
+                daemon.notifications.forget(&agent_id);
                 daemon.request_save();
             }
             Ok(Response::Flag(removed))
@@ -133,6 +134,10 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
             running_count: m.active_count(),
             clients: daemon.registry.len(),
         })),
+        Request::ClientFocus(focused) => {
+            daemon.registry.set_focus(client, focused);
+            Ok(Response::Ok)
+        }
         Request::Shutdown { stop_agents } => {
             if !stop_agents && m.active_count() > 0 {
                 return Err(format!(

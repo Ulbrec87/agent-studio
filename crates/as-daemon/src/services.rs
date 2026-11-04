@@ -13,6 +13,7 @@ use as_proto::Event;
 use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 
 use crate::DaemonOptions;
+use crate::notifications::{self, NotificationService};
 use crate::registry::Registry;
 
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -34,8 +35,10 @@ pub struct Daemon {
     pub config: Arc<ConfigStore>,
     pub workspace: Arc<WorkspaceStore>,
     pub registry: Registry,
+    pub notifications: NotificationService,
     pub started: Instant,
     pub preflight_on_create: bool,
+    os_notifications: bool,
     save: Notify,
     shutdown: Notify,
     shutdown_flag: AtomicBool,
@@ -75,8 +78,10 @@ impl Daemon {
             config,
             workspace,
             registry: Registry::default(),
+            notifications: NotificationService::default(),
             started: Instant::now(),
             preflight_on_create: options.preflight_on_create,
+            os_notifications: options.os_notifications,
             save: Notify::new(),
             shutdown: Notify::new(),
             shutdown_flag: AtomicBool::new(false),
@@ -189,6 +194,21 @@ impl Daemon {
         self.registry.broadcast(&Event::DaemonShuttingDown);
     }
 
+    fn agent_name(&self, agent_id: &str) -> String {
+        self.manager
+            .get(agent_id)
+            .map_or_else(|| agent_id.to_string(), |a| a.name.clone())
+    }
+
+    /// Record, push to every client and show an OS notification when no client is focused.
+    fn notify(&self, notification: as_proto::StudioNotification) {
+        self.notifications.record(&notification);
+        if self.os_notifications && !self.registry.any_focused() {
+            notifications::show_os_notification(&notification);
+        }
+        self.registry.broadcast(&Event::Notification(notification));
+    }
+
     fn dispatch(&self, event: AgentEvent) {
         match event {
             AgentEvent::Output { agent_id, data } => self.registry.output(&agent_id, &data),
@@ -198,6 +218,10 @@ impl Daemon {
                 session_id,
                 model,
             } => {
+                let name = self.agent_name(&agent_id);
+                if let Some(n) = self.notifications.status(&agent_id, &name, status) {
+                    self.notify(n);
+                }
                 self.registry.broadcast(&Event::AgentStatus {
                     agent_id,
                     status,
@@ -207,6 +231,8 @@ impl Daemon {
                 self.request_save();
             }
             AgentEvent::Waiting { agent_id } => {
+                let name = self.agent_name(&agent_id);
+                self.notify(self.notifications.waiting(&agent_id, &name));
                 self.registry.broadcast(&Event::AgentWaiting { agent_id });
             }
             AgentEvent::Changed => {

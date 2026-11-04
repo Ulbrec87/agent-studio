@@ -1,0 +1,22 @@
+---
+source: crates/as-tui/src/ui/tests.rs
+expression: text(&t)
+---
+ Agent Studio   Chat                                 ⚠ 1 waiting  ● 4/6 running  YOLO off
+ ▾ ★ manager 1             │ api-refactor · claude · sonnet · ● running · /work/api
+   ● manager       running │Hello from the agent
+ ▾ /work/api 3             │>
+   ● api-refactor  running │
+   ◐ tests !       waiting │
+   ○ migrations       idle │
+ ▾ /work/web 2             │
+   ✖ ui-fix          error │
+   ◌ boot         starting │
+                           │
+                           │
+                           │
+                           │
+                           │
+                           │
+ / filter…                 │
+ TERMINAL  Ctrl+A ? help · Ctrl+A n new · Ctrl+A s sidebar · Ctrl+A q quit

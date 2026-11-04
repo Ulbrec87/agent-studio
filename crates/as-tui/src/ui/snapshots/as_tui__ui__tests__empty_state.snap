@@ -1,0 +1,20 @@
+---
+source: crates/as-tui/src/ui/tests.rs
+expression: text(&t)
+---
+ Agent Studio   Chat                                    ● 0/0 running  YOLO off
+ No agents yet             │ Agent Studio
+                           │
+                           │
+                           │
+                           │
+                           │                    No agents yet
+                           │
+                           │            Press Ctrl+A n to create one
+                           │          Ctrl+A ? shows every key binding
+                           │
+                           │
+                           │
+                           │
+ / filter…                 │
+ TERMINAL  Ctrl+A ? help · Ctrl+A n new · Ctrl+A s sidebar · Ctrl+A q quit

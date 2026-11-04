@@ -8,7 +8,9 @@ use as_core::paths::Paths;
 use as_core::{AgentStatus, CreateAgentPayload, ManagerOptions, ProviderId};
 use as_daemon::{DaemonOptions, serve};
 use as_proto::lifecycle::{ensure_daemon_with, stop_daemon};
-use as_proto::{ClientMsg, DaemonClient, Event, Request, ServerMsg, codec, lock, transport};
+use as_proto::{
+    ClientMsg, DaemonClient, Event, NotificationKind, Request, ServerMsg, codec, lock, transport,
+};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -32,6 +34,7 @@ fn options(backend: &FakePtyBackend) -> DaemonOptions {
         },
         preflight_on_create: false,
         apply_fixed_path: false,
+        os_notifications: false,
     }
 }
 
@@ -363,4 +366,28 @@ async fn ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it() {
         !stop_daemon(&paths, false).await.unwrap(),
         "nothing left to stop"
     );
+}
+
+#[tokio::test]
+async fn notifications_are_pushed_and_deduplicated() {
+    let h = start().await;
+    let client = DaemonClient::connect(&h.paths).await.unwrap();
+    let mut events = client.take_events().unwrap();
+    client.hello().await.unwrap();
+    client.set_focus(true).await.unwrap();
+    client.set_focus(false).await.unwrap();
+
+    let agent = client.create_agent(payload()).await.unwrap();
+    let pick = |kind: NotificationKind| move |e: &Event| matches!(e, Event::Notification(n) if n.kind == kind);
+    let Event::Notification(n) =
+        next_event(&mut events, "started", pick(NotificationKind::AgentStarted)).await
+    else {
+        unreachable!()
+    };
+    assert_eq!(n.agent_id.as_deref(), Some(agent.id.as_str()));
+    assert_eq!(n.body, "demo is now running");
+
+    h.backend.ptys()[0].emit_exit(0);
+    next_event(&mut events, "completed", pick(NotificationKind::AgentIdle)).await;
+    h.stop.cancel();
 }

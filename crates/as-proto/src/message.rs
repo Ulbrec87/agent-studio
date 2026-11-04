@@ -107,6 +107,9 @@ pub enum Request {
     Shutdown {
         stop_agents: bool,
     },
+    /// The client's terminal gained/lost focus. The daemon sends OS notifications only while no
+    /// client is focused (Hydra: native notification when the window is not focused).
+    ClientFocus(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -177,6 +180,32 @@ pub enum Event {
     AgentsChanged,
     ConfigChanged(Box<AppConfig>),
     DaemonShuttingDown,
+    /// Something the user should know about (toast in the TUI, OS notification when unfocused).
+    Notification(StudioNotification),
+}
+
+/// Hydra `NotificationType` (agent part).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationKind {
+    /// The agent is waiting for input (needs you).
+    AgentWaiting,
+    /// The agent finished (status went idle).
+    AgentIdle,
+    AgentErrored,
+    AgentStarted,
+}
+
+/// Hydra `HydraNotification`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StudioNotification {
+    pub id: String,
+    pub kind: NotificationKind,
+    pub title: String,
+    pub body: String,
+    pub agent_id: Option<String>,
+    /// RFC 3339.
+    pub timestamp: String,
 }
 
 #[cfg(test)]
@@ -292,6 +321,7 @@ mod tests {
             Request::Preflight { provider: None },
             Request::Status,
             Request::Shutdown { stop_agents: true },
+            Request::ClientFocus(true),
         ];
         for r in all {
             round_trip(ClientMsg::Request { id: 1, req: r });
@@ -356,6 +386,14 @@ mod tests {
             Event::AgentsChanged,
             Event::ConfigChanged(Box::default()),
             Event::DaemonShuttingDown,
+            Event::Notification(StudioNotification {
+                id: "n1".into(),
+                kind: NotificationKind::AgentWaiting,
+                title: "t".into(),
+                body: "b".into(),
+                agent_id: Some("a".into()),
+                timestamp: "2026-01-01T00:00:00Z".into(),
+            }),
         ] {
             round_trip(ServerMsg::Event(e));
         }

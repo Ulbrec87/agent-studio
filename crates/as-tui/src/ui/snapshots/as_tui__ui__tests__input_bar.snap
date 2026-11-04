@@ -1,0 +1,24 @@
+---
+source: crates/as-tui/src/ui/tests.rs
+expression: text(&t)
+---
+ Agent Studio   Chat                                              ● 4/6 running  YOLO off
+ ▾ ★ manager 1             │ manager · claude · sonnet · ● running · /work/hub
+   ● manager       running │ attaching…
+ ▾ /work/api 3             │
+   ● api-refactor  running │
+   ● tests !       running │
+   ○ migrations       idle │
+ ▾ /work/web 2             │
+   ✖ ui-fix          error │
+   ◌ boot         starting │
+                           │
+                           │
+                           │
+                           │
+                           │
+                           │
+                           │
+                           │── Enter send · Alt+Enter newline · Esc terminal ─────────────
+ / filter…                 │› run the tests
+ INPUT  Enter send · Alt+Enter newline · Esc terminal

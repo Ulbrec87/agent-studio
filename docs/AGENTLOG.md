@@ -61,3 +61,30 @@ Format: `## <short title>` + what happened + what to do instead.
   the pid check is skipped (always "alive"), the socket probe decides.
 - **No real interprocess crate source in registry until `cargo fetch`**: use `ListenerOptions::new().name(..).create_tokio()`
   and `Name` from `String::to_fs_name::<GenericFilePath>()`; it accepts the `\\.\pipe\...` path on Windows too.
+
+## P3 (TUI) gotchas
+
+- **`tui-term` / `tui-textarea` skipped.** `tui-textarea` 0.7 targets ratatui 0.29 (cannot be combined with ratatui 0.30);
+  `tui-term` 0.3 pins its own `vt100`. We render `vt100::Screen` cell by cell (`term/render.rs`, ~60 lines) and have a small
+  multi-line `widgets::TextArea`. Both sit behind `TerminalEmulator` / plain widgets, so swapping later is local.
+- **vt100 0.18 API.** `Parser::new` takes `NonZeroU16` rows/cols; callbacks (`Parser::new_with_callbacks`) are how bell and
+  unhandled CSI arrive. CLIs query the terminal (Codex asks `ESC[6n`); vt100 does not answer, so `term::vt::Replies` answers
+  CPR/DSR/DA and the app sends the bytes back with `SendRaw`. **Replies produced while replaying the `Subscribe` buffer are
+  dropped** (the question was answered long ago; replaying the answer would type garbage into the agent).
+- **A background `bash -ilc` hangs on a tty.** The daemon used to be spawned with `process_group(0)`; the login shell used to
+  discover PATH (`shell::fixed_path`) then ran in a background process group of the user's terminal, stopped on SIGTTIN and
+  burned its whole 5 s timeout, so the first start of the TUI failed ("daemon did not start within 5s"). Fix: do not make
+  the daemon a group leader; `as_daemon::run` calls `nix::unistd::setsid()` (safe fn, fails with EPERM only for a leader).
+- **Output racing the `Subscribe` reply.** The reply (oneshot) and `AgentOutput` events (channel) are separate paths into the
+  app, so live output can be processed before the buffer. `SubState::Requested(pending)` holds it back and replays it after the buffer.
+- **Never write outside the `Buffer`.** `Buffer::set_string` panics outside its area; dialogs are drawn on an off-screen
+  canvas (min 80x40) and copied back, so tiny terminals clip instead of crashing.
+- **Panic hook only restores on the main thread**, otherwise a panic in a background task would leave raw mode while the app lives.
+- **Claude's trust prompt vs `/rename`.** On a folder Claude does not trust yet ("Is this a project you trust?", default
+  `No, exit`), Hydra's delayed `/rename <name>\r` presses Enter on "No, exit" and the agent ends as `errored`. Use a folder that
+  was trusted once (run `claude` there) or fix in P4/P10 (detect the prompt before renaming).
+- **`agent-studio status`/`ls` start a daemon** when none runs (by design, `ensure_daemon`): after `stop` do not call them
+  when you want to verify the daemon is gone; check the lock file / `pgrep -x agent-studio` instead. Do not `pkill -f` a
+  pattern that appears in your own shell command line.
+- **tmux for TUI checks.** `tmux new-session -d -x 130 -y 36 'AGENT_STUDIO_HOME=… agent-studio'` + `tmux send-keys` /
+  `tmux capture-pane -p` is enough to drive the TUI (use `C-a` for the prefix); tmux has `focus-events` off by default.

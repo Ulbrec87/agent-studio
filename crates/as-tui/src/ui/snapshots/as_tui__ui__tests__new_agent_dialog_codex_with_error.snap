@@ -1,0 +1,40 @@
+---
+source: crates/as-tui/src/ui/tests.rs
+expression: text(&t)
+---
+ Agent Studio   Chat                                                        ● 0/0 running  YOLO off
+ No agents yet             │ Agent Studio
+                           │
+                           │
+                           │
+                           │
+                           │
+                           │
+                           │
+                           │
+                           │
+                           │
+             ╭ New agent ─────────────────────────────────────────────────────────────╮
+             │ Name                                                                   │
+             │ Directory  /tmp                                                        │
+             │                                                                        │
+             │ Provider  ‹ Codex ›                                                    │
+             │ Model     ‹ gpt-5.3-codex ›  type for a custom id                      │
+             │ Reasoning ‹ low ›                                                      │
+             │ YOLO      [x]  skip permission prompts (Space)                         │
+             │ Resume    [ ] resume a previous session (available in a later release) │
+             │ Prompt     first message (optional)                                    │
+             │                                                                        │
+             │                                                                        │
+             │                                                                        │
+             │                                                                        │
+             │ ✖ codex CLI not found on PATH                                          │
+             ╰────────────────────────────────────────────────────────────────────────╯
+                           │
+                           │
+                           │
+                           │
+                           │
+                           │
+ / filter…                 │
+ NEW AGENT  Tab/↓ next · Shift+Tab prev · ←/→ change · Enter create · Esc cancel

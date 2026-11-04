@@ -17,9 +17,10 @@ Update the row (and add new rows) in the same commit that ports the code.
 | `shared/terminalModelDetection.ts` | `as-core::agents::model_detect` | P1 | done |
 | `electron/workspace/WorkspaceStore.ts` | `as-core::workspace` | P1 | done |
 | `electron/daemon/*` (protocol, server, client, lock, lifecycle) | `as-proto` (messages, codec, client, lifecycle, lock), `as-daemon` (server, registry, handler) ; TUI uses `as_proto::DaemonClient` | P2 | done (no notifications/MCP/overview/usage/headless yet) |
-| `electron/daemon/DaemonNotificationService.ts`, `notifications/*` | `as-daemon::notifications` | P3 | todo |
-| `src/components/{Sidebar,ChatView,Header,NewAgent,Notifications}` | `as-tui::views::{sidebar,chat,header,new_agent,toasts}` | P3 | todo |
-| `src/components/Terminal/TerminalPane.tsx` (xterm.js) | `as-tui::widgets::terminal` (vt100 + tui-term) | P3 | todo |
+| `electron/daemon/DaemonNotificationService.ts`, `notifications/*` | `as-daemon::notifications` (`Event::Notification`, `Request::ClientFocus`, OS notifications via `notify-rust`, feature `desktop-notifications`) | P3 | done (Overview-tracker `needs-you` source arrives with P6; no headless/usage notifications yet) |
+| `src/components/{Sidebar,ChatView,Header,NewAgent,Notifications}` | `as-tui::ui::{sidebar,chat,header,dialogs,toasts,footer}`, `as-tui::{app,new_agent,sidebar,keymap,theme}` | P3 | done (no session resume field, no filter chips/sort, no profile chip) |
+| `src/components/Terminal/TerminalPane.tsx` (xterm.js) | `as-tui::term::{vt,render,keys}` (vt100 behind `TerminalEmulator`, own cell renderer: `tui-term` not used) | P3 | done |
+| `src/hooks/{useNotifications,useNeedsYouTitle}.ts`, quit dialog in `App.tsx` | `as-tui::app` (toasts, `(N) Agent Studio` title, bell, quit dialog) | P3 | done |
 | `electron/sessions/SessionCatalog.ts`, `CodexSessionCatalog.ts`, `TranscriptReader.ts` | `as-core::sessions` | P4 | todo |
 | `electron/sessions/claudeProfiles.ts`, `shared/claudeProfiles.ts` | `as-core::sessions::profiles` | P4 | todo |
 | `src/components/GridView/*` | `as-tui::views::grid` | P5 | todo |

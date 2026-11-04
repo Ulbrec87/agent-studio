@@ -16,6 +16,7 @@ struct Entry {
     tx: mpsc::Sender<ServerMsg>,
     subs: HashSet<String>,
     kick: CancellationToken,
+    focused: bool,
 }
 
 #[derive(Default)]
@@ -33,6 +34,7 @@ impl Registry {
                 tx,
                 subs: HashSet::new(),
                 kick,
+                focused: false,
             },
         );
         id
@@ -44,6 +46,17 @@ impl Registry {
 
     pub fn len(&self) -> usize {
         self.clients.lock().len()
+    }
+
+    pub fn set_focus(&self, client: u64, focused: bool) {
+        if let Some(e) = self.clients.lock().get_mut(&client) {
+            e.focused = focused;
+        }
+    }
+
+    /// True while some client reports its terminal as focused.
+    pub fn any_focused(&self) -> bool {
+        self.clients.lock().values().any(|e| e.focused)
     }
 
     pub fn subscribe(&self, client: u64, agent_id: &str) {

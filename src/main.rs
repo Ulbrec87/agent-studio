@@ -20,6 +20,10 @@ struct Cli {
     #[arg(short = 'V', long)]
     version: bool,
 
+    /// Capture the mouse in the TUI (wheel scrolls the scrollback, clicks pick agents).
+    #[arg(long)]
+    mouse: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -105,7 +109,9 @@ fn main() -> Result<()> {
         None => {
             let _guard = logging::init(&paths, "agent-studio", false);
             tracing::info!("starting tui");
-            as_tui::run(paths)
+            let mut options = as_tui::TuiOptions::from_env();
+            options.mouse |= cli.mouse;
+            as_tui::run_with(paths, options)
         }
     }
 }

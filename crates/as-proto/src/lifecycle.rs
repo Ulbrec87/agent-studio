@@ -139,13 +139,9 @@ pub fn spawn_daemon(paths: &Paths) -> Result<()> {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    #[cfg(unix)]
-    {
-        // Own process group: no terminal Ctrl+C / job-control signals reach the daemon.
-        // (It also ignores SIGHUP, see as-daemon.)
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
+    // Unix: the daemon calls `setsid()` itself right after starting (`as_daemon::run`), which
+    // detaches it from the terminal and its job control. It must not be a process group leader
+    // for that, so no `process_group(0)` here.
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
