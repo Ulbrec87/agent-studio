@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none">
+  <!-- Monochrome Agent Studio mark (an "A" with a dot crossbar) for header use -->
+  <path d="M5.5 23 L14 4 L22.5 23" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="14" cy="16.5" r="2" fill="currentColor"/>
+</svg>

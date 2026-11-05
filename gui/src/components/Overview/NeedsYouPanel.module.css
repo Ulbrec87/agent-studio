@@ -1,0 +1,199 @@
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  min-width: 0;
+}
+
+.item:last-child {
+  border-bottom: none;
+}
+
+.large {
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--color-status-starting);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-status-starting) 10%, transparent);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nameButton {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  max-width: 100%;
+}
+
+.nameButton:hover {
+  text-decoration: underline;
+}
+
+.nameButton:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.large .name {
+  font-size: var(--font-size-lg);
+}
+
+.reason {
+  font-size: var(--font-size-xs);
+  color: var(--color-status-starting);
+  white-space: nowrap;
+}
+
+.where {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text {
+  margin-top: 4px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.timer {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.large .timer {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-status-starting);
+}
+
+.jump {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  border-radius: var(--radius-md);
+  padding: 4px var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  flex-shrink: 0;
+}
+
+.jump:hover {
+  background: var(--color-accent-hover);
+}
+
+/* ── All clear ─────────────────────────────────────────────────────────── */
+
+.clear {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-2) 0;
+}
+
+.clearMain {
+  min-width: 0;
+}
+
+.clearTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: calc(var(--font-size-xl) * 1.3);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+
+/* A target ring: a dot inside a circle. */
+.clearIcon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--color-text-secondary);
+  background: radial-gradient(circle, var(--color-text-secondary) 0 4px, transparent 4.5px);
+}
+
+.clearText {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.lastWait {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+  min-width: 0;
+}
+
+.lastWaitLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.lastWaitValue {
+  font-size: calc(var(--font-size-xl) * 1.3);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.lastWaitWho {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.lastWaitWho strong {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}

@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [workspace]
 members = ["crates/*"]
+# The Tauri shell needs the WebKit system libraries and has its own workspace (see its Cargo.toml).
+exclude = ["crates/as-gui"]
 resolver = "3"
 
 [workspace.package]

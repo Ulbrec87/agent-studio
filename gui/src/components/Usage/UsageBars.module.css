@@ -1,0 +1,66 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 56px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.chart[data-tall='true'] {
+  height: 140px;
+}
+
+.chart[data-period='week'] {
+  gap: 6px;
+}
+
+.col {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.stack {
+  width: 100%;
+  min-height: 2px;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 2px 2px 0 0;
+  overflow: hidden;
+}
+
+.seg {
+  flex-basis: 0;
+  min-height: 1px;
+  background: var(--color-provider-claude);
+}
+
+.seg[data-provider='codex'] {
+  background: var(--color-provider-codex);
+}
+
+.caption,
+.weekLabels {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.weekLabels {
+  gap: 6px;
+}
+
+.weekLabels span {
+  flex: 1 1 0;
+  text-align: center;
+}

@@ -365,3 +365,19 @@ included, so a test reading "the next frame" can get an event instead of its res
   that was just closed can stay busy on Windows (see the ConPTY / named pipe entry above).
 - **`prefix Up/Down` were taken** (`next-agent` / `prev-agent`), so pane focus is `prefix Alt+arrows` and resize `prefix Ctrl+arrows`. Some terminals
   (macOS Terminal.app, tmux without `xterm-keys`) swallow modified arrows: the palette entries and `keybindings.json` rebinding are the way out.
+
+## GUI (Tauri) G0 gotchas
+
+- **Tauri runs `beforeDevCommand`/`beforeBuildCommand` with the cwd = the parent of the dir holding `tauri.conf.json`** (here `crates/`),
+  so the commands are `npm --prefix ../gui run ...`, not `../../gui`. And the Tauri CLI finds the config from the working directory: run
+  `../../gui/node_modules/.bin/tauri dev` from `crates/as-gui`; `npm run tauri -- dev` from `gui/` says "no app found".
+- **A plain `cargo build` of the shell loads `devUrl`, not the embedded `gui/dist`** (no `custom-protocol` feature). To check the embedded build
+  and its CSP: `cargo build --features tauri/custom-protocol` with no Vite server running (a leftover Vite on :1420 silently fakes success).
+- **Tauri test binaries do not start on Windows** (missing common-controls manifest). Keep unit-testable code in the crate's lib without
+  `tauri`, put Tauri glue in the bin and set `test = false` on the bin.
+- **`cat > file` with no heredoc waits for stdin forever** and the tool call hangs for minutes: check the command, not npm.
+- **Hydra's renderer assumes Electron's `File.path`** for dropped files; webviews have none (typed as optional in `gui/src/env.d.ts`).
+  OS drops need Tauri's drag-drop event (G2).
+- **Under Xvfb** set `WEBKIT_DISABLE_DMABUF_RENDERER=1`; Pillow's `ImageGrab.grab(xdisplay=None)` takes the screenshot (no xdotool/import needed).
+- **ESLint 9 + react-hooks 7** flags Hydra's Tooltip ref forwarding (`react-hooks/immutability`); the rule is off in `gui/eslint.config.mjs`.
+

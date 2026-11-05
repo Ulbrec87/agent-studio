@@ -1,0 +1,113 @@
+.hatchLine {
+  stroke: var(--color-text-muted);
+  opacity: 0.55;
+}
+
+.chart {
+  position: relative;
+  outline: none;
+  border-radius: var(--radius-md);
+}
+
+.chart:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-text-secondary);
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.axis {
+  position: relative;
+  height: 16px;
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.axisLabel {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.axisLabelFirst {
+  transform: none;
+}
+
+.line {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.readout {
+  min-height: 1.4em;
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.swatchHatched {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-text-muted) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+/* Status colours, shared with the dots of the sessions list. */
+.s_needs_you { fill: var(--color-status-starting); background: var(--color-status-starting); }
+.s_working { fill: var(--color-status-running); background: var(--color-status-running); }
+.s_idle { fill: var(--color-status-idle); background: var(--color-status-idle); }
+.s_starting { fill: var(--color-status-starting); background: var(--color-status-starting); opacity: 0.55; }
+.s_finished { fill: var(--color-status-finished); background: var(--color-status-finished); }
+.s_not_running { fill: var(--color-status-not-running); background: var(--color-status-not-running); }
+.s_failed { fill: var(--color-status-error); background: var(--color-status-error); }
+
+.barNeeds { fill: var(--color-status-starting); }
+.barWorking { fill: var(--color-status-running); }
+.barIdle {
+  fill: none;
+  stroke: var(--color-status-idle);
+  stroke-width: 1;
+}
+
+.highlight {
+  fill: var(--color-text-primary);
+  opacity: 0.08;
+}
+
+.baseline {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}

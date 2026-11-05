@@ -1,0 +1,218 @@
+.overview {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-ui);
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.summary {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.filterLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.select {
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  padding: 4px var(--space-2);
+  max-width: 240px;
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--color-input-focus);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-areas:
+    'usage usage'
+    'needs lastHour'
+    'sessions events'
+    'timeline timeline'
+    'waits waits';
+  gap: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'usage'
+      'needs'
+      'lastHour'
+      'sessions'
+      'events'
+      'timeline'
+      'waits';
+  }
+}
+
+.usage { grid-area: usage; }
+.needs { grid-area: needs; }
+.lastHour { grid-area: lastHour; }
+.sessions { grid-area: sessions; }
+.events { grid-area: events; }
+.timeline { grid-area: timeline; }
+.waits { grid-area: waits; }
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 120px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+.cardHeaderEnd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cardMeta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.cardBody {
+  flex: 1;
+  padding: var(--space-3) var(--space-4);
+  min-height: 0;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-4) 0;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.centered {
+  height: 100%;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+}
+
+.emptyTitle,
+.errorTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.errorText {
+  margin: 0;
+  max-width: 420px;
+  color: var(--color-text-secondary);
+}
+
+.primaryBtn {
+  margin-top: var(--space-2);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  border-radius: var(--radius-md);
+  padding: 6px var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.primaryBtn:hover {
+  background: var(--color-accent-hover);
+}
+
+.needsBody {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.cardTitleBtn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.cardTitleBtn:hover,
+.cardTitleBtn[aria-expanded='true'] {
+  color: var(--color-text-primary);
+}
+
+.cardTitleBtn:focus-visible {
+  outline: 2px solid var(--color-text-secondary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

@@ -1,0 +1,147 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.figures {
+  display: flex;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+}
+
+.figureLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.figureValue {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.figureSub {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+@media (max-width: 900px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.subheading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+
+.barClosed {
+  fill: color-mix(in srgb, var(--color-status-starting) 55%, transparent);
+}
+
+.days {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  text-align: center;
+  font-size: var(--font-size-xs);
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+}
+
+.dayValue {
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dayName {
+  color: var(--color-text-muted);
+}
+
+.longestHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.longestHead .subheading {
+  margin: 0;
+}
+
+.longest {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.longestRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  min-width: 0;
+}
+
+.longestName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nowMark {
+  font-size: var(--font-size-xs);
+  color: var(--color-status-starting);
+  white-space: nowrap;
+}
+
+.longestCount {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.longestValue {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  min-width: 5ch;
+  text-align: right;
+}
+
+.none {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.measured {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}

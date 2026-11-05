@@ -1,0 +1,43 @@
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* Long lists scroll inside the card; the gutter keeps strips aligned with the axis. */
+  max-height: min(560px, 65vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.strip {
+  display: block;
+  width: 100%;
+}
+
+.track {
+  fill: var(--color-border-subtle);
+}
+
+.axisWrap {
+  margin-left: calc(140px + var(--space-3));
+  /* Matches the rows' scrollbar gutter (6px, see global.css). */
+  margin-right: 6px;
+}

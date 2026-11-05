@@ -29,12 +29,26 @@ cargo run -- update-check           # ask GitHub Releases for a newer version (n
 
 A phase/step is done only when **fmt, clippy (-D warnings) and tests** all pass.
 
+Desktop app (Node 22 via nvm; always `source ~/.nvm/nvm.sh && nvm use 22` first):
+
+```bash
+cd gui && npm ci && npm run dev         # browser only, mock bridge, http://localhost:1420
+cd gui && npm run typecheck && npm run lint && npm test && npm run build
+cd crates/as-gui && ../../gui/node_modules/.bin/tauri dev   # native window (needs gui/node_modules; gui/dist for plain cargo build)
+cd crates/as-gui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test   # after gui build
+```
+
+The Tauri CLI is the `@tauri-apps/cli` devDependency of `gui` (no `cargo install tauri-cli`). Run it from `crates/as-gui`
+(the CLI finds `tauri.conf.json` from the working directory; `npm run tauri` from `gui/` does not).
+
 For dev, isolate state with `AGENT_STUDIO_HOME=/tmp/as-dev cargo run -- …` so you never touch the
 real daemon/config in `~/.config/agent-studio`.
 
 ## Layout
 
 ```
+gui/                   Vite + React 18 + TS front end (Hydra renderer, adapted); gui/src/bridge = window.hydra shim
+crates/as-gui/         Tauri 2 shell, its OWN Cargo workspace (needs WebKit libs; excluded from the root workspace)
 src/main.rs            bin `agent-studio` — clap: (default) tui | daemon | ls | new | send | kill | rm | restart |
                        status | stop | import-hydra | update-check | version; `oneshot.rs` runs the one-shot
                        commands, `out.rs` prints without panicking on a closed pipe, `logging.rs` sets up tracing

@@ -6,3 +6,7 @@
 /.tokensave/
 *.log
 /.claude/worktrees/
+/gui/node_modules/
+/gui/dist/
+/crates/as-gui/target/
+/crates/as-gui/gen/

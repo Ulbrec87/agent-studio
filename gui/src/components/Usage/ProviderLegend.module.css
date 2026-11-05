@@ -1,0 +1,37 @@
+.providers {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.provider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+}
+
+.providerName {
+  color: var(--color-text-primary);
+}
+
+.providerTokens {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.providerCost {
+  min-width: 64px;
+  text-align: right;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.providerNone {
+  margin-left: auto;
+  color: var(--color-text-muted);
+}

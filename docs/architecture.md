@@ -234,6 +234,17 @@
 * Spawning (`spawn_daemon`): `current_exe daemon --home <root>`, stdio null; Unix: own process group; Windows:
   `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW`. Clients retry connecting with backoff for 5 s.
 
+## GUI client (Tauri, in progress)
+
+`crates/as-gui` (own Cargo workspace, `agent-studio-gui` binary) is a second client next to the TUI. It hosts `gui/` (Hydra's React
+renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`: `Transport { request, onEvent }` with a Tauri
+implementation (`invoke('daemon_request')` + `listen('daemon-event')`) and an in-memory mock (browser, tests, and the whole app in G0).
+`createHydraApi(bridge)` builds `window.hydra` with exactly the shape of Hydra's `preload.ts`; the Hydra-API -> `as-proto` mapping
+will live there (G1). The shell has two commands: `app_info` (works now) and `daemon_request` (G0: returns "not wired (G1)").
+The same binary is the daemon when started as `agent-studio-gui daemon --home <dir> [--foreground]`, so `ensure_daemon` (which spawns
+`current_exe daemon --home <root>`) works from the GUI. The library part of the crate holds everything unit-testable and does not
+link Tauri (test binaries linking Tauri do not start on Windows); the Tauri glue is in `src/shell.rs`.
+
 ## Data root (`as_core::paths::Paths`)
 
 `AGENT_STUDIO_HOME` or the OS config dir (`~/.config/agent-studio`, `~/Library/Application Support/agent-studio`,
@@ -285,3 +296,4 @@ the agent's output: folder trust, project MCP server approval, custom API key. T
 | `as-daemon` | socket server, client registry, event fan-out, lock/lifecycle, MCP server, OS notifications |
 | `as-tui` | daemon client, app state, views, widgets, keymap, theme |
 | bin `agent-studio` | clap entry point, logging init, dispatch |
+| `as-gui` (separate workspace) | Tauri shell: argv dispatch (`daemon` or window), `app_info`, `daemon_request` seam; front end in `gui/` |

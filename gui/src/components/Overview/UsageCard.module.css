@@ -1,0 +1,234 @@
+.body {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+@container (max-width: 760px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border-subtle);
+  min-width: 0;
+}
+
+.tile[data-dimmed='true'] {
+  opacity: 0.55;
+}
+
+.tile[data-problem='true'] {
+  border-color: color-mix(in srgb, var(--color-status-starting) 55%, var(--color-border));
+}
+
+.tileHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  min-width: 0;
+}
+
+.tileLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tileValue {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.percent {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.used {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.bar {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--color-status-running);
+}
+
+.tile[data-severity='warn'] .barFill {
+  background: var(--color-status-starting);
+}
+
+.tile[data-severity='high'] .barFill {
+  background: var(--color-status-error);
+}
+
+.reset {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.pill {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  color: var(--color-status-starting);
+  border: 1px solid color-mix(in srgb, var(--color-status-starting) 55%, var(--color-border));
+  white-space: nowrap;
+}
+
+.problemTitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.problemHint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.quiet {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.note {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.indexing {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-status-starting);
+}
+
+.hero {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.heroNumber {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.heroUnit {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.link:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--color-text-secondary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.skeletonTiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.skeleton {
+  height: 92px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.skeletonChart {
+  display: flex;
+  align-items: flex-end;
+  height: 188px;
+}
+
+.skeletonBars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  width: 100%;
+  height: 140px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.skeletonBars span {
+  flex: 1 1 0;
+  border-radius: 2px 2px 0 0;
+  background: var(--color-surface-hover);
+}

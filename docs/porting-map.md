@@ -60,3 +60,17 @@ Update the row (and add new rows) in the same commit that ports the code.
 | mouse support of the TUI (new) | `as-tui::{app::handle_mouse, ui::header::tab_at}`, config `mouse` / `--mouse` / `AGENT_STUDIO_MOUSE` | P10 | done (off by default) |
 | `electron/remote/*`, `hydra-remote/`, `firebase-backend/` (remote control, `remoteControlEnabled`) | — | P11 | deferred (decision 2 of the plan: after v0.1.0) |
 | Monaco editor, sounds, electron-builder | — | — | dropped (editing = `$EDITOR`, sounds = terminal bell, packaging = release archives) |
+
+## GUI (Tauri) — Hydra renderer -> `gui/`
+
+Plan: [docs/plans/2026-11-05-gui-tauri-plan.md](plans/2026-11-05-gui-tauri-plan.md). Status per phase (G0 scaffold ... G4 packaging).
+
+| Hydra | Here | Phase | Status |
+|-------|------|-------|--------|
+| `src/` (components, hooks, lib, styles, App, main, tests) | `gui/src/` | G0 | done (copied, rebranded "Agent Studio", localStorage keys `agentStudio.*`; all 56 copied/new test files pass) |
+| `shared/` | `gui/shared/` | G0 | done (copied; hand-keep in sync with `as-core` types) |
+| `electron/preload.ts` (`window.hydra`) | `gui/src/bridge/` (all 112 methods, every one a stub, see its README) | G0 stub, G1/G2 real | stub |
+| `src/components/RemoteControl/*`, `useRemoteControl`, `qrcode` | — | P11 | removed from the UI (API methods remain as stubs) |
+| `src/assets` brand images | new Agent Studio mark in `gui/src/assets` | G0 | done (placeholder, replaceable) |
+| `electron/main.ts`, windows, tray, menus | `crates/as-gui` | G0 minimal window, G3 polish | window only |
+| `electron-builder.yml`, installers | `crates/as-gui/tauri.conf.json` (`bundle.active=false`) | G4 | not started |

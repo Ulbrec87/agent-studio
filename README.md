@@ -210,6 +210,19 @@ automatic check off with `"checkForUpdates": false`. No request carries any cred
   `.cmd` shims are started through `cmd.exe`. If a first start hangs, `agent-studio stop --force` and retry; mention it in an issue with
   the diagnostics export.
 
+## Desktop app (in progress)
+
+A desktop GUI is being built next to the TUI: a Tauri 2 shell (`crates/as-gui`) around Hydra's React UI (`gui/`, adapted and
+rebranded), talking to the same daemon. It is not released yet; phase **G0** (scaffold) shows the real UI against a stub bridge with
+fixture agents, the daemon is wired in G1. See [docs/plans/2026-11-05-gui-tauri-plan.md](docs/plans/2026-11-05-gui-tauri-plan.md).
+
+```bash
+# Linux needs the WebKit dev libraries (libwebkit2gtk-4.1-dev, libgtk-3-dev, librsvg2-dev, libsoup-3.0-dev, ...)
+cd gui && npm ci                          # Node 22
+npm run dev                               # front end only, in a browser: http://localhost:1420 (mock data)
+cd ../crates/as-gui && ../../gui/node_modules/.bin/tauri dev    # native window (starts the Vite server itself)
+```
+
 ## Documentation
 
 See [docs/README.md](docs/README.md) for the index (architecture, key bindings, porting map and decisions). Contributions are welcome:
@@ -219,6 +232,7 @@ See [docs/README.md](docs/README.md) for the index (architecture, key bindings, 
 
 - [Hydra](https://github.com/jpdlr/hydra) by jpdlr (MIT): the desktop app this project ports; behavior, defaults and many texts come
   from it.
+- The desktop front end under `gui/` is Hydra's renderer (MIT, jpdlr), adapted: see [gui/NOTICE.md](gui/NOTICE.md).
 - [agent-lookout](https://github.com/Olanetsoft/agent-lookout) by Idris Olubisi (MIT): the model for the Overview ("which agents need me?").
 - Built with [ratatui](https://ratatui.rs), [portable-pty](https://crates.io/crates/portable-pty), [vt100](https://crates.io/crates/vt100),
   [tokio](https://tokio.rs), [interprocess](https://crates.io/crates/interprocess) and [rmcp](https://crates.io/crates/rmcp).
