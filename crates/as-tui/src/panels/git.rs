@@ -1,6 +1,7 @@
 //! Git panel: Changes (file list + colored unified diff, stage, commit, push), Branches
 //! (checkout, new branch) and PR review (`gh`, read-only). Port of Hydra's `GitPanel`.
 
+use as_core::DiffLayout;
 use as_core::git::{GitBranch, GitDiffStats, GitPrDiff, GitStatus, GitStatusKind};
 use as_proto::{Request, Response};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -109,6 +110,8 @@ pub struct GitUi {
     pub notice: Option<(bool, String)>,
     /// Rows the diff area shows (set by the renderer, used for paging).
     pub diff_height: usize,
+    /// Requested diff layout (from the config; `s` toggles it).
+    pub layout: DiffLayout,
     diff_seq: u64,
     /// What the shown diff belongs to, to skip reloads of the same file.
     diff_of: Option<(String, bool)>,
@@ -133,6 +136,7 @@ impl Default for GitUi {
             prompt: None,
             notice: None,
             diff_height: 20,
+            layout: DiffLayout::default(),
             diff_seq: 0,
             diff_of: None,
         }
@@ -268,7 +272,7 @@ impl GitUi {
                         .selected_file()
                         .map(|f| f.path.clone())
                         .unwrap_or_default();
-                    self.diff = DiffView::from_text(&title, &text, false);
+                    self.diff = DiffView::from_text(&title, &text, false).with_path(&title);
                     if text.trim().is_empty() {
                         self.diff =
                             DiffView::note(&title, "No textual changes (empty or binary file)");
@@ -322,7 +326,7 @@ impl GitUi {
     fn show_pr_file(&mut self) {
         let Some(data) = &self.pr.data else { return };
         self.pr.diff = match data.files.get(self.pr.cursor) {
-            Some(f) => DiffView::from_text(&f.path, &f.patch, false),
+            Some(f) => DiffView::from_text(&f.path, &f.patch, false).with_path(&f.path),
             None => DiffView::note("", "This pull request has no files"),
         };
     }
@@ -368,6 +372,16 @@ impl GitUi {
             }
             KeyCode::Char('r') if self.error.is_some() || !self.diff_focus => {
                 return (Outcome::Stay, self.refresh());
+            }
+            KeyCode::Char('s') if !ctrl && self.tab != GitTab::Branches => {
+                self.layout = self.layout.toggled();
+                let value = serde_json::to_value(self.layout).unwrap_or_default();
+                return (
+                    Outcome::Stay,
+                    vec![Effect::PatchConfig(
+                        serde_json::json!({ "diffLayout": value }),
+                    )],
+                );
             }
             _ => {}
         }

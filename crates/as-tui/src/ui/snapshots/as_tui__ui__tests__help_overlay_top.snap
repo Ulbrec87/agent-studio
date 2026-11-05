@@ -35,6 +35,6 @@ expression: first
 │  grid Left  grid h                             Grid: Focus Tile on the Left                                │
 │  grid Right  grid l                            Grid: Focus Tile on the Right                               │
 │  grid Up  grid k                               Grid: Focus Tile Above                                      │
-│ j/k PgUp/PgDn g/G scroll · Esc close · 1-31 of 92                                                          │
+│ j/k PgUp/PgDn g/G scroll · Esc close · 1-31 of 93                                                          │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  HELP  j/k PgUp/PgDn scroll · g/G top/bottom · Esc closes

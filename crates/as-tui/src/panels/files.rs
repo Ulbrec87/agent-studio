@@ -11,11 +11,17 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::{Outcome, Reply, nav, req, step};
 use crate::app::Effect;
+use crate::highlight::{LazyLines, MARGIN};
+use crate::theme::Theme;
 use crate::widgets::TextArea;
 
 /// How often the open file's mtime is checked.
 pub const POLL_MS: u64 = 1000;
 const SEARCH_LIMIT: usize = 100;
+/// Highlighted files kept besides the open one (per path, mtime and theme).
+const HL_CACHE: usize = 4;
+
+type HlKey = (String, u64, as_core::ThemeId);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
@@ -70,6 +76,10 @@ pub struct FilesUi {
     pub search: SearchUi,
     /// Rows the preview shows (set by the renderer).
     pub preview_height: usize,
+    /// Lazy highlighting of the open file and a few recent ones.
+    hl: LazyLines,
+    hl_key: Option<HlKey>,
+    hl_cache: Vec<(HlKey, LazyLines)>,
     file_seq: u64,
     last_poll_ms: u64,
     /// A key asked for the open-in picker with this absolute path.
@@ -181,6 +191,41 @@ impl FilesUi {
             },
         ));
         fx
+    }
+
+    /// Highlight the lines the preview shows (`height` rows) plus a margin, lazily; the result is
+    /// cached per (path, mtime, theme). `false`: more to do, draw again.
+    pub fn highlight_visible(&mut self, theme: &Theme, height: usize) -> bool {
+        let Some(f) = self.file.as_ref().filter(|f| f.placeholder.is_none()) else {
+            return true;
+        };
+        let key: HlKey = (f.path.clone(), f.mtime, theme.id);
+        if self.hl_key.as_ref() != Some(&key) {
+            if let Some(old_key) = self.hl_key.take() {
+                let old = std::mem::take(&mut self.hl);
+                if old.is_enabled() {
+                    self.hl_cache.retain(|(k, _)| *k != old_key);
+                    self.hl_cache.push((old_key, old));
+                    if self.hl_cache.len() > HL_CACHE {
+                        self.hl_cache.remove(0);
+                    }
+                }
+            }
+            self.hl = match self.hl_cache.iter().position(|(k, _)| *k == key) {
+                Some(i) => self.hl_cache.remove(i).1,
+                None => {
+                    let bytes: usize = f.lines.iter().map(|l| l.len() + 1).sum();
+                    LazyLines::new(&f.path, f.lines.len(), bytes, theme)
+                }
+            };
+            self.hl_key = Some(key);
+        }
+        self.hl.ensure(&f.lines, f.scroll + height + MARGIN)
+    }
+
+    /// Highlighted spans of line `i` of the open file.
+    pub fn spans(&self, i: usize) -> Option<&[crate::highlight::StyledSpan]> {
+        self.hl.get(i)
     }
 
     /// Time-driven work: check the open file's mtime.

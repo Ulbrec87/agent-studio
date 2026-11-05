@@ -46,6 +46,7 @@ const SHELL_MODES: &[&str] = &["auto", "direct", "login", "custom"];
 const CURSORS: &[&str] = &["block", "bar", "underline"];
 const POLICIES: &[&str] = &["explicit", "lru", "idle"];
 const PANEL_MODES: &[&str] = &["overlay", "split"];
+const DIFF_LAYOUTS: &[&str] = &["unified", "split"];
 const CHIPS: &[&str] = &["auto", "claude", "codex"];
 
 pub const GENERAL: &[Item] = &[
@@ -229,6 +230,12 @@ pub const PANELS: &[Item] = &[
         "Files panel",
         Kind::Choice(PANEL_MODES),
         "overlay: centered, split: right column",
+    ),
+    item(
+        "diffLayout",
+        "Diff layout",
+        Kind::Choice(DIFF_LAYOUTS),
+        "unified, or split (side by side, needs a git panel of 100+ columns); `s` toggles it in the Git panel",
     ),
 ];
 

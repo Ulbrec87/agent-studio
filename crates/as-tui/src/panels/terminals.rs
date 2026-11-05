@@ -1,10 +1,12 @@
 //! Free terminals (Hydra's `FreeTerminalPanel`): plain shells per project, drawn as a panel at the
-//! bottom of the screen (or full screen). Tabs = the layout's groups, split = the panes of a group
-//! (side by side). The daemon owns the PTYs; each pane here has a vt100 emulator fed by
-//! `TerminalOutput` events after a `SubscribeTerminal`.
+//! bottom of the screen (or full screen). Tabs = the layout's groups; the panes of a tab are laid
+//! out by a split tree (`FreeTerminalNode`: right / down splits with a ratio). The daemon owns the
+//! PTYs and the tree; each pane here has a vt100 emulator fed by `TerminalOutput` events after a
+//! `SubscribeTerminal`.
 
 use std::collections::HashMap;
 
+use as_core::terminal_tree::{FreeTerminalNode, SplitDir};
 use as_core::terminals::{FreeTerminalGroup, FreeTerminalLayout};
 use as_proto::{Request, Response};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -14,6 +16,9 @@ use super::{Reply, req};
 use crate::app::{Effect, SubState};
 use crate::term::{TerminalEmulator, Vt100Emulator, keys};
 use crate::widgets::TextArea;
+
+/// Percentage points one resize key press moves a divider.
+pub const RESIZE_STEP: i16 = 5;
 
 pub struct PaneTerm {
     pub emu: Box<dyn TerminalEmulator>,
@@ -26,12 +31,12 @@ pub struct PaneTerm {
 pub struct Geometry {
     pub panel: Rect,
     pub tabs: Rect,
-    pub panes: Vec<Rect>,
+    /// The area the pane tree is laid out in.
+    pub body: Rect,
 }
 
-/// Panel (bottom ~45 % or the whole content area) with a tab row and `panes` side-by-side areas
-/// separated by one column.
-pub fn geometry(screen: Rect, fullscreen: bool, panes: usize) -> Geometry {
+/// Panel (bottom ~45 % or the whole content area) with a tab row and the body below it.
+pub fn geometry(screen: Rect, fullscreen: bool) -> Geometry {
     // Keep the header (1 row) and footer (1 row) visible.
     let content = Rect::new(
         screen.x,
@@ -64,25 +69,96 @@ pub fn geometry(screen: Rect, fullscreen: bool, panes: usize) -> Geometry {
         inner.width,
         inner.height.saturating_sub(tabs.height),
     );
-    let n = u16::try_from(panes.max(1)).unwrap_or(1);
-    let seps = n - 1;
-    let each = body.width.saturating_sub(seps) / n;
-    let mut rects = Vec::new();
-    let mut x = body.x;
-    for i in 0..n {
-        let w = if i == n - 1 {
-            body.right().saturating_sub(x)
-        } else {
-            each
-        };
-        rects.push(Rect::new(x, body.y, w, body.height));
-        x += w + 1;
+    Geometry { panel, tabs, body }
+}
+
+/// Lay a split tree out in `area`: one rectangle per pane plus a one-cell separator per split
+/// (a column for side-by-side panes, a row for stacked ones). `ratio` is the share of the first
+/// child of the space that is left after the separator.
+pub fn tree_rects(area: Rect, node: &FreeTerminalNode) -> (Vec<(String, Rect)>, Vec<Rect>) {
+    let (mut panes, mut seps) = (Vec::new(), Vec::new());
+    place(area, node, &mut panes, &mut seps);
+    (panes, seps)
+}
+
+fn place(
+    area: Rect,
+    node: &FreeTerminalNode,
+    panes: &mut Vec<(String, Rect)>,
+    seps: &mut Vec<Rect>,
+) {
+    match node {
+        FreeTerminalNode::Leaf { pane_id } => panes.push((pane_id.clone(), area)),
+        FreeTerminalNode::Split { dir, ratio, a, b } => {
+            let horizontal = *dir == SplitDir::Horizontal;
+            let total = if horizontal { area.width } else { area.height };
+            let avail = total.saturating_sub(1);
+            let first = (u32::from(avail) * u32::from(*ratio) / 100) as u16;
+            // Both children keep at least one cell whenever there is room for that.
+            let first = if avail >= 2 {
+                first.clamp(1, avail - 1)
+            } else {
+                first.min(avail)
+            };
+            let second = avail - first;
+            let (ra, sep, rb) = if horizontal {
+                (
+                    Rect::new(area.x, area.y, first, area.height),
+                    Rect::new(area.x + first, area.y, total.min(1), area.height),
+                    Rect::new(area.x + first + 1, area.y, second, area.height),
+                )
+            } else {
+                (
+                    Rect::new(area.x, area.y, area.width, first),
+                    Rect::new(area.x, area.y + first, area.width, total.min(1)),
+                    Rect::new(area.x, area.y + first + 1, area.width, second),
+                )
+            };
+            seps.push(sep);
+            place(ra, a, panes, seps);
+            place(rb, b, panes, seps);
+        }
     }
-    Geometry {
-        panel,
-        tabs,
-        panes: rects,
-    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dir {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// The pane next to `from` in direction `dir`: the nearest one that lies entirely beyond it and
+/// shares some rows (left / right) or columns (up / down); the one with the larger overlap wins
+/// a tie. `None` when `from` is at that edge.
+pub fn neighbor(panes: &[(String, Rect)], from: &str, dir: Dir) -> Option<String> {
+    let c = panes.iter().find(|(id, _)| id == from)?.1;
+    let overlap =
+        |lo1: u16, hi1: u16, lo2: u16, hi2: u16| hi1.min(hi2).saturating_sub(lo1.max(lo2));
+    panes
+        .iter()
+        .filter(|(id, _)| id != from)
+        .filter_map(|(id, r)| {
+            let (gap, shared) = match dir {
+                Dir::Right if r.x >= c.right() => {
+                    (r.x - c.right(), overlap(c.y, c.bottom(), r.y, r.bottom()))
+                }
+                Dir::Left if r.right() <= c.x => {
+                    (c.x - r.right(), overlap(c.y, c.bottom(), r.y, r.bottom()))
+                }
+                Dir::Down if r.y >= c.bottom() => {
+                    (r.y - c.bottom(), overlap(c.x, c.right(), r.x, r.right()))
+                }
+                Dir::Up if r.bottom() <= c.y => {
+                    (c.y - r.bottom(), overlap(c.x, c.right(), r.x, r.right()))
+                }
+                _ => return None,
+            };
+            (shared > 0).then(|| (id.clone(), gap, shared))
+        })
+        .min_by_key(|(_, gap, shared)| (*gap, std::cmp::Reverse(*shared)))
+        .map(|(id, _, _)| id)
 }
 
 #[derive(Default)]
@@ -122,7 +198,7 @@ impl FreeTerms {
             .map_or_else(|| pane_id.to_string(), |p| p.label.clone())
     }
 
-    /// Panes of the active tab, in order.
+    /// Panes of the active tab, in reading order.
     pub fn visible_panes(&self) -> Vec<String> {
         self.active_group()
             .map(|g| g.pane_ids.clone())
@@ -130,7 +206,15 @@ impl FreeTerms {
     }
 
     pub fn geometry(&self) -> Geometry {
-        geometry(self.screen, self.fullscreen, self.visible_panes().len())
+        geometry(self.screen, self.fullscreen)
+    }
+
+    /// Rectangle of every pane of the active tab and the separators between them.
+    pub fn pane_rects(&self) -> (Vec<(String, Rect)>, Vec<Rect>) {
+        let body = self.geometry().body;
+        self.active_group()
+            .and_then(FreeTerminalGroup::effective_tree)
+            .map_or_else(Default::default, |t| tree_rects(body, &t))
     }
 
     /// `prefix t`: show / hide the panel for `project_dir`.
@@ -188,7 +272,7 @@ impl FreeTerms {
         }
         if current && self.open {
             if empty && self.want_first && !self.spawning {
-                fx.extend(self.spawn(None));
+                fx.extend(self.spawn(None, None, None));
             } else if !empty {
                 self.want_first = false;
             }
@@ -197,35 +281,104 @@ impl FreeTerms {
         fx
     }
 
-    fn spawn(&mut self, group_id: Option<String>) -> Vec<Effect> {
+    /// Start a shell: a new tab, or (with `group_id`) a split of `split_pane` in `split_dir`.
+    fn spawn(
+        &mut self,
+        group_id: Option<String>,
+        split_pane: Option<String>,
+        split_dir: Option<SplitDir>,
+    ) -> Vec<Effect> {
         self.spawning = true;
         self.want_first = false;
-        let (cols, rows) = self
-            .geometry()
-            .panes
-            .first()
-            .map_or((80, 24), |r| (r.width.max(2), r.height.max(2)));
+        // The size of the pane it will get, roughly; `sync` corrects it once the layout is back.
+        let (panes, _) = self.pane_rects();
+        let target = split_pane
+            .as_ref()
+            .and_then(|p| panes.iter().find(|(id, _)| id == p))
+            .or_else(|| panes.first())
+            .map(|(_, r)| *r);
+        let (cols, rows) = target.map_or((80, 24), |r| match split_dir {
+            Some(SplitDir::Vertical) if group_id.is_some() => (r.width, r.height / 2),
+            Some(_) | None if group_id.is_some() => (r.width / 2, r.height),
+            _ => (r.width, r.height),
+        });
         vec![req(
             "term:spawn",
             Request::SpawnTerminal {
                 project_dir: self.project_dir.clone(),
                 cwd: None,
                 group_id,
-                cols,
-                rows,
+                split_pane,
+                split_dir,
+                cols: cols.max(2),
+                rows: rows.max(2),
             },
         )]
     }
 
     /// `prefix T`.
     pub fn new_tab(&mut self) -> Vec<Effect> {
-        self.spawn(None)
+        self.spawn(None, None, None)
     }
 
-    /// `prefix |`: another pane in the active tab (or a first terminal).
-    pub fn split(&mut self) -> Vec<Effect> {
+    /// `prefix |` (right) / `prefix -` (down): split the active pane (or start a first terminal).
+    pub fn split(&mut self, dir: SplitDir) -> Vec<Effect> {
         let group = self.active_group().map(|g| g.id.clone());
-        self.spawn(group)
+        let pane = self.active_pane();
+        self.spawn(group, pane, Some(dir))
+    }
+
+    /// Focus the neighbouring pane in `dir` (nothing at the edge of the tab).
+    pub fn focus_dir(&mut self, dir: Dir) -> Vec<Effect> {
+        let (Some(group), Some(active)) = (
+            self.active_group().map(|g| g.id.clone()),
+            self.active_pane(),
+        ) else {
+            return Vec::new();
+        };
+        let (panes, _) = self.pane_rects();
+        match neighbor(&panes, &active, dir) {
+            Some(next) => self.activate(Some(group), Some(next)),
+            None => Vec::new(),
+        }
+    }
+
+    /// Move the divider next to the active pane in the direction of the key (`Left`/`Up` shrink the
+    /// first child of the nearest split on that axis, `Right`/`Down` grow it).
+    pub fn resize_dir(&mut self, dir: Dir) -> Vec<Effect> {
+        let Some(pane) = self.active_pane() else {
+            return Vec::new();
+        };
+        let (axis, delta) = match dir {
+            Dir::Left => (SplitDir::Horizontal, -RESIZE_STEP),
+            Dir::Right => (SplitDir::Horizontal, RESIZE_STEP),
+            Dir::Up => (SplitDir::Vertical, -RESIZE_STEP),
+            Dir::Down => (SplitDir::Vertical, RESIZE_STEP),
+        };
+        // Apply it locally right away; the daemon's layout confirms (or corrects) it.
+        let project = self.project_dir.clone();
+        let mut changed = false;
+        if let Some(l) = self.layouts.get_mut(&project)
+            && let Some(g) = l.groups.iter_mut().find(|g| g.pane_ids.contains(&pane))
+        {
+            let mut tree = g.effective_tree();
+            changed = tree.as_mut().is_some_and(|t| t.resize(&pane, axis, delta));
+            g.tree = tree;
+        }
+        if !changed {
+            return Vec::new();
+        }
+        let mut fx = vec![req(
+            "term:resize",
+            Request::ResizeTerminalPane {
+                project_dir: project,
+                pane_id: pane,
+                axis,
+                delta,
+            },
+        )];
+        fx.extend(self.sync());
+        fx
     }
 
     pub fn kill_active(&mut self) -> Vec<Effect> {
@@ -310,9 +463,9 @@ impl FreeTerms {
         if !self.open {
             return Vec::new();
         }
-        let geo = self.geometry();
+        let (rects, _) = self.pane_rects();
         let mut fx = Vec::new();
-        for (id, rect) in self.visible_panes().into_iter().zip(geo.panes) {
+        for (id, rect) in rects {
             let (cols, rows) = (rect.width.max(2), rect.height.max(2));
             if let Some(t) = self.terms.get_mut(&id)
                 && t.sent_size != Some((cols, rows))
@@ -345,7 +498,7 @@ impl FreeTerms {
                 self.spawning = false;
                 Vec::new()
             }
-            ("term:activate", Ok(Response::TerminalLayout(l))) => {
+            ("term:activate" | "term:resize", Ok(Response::TerminalLayout(l))) => {
                 let dir = l.project_dir.clone();
                 self.on_layout(&dir, l)
             }
@@ -496,6 +649,7 @@ mod tests {
                     id: (*g).into(),
                     pane_ids: panes.iter().map(|p| (*p).into()).collect(),
                     active_pane_id: panes.last().map(|p| (*p).into()).unwrap_or_default(),
+                    tree: None,
                 })
                 .collect(),
             active_group_id: Some(active.into()),
@@ -517,18 +671,246 @@ mod tests {
         t
     }
 
+    fn row(ids: &[&str]) -> FreeTerminalNode {
+        FreeTerminalNode::row(&ids.iter().map(|s| (*s).to_string()).collect::<Vec<_>>()).unwrap()
+    }
+
     #[test]
-    fn geometry_splits_the_body_evenly() {
-        let g = geometry(Rect::new(0, 0, 100, 40), false, 2);
+    fn geometry_keeps_the_header_and_footer_rows_visible() {
+        let g = geometry(Rect::new(0, 0, 100, 40), false);
         assert_eq!(g.panel.bottom(), 39, "the footer row stays visible");
         assert!(g.panel.height >= 8);
-        assert_eq!(g.panes.len(), 2);
-        assert_eq!(g.panes[0].width + 1 + g.panes[1].width, g.tabs.width);
-        let full = geometry(Rect::new(0, 0, 100, 40), true, 1);
+        assert_eq!(g.body.width, g.tabs.width);
+        assert_eq!(g.body.y, g.tabs.bottom());
+        let full = geometry(Rect::new(0, 0, 100, 40), true);
         assert_eq!(full.panel.height, 38);
         // Tiny screens never underflow.
-        let tiny = geometry(Rect::new(0, 0, 4, 3), false, 3);
-        assert_eq!(tiny.panes.len(), 3);
+        let tiny = geometry(Rect::new(0, 0, 4, 3), false);
+        assert!(tiny.body.width <= 4);
+    }
+
+    #[test]
+    fn tree_rects_tile_the_area_with_one_cell_separators() {
+        let area = Rect::new(10, 5, 81, 21);
+        // a | (b / c) with a 50 % first split.
+        let mut tree = FreeTerminalNode::leaf("a");
+        tree.split_leaf("a", "b", SplitDir::Horizontal);
+        tree.split_leaf("b", "c", SplitDir::Vertical);
+        let (panes, seps) = tree_rects(area, &tree);
+        let rect = |id: &str| panes.iter().find(|(p, _)| p == id).unwrap().1;
+        assert_eq!(rect("a"), Rect::new(10, 5, 40, 21));
+        assert_eq!(rect("b"), Rect::new(51, 5, 40, 10));
+        assert_eq!(rect("c"), Rect::new(51, 16, 40, 10));
+        assert_eq!(
+            seps,
+            [Rect::new(50, 5, 1, 21), Rect::new(51, 15, 40, 1)],
+            "a column and a row"
+        );
+        // Everything inside the area, nothing overlapping.
+        let all: Vec<Rect> = panes.iter().map(|(_, r)| *r).chain(seps.clone()).collect();
+        for (i, r) in all.iter().enumerate() {
+            assert!(
+                area.contains((r.x, r.y).into())
+                    && r.right() <= area.right()
+                    && r.bottom() <= area.bottom()
+            );
+            for o in &all[i + 1..] {
+                assert!(!r.intersects(*o), "{r:?} overlaps {o:?}");
+            }
+        }
+        // The ratio moves the divider.
+        tree.resize("a", SplitDir::Horizontal, 20);
+        let (panes, _) = tree_rects(area, &tree);
+        assert_eq!(panes[0].1.width, 56);
+    }
+
+    #[test]
+    fn tree_rects_never_underflow_on_tiny_areas() {
+        for w in 0..4 {
+            for h in 0..4 {
+                let (panes, seps) = tree_rects(Rect::new(0, 0, w, h), &row(&["a", "b", "c"]));
+                assert_eq!(panes.len(), 3);
+                assert_eq!(seps.len(), 2);
+            }
+        }
+        // A two-cell width still gives both panes a cell.
+        let (panes, _) = tree_rects(Rect::new(0, 0, 3, 1), &row(&["a", "b"]));
+        assert!(panes.iter().all(|(_, r)| r.width >= 1));
+    }
+
+    #[test]
+    fn a_flat_layout_without_a_tree_is_a_row() {
+        let mut t = open_panel();
+        t.on_layout("/p", layout("/p", &[("g1", &["a", "b"])], "g1"));
+        let (panes, seps) = t.pane_rects();
+        assert_eq!(panes.len(), 2);
+        assert_eq!(seps.len(), 1);
+        assert_eq!(panes[0].1.y, panes[1].1.y, "side by side");
+    }
+
+    /// `a | (b / c)`, `c` active.
+    fn three_pane_layout() -> FreeTerminalLayout {
+        let mut l = layout("/p", &[("g1", &["a", "b", "c"])], "g1");
+        let mut tree = FreeTerminalNode::leaf("a");
+        tree.split_leaf("a", "b", SplitDir::Horizontal);
+        tree.split_leaf("b", "c", SplitDir::Vertical);
+        l.groups[0].tree = Some(tree);
+        l
+    }
+
+    fn open_three() -> FreeTerms {
+        let mut t = open_panel();
+        t.on_layout("/p", three_pane_layout());
+        t
+    }
+
+    #[test]
+    fn neighbors_by_direction() {
+        let t = open_three();
+        let (panes, _) = t.pane_rects();
+        let n = |from: &str, d| neighbor(&panes, from, d);
+        assert!(n("a", Dir::Right).is_some_and(|p| p == "b" || p == "c"));
+        assert_eq!(n("b", Dir::Left).as_deref(), Some("a"));
+        assert_eq!(n("c", Dir::Left).as_deref(), Some("a"));
+        assert_eq!(n("b", Dir::Down).as_deref(), Some("c"));
+        assert_eq!(n("c", Dir::Up).as_deref(), Some("b"));
+        assert_eq!(n("a", Dir::Left), None);
+        assert_eq!(n("a", Dir::Up), None);
+        assert_eq!(n("c", Dir::Down), None);
+        assert_eq!(n("c", Dir::Right), None);
+        assert_eq!(n("zzz", Dir::Right), None);
+    }
+
+    #[test]
+    fn a_tie_in_overlap_goes_to_the_first_pane() {
+        let panes = vec![
+            ("a".to_string(), Rect::new(0, 0, 10, 10)),
+            ("b".to_string(), Rect::new(11, 0, 10, 5)),
+            ("c".to_string(), Rect::new(11, 5, 10, 5)),
+            ("far".to_string(), Rect::new(22, 0, 10, 10)),
+        ];
+        assert_eq!(neighbor(&panes, "a", Dir::Right).as_deref(), Some("b"));
+        // The pane that overlaps more wins over the one that merely touches the rows.
+        let panes = vec![
+            ("a".to_string(), Rect::new(0, 3, 10, 6)),
+            ("b".to_string(), Rect::new(11, 0, 10, 5)),
+            ("c".to_string(), Rect::new(11, 5, 10, 5)),
+        ];
+        assert_eq!(neighbor(&panes, "a", Dir::Right).as_deref(), Some("c"));
+    }
+
+    #[test]
+    fn focus_follows_the_direction_and_tells_the_daemon() {
+        let mut t = open_three();
+        assert_eq!(t.active_pane().as_deref(), Some("c"));
+        let fx = t.focus_dir(Dir::Up);
+        assert!(
+            matches!(&fx[0], Effect::Req { req: Request::ActivateTerminal { pane_id: Some(p), .. }, .. } if p == "b")
+        );
+        assert_eq!(t.active_pane().as_deref(), Some("b"));
+        t.focus_dir(Dir::Left);
+        assert_eq!(t.active_pane().as_deref(), Some("a"));
+        assert!(t.focus_dir(Dir::Left).is_empty(), "nothing beyond the edge");
+    }
+
+    #[test]
+    fn splits_ask_for_a_direction_and_a_pane() {
+        let mut t = open_three();
+        t.on_reply("term:sub:c", Ok(Response::Buffer { data: Vec::new() }));
+        let fx = t.split(SplitDir::Vertical);
+        assert!(matches!(
+            &fx[..],
+            [Effect::Req {
+                req: Request::SpawnTerminal {
+                    group_id: Some(g),
+                    split_pane: Some(p),
+                    split_dir: Some(SplitDir::Vertical),
+                    ..
+                },
+                ..
+            }] if g == "g1" && p == "c"
+        ));
+        let fx = t.split(SplitDir::Horizontal);
+        assert!(matches!(
+            &fx[..],
+            [Effect::Req {
+                req: Request::SpawnTerminal {
+                    split_dir: Some(SplitDir::Horizontal),
+                    ..
+                },
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn resize_keys_move_the_divider_locally_and_in_the_daemon() {
+        let mut t = open_three();
+        t.sync();
+        // `c` is below `b`: Down grows the upper pane (the divider moves down).
+        let fx = t.resize_dir(Dir::Down);
+        assert!(matches!(
+            &fx[0],
+            Effect::Req {
+                req: Request::ResizeTerminalPane { pane_id, axis: SplitDir::Vertical, delta: 5, .. },
+                ..
+            } if pane_id == "c"
+        ));
+        let FreeTerminalNode::Split { b, .. } = t.active_group().unwrap().tree.clone().unwrap()
+        else {
+            panic!()
+        };
+        assert!(matches!(*b, FreeTerminalNode::Split { ratio: 55, .. }));
+        // The panes were resized to the new geometry.
+        assert!(fx.iter().any(|e| matches!(e, Effect::TermResize(..))));
+        // Left moves the outer divider (c has no horizontal split of its own).
+        let fx = t.resize_dir(Dir::Left);
+        assert!(matches!(
+            &fx[0],
+            Effect::Req {
+                req: Request::ResizeTerminalPane {
+                    axis: SplitDir::Horizontal,
+                    delta: -5,
+                    ..
+                },
+                ..
+            }
+        ));
+        // At the limit nothing is sent.
+        for _ in 0..20 {
+            t.resize_dir(Dir::Left);
+        }
+        assert!(t.resize_dir(Dir::Left).is_empty());
+        // The daemon's answer replaces the local guess.
+        let mut l = three_pane_layout();
+        if let Some(FreeTerminalNode::Split { ratio, .. }) = &mut l.groups[0].tree {
+            *ratio = 70;
+        }
+        t.on_reply("term:resize", Ok(Response::TerminalLayout(l)));
+        assert!(matches!(
+            t.active_group().unwrap().tree,
+            Some(FreeTerminalNode::Split { ratio: 70, .. })
+        ));
+    }
+
+    #[test]
+    fn sync_sizes_every_pane_of_the_tree() {
+        let mut t = open_panel();
+        // The layout arrives: every pane of the tree gets its own size.
+        let fx = t.on_layout("/p", three_pane_layout());
+        assert_eq!(
+            fx.iter()
+                .filter(|e| matches!(e, Effect::TermResize(..)))
+                .count(),
+            3
+        );
+        let (panes, _) = t.pane_rects();
+        for (id, r) in panes {
+            assert_eq!(
+                t.terms[&id].sent_size,
+                Some((r.width.max(2), r.height.max(2)))
+            );
+        }
     }
 
     #[test]
@@ -606,7 +988,7 @@ mod tests {
         assert_eq!(t.active_group().map(|g| g.id.as_str()), Some("g2"));
         t.cycle_tab(1);
         assert_eq!(t.active_group().map(|g| g.id.as_str()), Some("g1"), "wraps");
-        let fx = t.split();
+        let fx = t.split(SplitDir::Horizontal);
         assert!(
             matches!(&fx[..], [Effect::Req { req: Request::SpawnTerminal { group_id: Some(g), .. }, .. }] if g == "g1")
         );

@@ -35,6 +35,6 @@ expression: scrolled
 │  scroll Down  scroll j                         Scroll Down a Line                                          │
 │  scroll PgUp  scroll Ctrl+B                    Scroll Up a Page                                            │
 │  scroll PgDn  scroll Ctrl+F                    Scroll Down a Page                                          │
-│ j/k PgUp/PgDn g/G scroll · Esc close · 31-61 of 92                                                         │
+│ j/k PgUp/PgDn g/G scroll · Esc close · 31-61 of 93                                                         │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  HELP  j/k PgUp/PgDn scroll · g/G top/bottom · Esc closes

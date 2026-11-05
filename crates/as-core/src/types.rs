@@ -416,6 +416,26 @@ pub enum PanelDisplayMode {
     Split,
 }
 
+/// Layout of the Git panel's diff viewer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiffLayout {
+    /// One column: removed lines, then added lines.
+    #[default]
+    Unified,
+    /// Two columns: old file on the left, new file on the right.
+    Split,
+}
+
+impl DiffLayout {
+    pub fn toggled(self) -> Self {
+        match self {
+            DiffLayout::Unified => DiffLayout::Split,
+            DiffLayout::Split => DiffLayout::Unified,
+        }
+    }
+}
+
 pub const MAX_CONCURRENT_AGENTS_HARD_LIMIT: usize = 10;
 
 pub const DEFAULT_PREFIX_KEY: &str = "ctrl+a";
@@ -473,6 +493,8 @@ pub struct AppConfig {
     // Panels. In the TUI `overlay` is a floating popup and `split` a side column.
     pub git_panel_display_mode: PanelDisplayMode,
     pub editor_panel_display_mode: PanelDisplayMode,
+    /// Diff viewer of the Git panel: `unified` or `split` (side by side; needs a wide panel).
+    pub diff_layout: DiffLayout,
     /// Claude profile (`CLAUDE_CONFIG_DIR`) per project directory. Subfolders
     /// inherit; the longest matching path wins. `""` forces the default profile.
     pub claude_profile_by_project: BTreeMap<String, String>,
@@ -524,6 +546,7 @@ impl Default for AppConfig {
             free_terminal_scrollback_lines: 5000,
             git_panel_display_mode: PanelDisplayMode::Overlay,
             editor_panel_display_mode: PanelDisplayMode::Overlay,
+            diff_layout: DiffLayout::Unified,
             claude_profile_by_project: BTreeMap::new(),
             usage: UsageSettings::default(),
             prefix_key: DEFAULT_PREFIX_KEY.into(),

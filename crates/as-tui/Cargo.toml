@@ -8,6 +8,11 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# Syntax highlighting (syntect, pure-Rust regex engine). The `agent-studio` binary enables it by default.
+highlight = ["dep:syntect"]
+
 [dependencies]
 anyhow = "1.0.104"
 as-core = { version = "0.1.0", path = "../as-core" }
@@ -20,6 +25,7 @@ nucleo-matcher = "0.3.1"
 ratatui = "0.30.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+syntect = { version = "5.3.0", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"], optional = true }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
 tracing = "0.1.44"
 unicode-width = "0.2.3"

@@ -37,12 +37,18 @@ all = { level = "warn", priority = -1 }
 [lints]
 workspace = true
 
+[features]
+default = ["highlight"]
+# Syntax highlighting of the Files preview and diffs (syntect, pure Rust). Build without it with
+# `--no-default-features` for a smaller binary.
+highlight = ["as-tui/highlight"]
+
 [dependencies]
 anyhow = "1.0.104"
 as-core = { version = "0.1.0", path = "crates/as-core" }
 as-daemon = { version = "0.1.0", path = "crates/as-daemon" }
 as-proto = { version = "0.1.0", path = "crates/as-proto" }
-as-tui = { version = "0.1.0", path = "crates/as-tui" }
+as-tui = { version = "0.1.0", path = "crates/as-tui", default-features = false }
 clap = { version = "4.6.7", features = ["derive"] }
 serde_json = "1.0.154"
 tokio = { version = "1.54.1", features = ["full"] }

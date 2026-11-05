@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Widget};
 
 use crate::app::{App, SubState};
-use crate::panels::diff_view::{DiffView, RowKind};
+use crate::panels::diff_view::{DiffView, RowKind, SplitRow};
 use crate::panels::git::{GitTab, marker};
 use crate::panels::settings::{ImportStage, Kind, Section};
 use crate::theme::Theme;
@@ -52,10 +52,6 @@ fn hint(theme: &Theme, text: &str, area: Rect, buf: &mut Buffer) {
     );
 }
 
-fn cut(text: &str, width: usize) -> String {
-    text.chars().take(width).collect()
-}
-
 fn tab_line<'a>(theme: &Theme, labels: &[&'a str], active: usize) -> Line<'a> {
     let mut spans = Vec::new();
     for (i, l) in labels.iter().enumerate() {
@@ -95,12 +91,249 @@ fn fill_row(buf: &mut Buffer, x: u16, y: u16, width: u16, style: Style) {
 
 // ── diff ────────────────────────────────────────────────────────────────────
 
-pub fn render_diff(theme: &Theme, view: &DiffView, area: Rect, buf: &mut Buffer) {
-    let g = view.gutter();
-    let green = Color::Green;
-    let red = Color::Red;
+use crate::highlight::StyledSpan;
+
+type Spans = [StyledSpan];
+
+/// Minimum width of the whole git panel body for the side-by-side layout.
+pub const SPLIT_MIN_WIDTH: u16 = 100;
+
+/// Draw `text` at `(x, y)` in at most `width` cells: tabs become four spaces, a line that does not
+/// fit ends in `…` when `ellipsis` is set. `spans` (optional) color the text over `base`.
+fn put_code(
+    buf: &mut Buffer,
+    (x, y): (u16, u16),
+    width: usize,
+    text: &str,
+    base: Style,
+    spans: Option<&Spans>,
+    ellipsis: bool,
+) {
+    use unicode_width::UnicodeWidthChar;
+    let mut cells: Vec<(char, Style)> = Vec::new();
+    let mut push = |c: char, st: Style| {
+        if c == '\t' {
+            cells.extend(std::iter::repeat_n((' ', st), 4));
+        } else if !c.is_control() {
+            cells.push((c, st));
+        }
+    };
+    match spans {
+        Some(spans) if !spans.is_empty() => {
+            for (st, t) in spans {
+                for c in t.chars() {
+                    push(c, base.patch(*st));
+                }
+            }
+        }
+        _ => text.chars().for_each(|c| push(c, base)),
+    }
+    let total: usize = cells.iter().map(|(c, _)| c.width().unwrap_or(0)).sum();
+    let budget = if ellipsis && total > width {
+        width.saturating_sub(1)
+    } else {
+        width
+    };
+    let mut used = 0;
+    let mut cx = x;
+    for (c, st) in &cells {
+        let w = c.width().unwrap_or(0);
+        if used + w > budget {
+            break;
+        }
+        if let Some(cell) = buf.cell_mut((cx, y)) {
+            cell.set_char(*c);
+            cell.set_style(*st);
+        }
+        // Wide characters occupy the following cell too.
+        for k in 1..w {
+            if let Some(cell) = buf.cell_mut((cx + k as u16, y)) {
+                cell.set_symbol("");
+                cell.set_style(*st);
+            }
+        }
+        cx += w as u16;
+        used += w;
+    }
+    if ellipsis
+        && total > width
+        && width > 0
+        && used < width
+        && let Some(cell) = buf.cell_mut((cx, y))
+    {
+        cell.set_char('\u{2026}');
+        cell.set_style(base);
+    }
+}
+
+/// Colors of an added / removed / context diff line: `(row style, sign style, sign)`.
+fn diff_line_style(theme: &Theme, kind: RowKind, highlighted: bool) -> (Style, Style, char) {
+    let plain = Style::default().fg(theme.text).bg(theme.surface_raised);
+    match kind {
+        RowKind::Add => {
+            let bg = theme.diff_add_bg;
+            let fg = if highlighted {
+                theme.text
+            } else {
+                Color::Green
+            };
+            (
+                Style::default().fg(fg).bg(bg),
+                Style::default().fg(Color::Green).bg(bg),
+                '+',
+            )
+        }
+        RowKind::Del => {
+            let bg = theme.diff_del_bg;
+            let fg = if highlighted { theme.text } else { Color::Red };
+            (
+                Style::default().fg(fg).bg(bg),
+                Style::default().fg(Color::Red).bg(bg),
+                '-',
+            )
+        }
+        _ => (plain, plain.fg(theme.text_muted), ' '),
+    }
+}
+
+fn header_style(theme: &Theme, kind: RowKind) -> Style {
     let bg = theme.surface_raised;
-    for (i, row) in view
+    match kind {
+        RowKind::File => Style::default()
+            .fg(theme.text)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD),
+        RowKind::Hunk => Style::default().fg(theme.accent).bg(bg),
+        _ => Style::default().fg(theme.text_muted).bg(bg),
+    }
+}
+
+/// Draw the diff; `true` when highlighting is not finished (draw again).
+pub fn render_diff(theme: &Theme, view: &mut DiffView, area: Rect, buf: &mut Buffer) -> bool {
+    if area.width == 0 || area.height == 0 {
+        return false;
+    }
+    let done = view.highlight_visible(theme, usize::from(area.height));
+    if view.split_active {
+        render_split(theme, view, area, buf);
+    } else {
+        render_unified(theme, view, area, buf);
+    }
+    !done
+}
+
+fn render_unified(theme: &Theme, view: &DiffView, area: Rect, buf: &mut Buffer) {
+    let g = view.gutter();
+    for (i, (idx, row)) in view
+        .rows
+        .iter()
+        .enumerate()
+        .skip(view.scroll)
+        .take(usize::from(area.height))
+        .enumerate()
+    {
+        let y = area.y + i as u16;
+        match row.kind {
+            RowKind::File | RowKind::Hunk | RowKind::Note | RowKind::Meta => {
+                let style = header_style(theme, row.kind);
+                fill_row(buf, area.x, y, area.width, style);
+                put_code(
+                    buf,
+                    (area.x, y),
+                    usize::from(area.width),
+                    &row.text,
+                    style,
+                    None,
+                    false,
+                );
+            }
+            kind => {
+                let spans = view.spans_of(idx);
+                let (style, sign_style, sign) = diff_line_style(theme, kind, spans.is_some());
+                fill_row(buf, area.x, y, area.width, style);
+                let n = |v: Option<u32>| v.map_or_else(|| " ".repeat(g), |v| format!("{v:>g$}"));
+                let prefix = format!("{} {} {sign} ", n(row.old_no), n(row.new_no));
+                let pw = prefix.chars().count();
+                buf.set_stringn(
+                    area.x,
+                    y,
+                    &prefix,
+                    usize::from(area.width),
+                    style.fg(theme.text_muted),
+                );
+                if let Some(c) = buf.cell_mut((area.x + (pw as u16).saturating_sub(2), y)) {
+                    c.set_style(sign_style);
+                }
+                put_code(
+                    buf,
+                    (area.x + pw as u16, y),
+                    usize::from(area.width).saturating_sub(pw),
+                    &row.text,
+                    style,
+                    spans,
+                    false,
+                );
+            }
+        }
+    }
+}
+
+/// One half of a side-by-side row. `number` is the line number shown in the gutter.
+#[allow(clippy::too_many_arguments)]
+fn render_cell(
+    theme: &Theme,
+    view: &DiffView,
+    idx: Option<usize>,
+    side_new: bool,
+    gutter: usize,
+    x: u16,
+    y: u16,
+    width: u16,
+    buf: &mut Buffer,
+) {
+    let Some(idx) = idx else {
+        fill_row(buf, x, y, width, Style::default().bg(theme.bg));
+        return;
+    };
+    let row = &view.rows[idx];
+    let spans = view.spans_of(idx);
+    // A context row is drawn on both sides; only added/removed rows get the tint.
+    let (style, sign_style, sign) = diff_line_style(theme, row.kind, spans.is_some());
+    fill_row(buf, x, y, width, style);
+    let no = if side_new { row.new_no } else { row.old_no };
+    let prefix = format!(
+        "{} {sign} ",
+        no.map_or_else(|| " ".repeat(gutter), |v| format!("{v:>gutter$}"))
+    );
+    let pw = prefix.chars().count();
+    buf.set_stringn(
+        x,
+        y,
+        &prefix,
+        usize::from(width),
+        style.fg(theme.text_muted),
+    );
+    if let Some(c) = buf.cell_mut((x + (pw as u16).saturating_sub(2), y)) {
+        c.set_style(sign_style);
+    }
+    put_code(
+        buf,
+        (x + pw as u16, y),
+        usize::from(width).saturating_sub(pw),
+        &row.text,
+        style,
+        spans,
+        true,
+    );
+}
+
+fn render_split(theme: &Theme, view: &DiffView, area: Rect, buf: &mut Buffer) {
+    let g = view.gutter();
+    let left_w = (area.width.saturating_sub(1)) / 2;
+    let right_w = area.width.saturating_sub(1) - left_w;
+    let right_x = area.x + left_w + 1;
+    for (i, srow) in view
+        .split
         .rows
         .iter()
         .skip(view.scroll)
@@ -108,30 +341,32 @@ pub fn render_diff(theme: &Theme, view: &DiffView, area: Rect, buf: &mut Buffer)
         .enumerate()
     {
         let y = area.y + i as u16;
-        let (style, sign) = match row.kind {
-            RowKind::File => (
-                Style::default()
-                    .fg(theme.text)
-                    .bg(bg)
-                    .add_modifier(Modifier::BOLD),
-                ' ',
-            ),
-            RowKind::Hunk => (Style::default().fg(theme.accent).bg(bg), ' '),
-            RowKind::Add => (Style::default().fg(green).bg(bg), '+'),
-            RowKind::Del => (Style::default().fg(red).bg(bg), '-'),
-            RowKind::Context => (Style::default().fg(theme.text).bg(bg), ' '),
-            RowKind::Meta | RowKind::Note => (Style::default().fg(theme.text_muted).bg(bg), ' '),
-        };
-        fill_row(buf, area.x, y, area.width, style);
-        let text = row.text.replace('\t', "    ");
-        let line = match row.kind {
-            RowKind::File | RowKind::Hunk | RowKind::Note | RowKind::Meta => text,
-            _ => {
-                let n = |v: Option<u32>| v.map_or_else(|| " ".repeat(g), |v| format!("{v:>g$}"));
-                format!("{} {} {sign} {text}", n(row.old_no), n(row.new_no))
+        match *srow {
+            SplitRow::Full(idx) => {
+                let row = &view.rows[idx];
+                let style = header_style(theme, row.kind);
+                fill_row(buf, area.x, y, area.width, style);
+                put_code(
+                    buf,
+                    (area.x, y),
+                    usize::from(area.width),
+                    &row.text,
+                    style,
+                    None,
+                    true,
+                );
             }
-        };
-        buf.set_stringn(area.x, y, line, usize::from(area.width), style);
+            SplitRow::Pair { left, right } => {
+                render_cell(theme, view, left, false, g, area.x, y, left_w, buf);
+                buf.set_string(
+                    area.x + left_w,
+                    y,
+                    "\u{2502}",
+                    Style::default().fg(theme.border).bg(theme.surface_raised),
+                );
+                render_cell(theme, view, right, true, g, right_x, y, right_w, buf);
+            }
+        }
     }
 }
 
@@ -206,6 +441,13 @@ pub fn render_git(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u16,
                 .bg(theme.surface_raised),
         );
     }
+    // The side-by-side layout needs a wide panel; narrower ones fall back to the unified view.
+    let wants_split = ui.layout == as_core::DiffLayout::Split;
+    let split_fits = body.width >= SPLIT_MIN_WIDTH;
+    app.git.diff.set_split(wants_split && split_fits);
+    app.git.pr.diff.set_split(wants_split && split_fits);
+    let ui = &app.git;
+    let mut more = false;
     match ui.tab {
         GitTab::Changes => {
             let list_w = (body.width / 3).clamp(22, 48).min(body.width);
@@ -270,9 +512,9 @@ pub fn render_git(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u16,
                     Style::default().fg(theme.border).bg(theme.surface_raised),
                 );
             }
-            render_diff(&theme, &ui.diff, diff, buf);
             let h = usize::from(diff.height);
             app.git.diff_height = h;
+            more = render_diff(&theme, &mut app.git.diff, diff, buf);
         }
         GitTab::Branches => {
             let cur = ui.branch_cursor;
@@ -384,8 +626,8 @@ pub fn render_git(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u16,
                         st,
                     );
                 }
-                render_diff(&theme, &pr.diff, diff, buf);
                 app.git.diff_height = usize::from(diff.height);
+                more = render_diff(&theme, &mut app.git.pr.diff, diff, buf);
             } else {
                 buf.set_string(
                     body.x + 1,
@@ -396,6 +638,7 @@ pub fn render_git(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u16,
             }
         }
     }
+    app.dirty |= more;
     let ui = &mut app.git;
     if let Some(p) = &mut ui.prompt {
         let title = p.title();
@@ -429,18 +672,32 @@ pub fn render_git(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u16,
             usize::from(status_row.width),
             Style::default().fg(color).bg(theme.surface_raised),
         );
+    } else if wants_split && !split_fits && ui.tab != GitTab::Branches {
+        buf.set_stringn(
+            status_row.x,
+            status_row.y,
+            format!(
+                "Side-by-side needs a panel of {SPLIT_MIN_WIDTH}+ columns: showing the unified diff"
+            ),
+            usize::from(status_row.width),
+            Style::default()
+                .fg(theme.text_muted)
+                .bg(theme.surface_raised),
+        );
     }
     let keys = match ui.tab {
         GitTab::Changes if ui.diff_focus => {
-            "j/k scroll \u{00B7} n/N hunk \u{00B7} PgUp/PgDn \u{00B7} h back \u{00B7} Tab/1-3 tabs"
+            "j/k scroll \u{00B7} n/N hunk \u{00B7} s split/unified \u{00B7} PgUp/PgDn \u{00B7} h back \u{00B7} Tab/1-3 tabs"
         }
         GitTab::Changes => {
-            "j/k file \u{00B7} Enter diff \u{00B7} Space stage/unstage \u{00B7} a stage all \u{00B7} c commit \u{00B7} P push \u{00B7} n/N hunk \u{00B7} r refresh \u{00B7} Tab tabs \u{00B7} q close"
+            "j/k file \u{00B7} Enter diff \u{00B7} Space stage/unstage \u{00B7} a stage all \u{00B7} c commit \u{00B7} P push \u{00B7} n/N hunk \u{00B7} s split \u{00B7} r refresh \u{00B7} Tab tabs \u{00B7} q close"
         }
         GitTab::Branches => {
             "j/k move \u{00B7} Enter checkout \u{00B7} n new branch \u{00B7} r refresh \u{00B7} Tab tabs \u{00B7} q close"
         }
-        GitTab::Pr if ui.diff_focus => "j/k scroll \u{00B7} n/N hunk \u{00B7} h back",
+        GitTab::Pr if ui.diff_focus => {
+            "j/k scroll \u{00B7} n/N hunk \u{00B7} s split/unified \u{00B7} h back"
+        }
         GitTab::Pr => {
             "/ PR number or URL \u{00B7} j/k file \u{00B7} Enter diff \u{00B7} Tab tabs \u{00B7} q close"
         }
@@ -478,6 +735,10 @@ pub fn render_files(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u1
         body.height,
     );
     app.files.preview_height = usize::from(prev.height);
+    let more = app
+        .files
+        .highlight_visible(&theme, usize::from(prev.height.saturating_sub(1)));
+    app.dirty |= !more;
     let ui = &app.files;
     let rows = ui.rows();
     let top = ui
@@ -592,12 +853,14 @@ pub fn render_files(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u1
                     let y = text_area.y + (i - f.scroll) as u16;
                     buf.set_string(text_area.x, y, format!("{:>g$} ", i + 1), num);
                     let w = usize::from(text_area.width).saturating_sub(g + 2);
-                    buf.set_stringn(
-                        text_area.x + g as u16 + 2,
-                        y,
-                        cut(&line.replace('\t', "    "), w),
+                    put_code(
+                        buf,
+                        (text_area.x + g as u16 + 2, y),
                         w,
+                        line,
                         txt,
+                        ui.spans(i),
+                        false,
                     );
                 }
             }
@@ -1251,20 +1514,39 @@ pub fn render_free_terms(app: &mut App, buf: &mut Buffer) -> Option<(u16, u16)> 
             Style::default().fg(theme.text_muted).bg(theme.term_bg),
         );
     }
-    let panes = ft.visible_panes();
+    let (panes, seps) = ft.pane_rects();
     let active = ft.active_pane();
-    for (i, (id, rect)) in panes.iter().zip(&geo.panes).enumerate() {
-        if i > 0 {
-            for y in rect.y..rect.bottom() {
-                buf.set_string(
-                    rect.x.saturating_sub(1),
-                    y,
-                    "\u{2502}",
-                    Style::default().fg(theme.border).bg(theme.term_bg),
-                );
+    let active_rect = active
+        .as_ref()
+        .and_then(|a| panes.iter().find(|(id, _)| id == a))
+        .map(|(_, r)| *r);
+    for sep in &seps {
+        // The dividers around the active pane are drawn in the accent color.
+        let vertical = sep.width == 1;
+        let touches = active_rect.is_some_and(|a| {
+            if vertical {
+                (a.right() == sep.x || a.x == sep.x + 1) && a.y < sep.bottom() && sep.y < a.bottom()
+            } else {
+                (a.bottom() == sep.y || a.y == sep.y + 1) && a.x < sep.right() && sep.x < a.right()
+            }
+        });
+        let color = if touches && panes.len() > 1 {
+            theme.accent
+        } else {
+            theme.border
+        };
+        let glyph = if vertical { "\u{2502}" } else { "\u{2500}" };
+        for y in sep.y..sep.bottom() {
+            for x in sep.x..sep.right() {
+                buf.set_string(x, y, glyph, Style::default().fg(color).bg(theme.term_bg));
             }
         }
+    }
+    for (id, rect) in &panes {
         let Some(t) = ft.terms.get(id) else { continue };
+        if rect.width == 0 || rect.height == 0 {
+            continue;
+        }
         t.emu.render(*rect, buf, theme.term_palette());
         match t.sub {
             SubState::Requested(_) => buf.set_string(

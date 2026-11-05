@@ -17,6 +17,7 @@ use as_core::overview::{
 };
 use as_core::sessions::{ClaudeProfile, ListSessionsOptions, SessionSummary};
 use as_core::skills::{SkillScan, SkillToggle};
+use as_core::terminal_tree::SplitDir;
 use as_core::terminals::{FreeTerminalLayout, SpawnedTerminal, TerminalInfo};
 use as_core::updates::UpdateState;
 use as_core::usage::report::{UsageReport, UsageReportProvider};
@@ -326,12 +327,18 @@ pub enum Request {
 
     // ── P9: free terminals ──────────────────────────────────────────────────
     /// Start a shell for a project (new tab, or a split of `group_id`); answers `TerminalSpawned`.
+    /// With `group_id`, the new pane splits `split_pane` (default: the tab's active pane) in
+    /// direction `split_dir` (default: `horizontal`, i.e. to the right).
     SpawnTerminal {
         project_dir: String,
         #[serde(default)]
         cwd: Option<String>,
         #[serde(default)]
         group_id: Option<String>,
+        #[serde(default)]
+        split_pane: Option<String>,
+        #[serde(default)]
+        split_dir: Option<SplitDir>,
         cols: u16,
         rows: u16,
     },
@@ -361,7 +368,8 @@ pub enum Request {
     UnsubscribeTerminal {
         terminal_id: String,
     },
-    /// Answers `TerminalLayout`.
+    /// Answers `TerminalLayout`. The first call for a project after a daemon restart spawns fresh
+    /// shells into its saved layout (lazily, so a restart starts no shells by itself).
     GetTerminalLayout {
         project_dir: String,
     },
@@ -372,6 +380,14 @@ pub enum Request {
         group_id: Option<String>,
         #[serde(default)]
         pane_id: Option<String>,
+    },
+    /// Move the divider nearest above `pane_id` along `axis` by `delta` percentage points
+    /// (positive: right / down); answers `TerminalLayout`.
+    ResizeTerminalPane {
+        project_dir: String,
+        pane_id: String,
+        axis: SplitDir,
+        delta: i16,
     },
     /// Answers `Terminals`.
     ListTerminals,
@@ -638,6 +654,51 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn terminal_split_requests_and_the_old_spawn_shape() {
+        // A client that predates splits sends no direction: still understood.
+        let old: Request = serde_json::from_value(json!({
+            "type": "spawn_terminal",
+            "payload": {"project_dir": "/p", "group_id": "g", "cols": 80, "rows": 24}
+        }))
+        .unwrap();
+        assert!(matches!(
+            old,
+            Request::SpawnTerminal {
+                split_pane: None,
+                split_dir: None,
+                ..
+            }
+        ));
+        for r in [
+            Request::SpawnTerminal {
+                project_dir: "/p".into(),
+                cwd: None,
+                group_id: Some("g".into()),
+                split_pane: Some("t1".into()),
+                split_dir: Some(SplitDir::Vertical),
+                cols: 80,
+                rows: 24,
+            },
+            Request::ResizeTerminalPane {
+                project_dir: "/p".into(),
+                pane_id: "t1".into(),
+                axis: SplitDir::Horizontal,
+                delta: -5,
+            },
+        ] {
+            round_trip(ClientMsg::Request { id: 1, req: r });
+        }
+        let v = serde_json::to_value(Request::ResizeTerminalPane {
+            project_dir: "/p".into(),
+            pane_id: "t1".into(),
+            axis: SplitDir::Vertical,
+            delta: 5,
+        })
+        .unwrap();
+        assert_eq!(v["payload"]["axis"], json!("vertical"));
     }
 
     #[test]

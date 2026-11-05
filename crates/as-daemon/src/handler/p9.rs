@@ -8,6 +8,7 @@ use as_core::fs;
 use as_core::hydra_import;
 use as_core::open_in;
 use as_core::skills;
+use as_core::terminals::SpawnRequest;
 use as_proto::{Request, Response};
 
 use crate::services::Daemon;
@@ -175,18 +176,22 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
             project_dir,
             cwd,
             group_id,
+            split_pane,
+            split_dir,
             cols,
             rows,
         } => {
             let terminals = daemon.terminals.clone();
             let spawned = blocking(move || {
-                terminals.spawn(
-                    &project_dir,
-                    cwd.as_deref(),
-                    group_id.as_deref(),
+                terminals.spawn_with(SpawnRequest {
+                    project_dir,
+                    cwd,
+                    group_id,
+                    split_pane,
+                    split_dir,
                     cols,
                     rows,
-                )
+                })
             })
             .await?;
             spawned
@@ -225,9 +230,24 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
             daemon.registry.unsubscribe_terminal(client, &terminal_id);
             Ok(Response::Ok)
         }
-        Request::GetTerminalLayout { project_dir } => Ok(Response::TerminalLayout(
-            daemon.terminals.layout(&project_dir),
-        )),
+        Request::GetTerminalLayout { project_dir } => {
+            // After a restart the saved shells are spawned here, on first use (they start in a
+            // blocking thread: spawning a PTY can take a moment).
+            let terminals = daemon.terminals.clone();
+            let layout = blocking(move || terminals.restore_project(&project_dir)).await?;
+            Ok(Response::TerminalLayout(layout))
+        }
+        Request::ResizeTerminalPane {
+            project_dir,
+            pane_id,
+            axis,
+            delta,
+        } => Ok(Response::TerminalLayout(daemon.terminals.resize_pane(
+            &project_dir,
+            &pane_id,
+            axis,
+            delta,
+        ))),
         Request::ActivateTerminal {
             project_dir,
             group_id,

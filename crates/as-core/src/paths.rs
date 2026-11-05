@@ -62,6 +62,10 @@ impl Paths {
     pub fn workspace_file(&self) -> PathBuf {
         self.root.join("workspace.json")
     }
+    /// Layout of the free terminals per project (`terminals.json`).
+    pub fn terminals_file(&self) -> PathBuf {
+        self.root.join("terminals.json")
+    }
     pub fn logs_dir(&self) -> PathBuf {
         self.root.join("logs")
     }

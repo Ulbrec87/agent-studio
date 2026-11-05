@@ -262,6 +262,27 @@ mod tests {
     }
 
     #[test]
+    fn diff_layout_defaults_to_unified_persists_and_ignores_bad_values() {
+        use crate::types::DiffLayout;
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path());
+        assert_eq!(store.get().diff_layout, DiffLayout::Unified);
+        let next = store.update(&json!({ "diffLayout": "split" })).unwrap();
+        assert_eq!(next.diff_layout, DiffLayout::Split);
+        assert_eq!(store_in(dir.path()).get().diff_layout, DiffLayout::Split);
+        let next = store.update(&json!({ "diffLayout": "wide" })).unwrap();
+        assert_eq!(
+            next.diff_layout,
+            DiffLayout::Split,
+            "a bad value is ignored"
+        );
+        assert_eq!(
+            serde_json::to_value(&next).unwrap()["diffLayout"],
+            json!("split")
+        );
+    }
+
+    #[test]
     fn defaults_the_usage_block_alerts_off() {
         let dir = tempfile::tempdir().unwrap();
         let c = store_in(dir.path()).get();

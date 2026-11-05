@@ -62,10 +62,13 @@ wins. `prefix g` / `prefix \` toggle Chat/Grid (Hydra `mod+\`), `prefix O` shows
 | `f` | `file-search` | fuzzy file search (opens the files panel) |
 | `t` | `toggle-terminal` | show / hide the free terminals (opens a first shell) |
 | `T` | `terminal-new` | new terminal tab |
-| `\|` | `terminal-split` | split the tab: another shell side by side |
+| `\|` | `terminal-split` | split the active pane to the right: another shell side by side |
+| `-` | `terminal-split-down` | split the active pane downwards: another shell below |
+| `Alt+Left/Right/Up/Down` | `terminal-focus-left/right/up/down` | focus the neighbouring pane in that direction (palette entries too) |
+| `Ctrl+Left/Right/Up/Down` | `terminal-resize-left/right/up/down` | move the divider next to the active pane by 5 % in that direction |
 | `]` / `{` | `terminal-next-tab` / `terminal-prev-tab` | next / previous terminal tab |
 | `}` | `terminal-next-pane` | next pane of the tab |
-| `X` | `terminal-kill` | kill the active terminal |
+| `X` | `terminal-kill` | close the active pane (kill its shell) |
 | *(palette)* | `terminal-rename`, `terminal-fullscreen` | rename the active terminal; panel bottom / full screen |
 | `U` | `updates` | check for updates now (banner + toast; see *Updates* below) |
 | `,` | `settings` | settings |
@@ -328,26 +331,44 @@ The title shows branch, ahead/behind and the diff stats. A missing `git`/`gh` or
 
 | Tab | Keys |
 |-----|------|
-| **Changes** | `j`/`k` file (the diff follows) · `Enter`/`l` focus the diff · `Space` stage / unstage · `a` stage all · `c` commit message (Enter commits the staged files) · `P` push (asks `y`/`n`) · `n`/`N` next / previous hunk · `r` refresh · `q` close |
-| diff focus | `j`/`k`, `PgUp`/`PgDn`, `g`/`G` scroll · `n`/`N` hunk · `h`/`Esc` back to the list |
+| **Changes** | `j`/`k` file (the diff follows) · `Enter`/`l` focus the diff · `Space` stage / unstage · `a` stage all · `c` commit message (Enter commits the staged files) · `P` push (asks `y`/`n`) · `n`/`N` next / previous hunk · `s` unified / side by side · `r` refresh · `q` close |
+| diff focus | `j`/`k`, `PgUp`/`PgDn`, `g`/`G` scroll · `n`/`N` hunk · `s` unified / side by side · `h`/`Esc` back to the list |
 | **Branches** | `j`/`k` · `Enter` checkout (asks first when the work tree is dirty) · `n` new branch |
-| **PR review** | `/` PR number or URL (needs `gh`, read-only) · `j`/`k` file · `Enter` diff of the file |
+| **PR review** | `/` PR number or URL (needs `gh`, read-only) · `j`/`k` file · `Enter` diff of the file · `s` unified / side by side |
 
-Markers are `git status --short` style (`M `, ` M`, `MM`, `A `, `??`). The diff is a colored unified diff: hunk headers (accent),
-`+` green, `-` red, old / new line numbers in the gutter.
+Markers are `git status --short` style (`M `, ` M`, `MM`, `A `, `??`). The diff is colored: hunk headers (accent), added / removed lines on
+a green / red background (theme colors `diff_add_bg` / `diff_del_bg`), line numbers in the gutter, and the code syntax-highlighted by the file's
+extension (needs the `highlight` build feature; unknown languages stay plain).
+
+**Layouts** (`diffLayout` in the config, Settings > Panels > *Diff layout*; `s` toggles it and saves the choice): *unified* is one column
+with both line numbers; *split* shows the old file on the left and the new one on the right, aligned per hunk (a run of removed lines meets
+the run of added lines, the shorter side is padded), long lines end in `…`. Side by side needs a git panel body of at least **100 columns**;
+on a narrower panel the unified diff is shown and the status row says so. Scrolling and `n`/`N` hunk jumps work in both layouts and the top row
+stays in view when you switch.
 
 ## Files panel (`prefix e`; `prefix f` opens it with the search popup; `editorPanelDisplayMode`)
 
-Tree on the left, preview with line numbers on the right (plain text, binary and too-large files show a placeholder; the open file is
-re-read when its mtime changes, polled every second). `j`/`k` move · `Enter`/`l` expand / open · `h` collapse / parent · `.` hidden files ·
+Tree on the left, preview with line numbers on the right (syntax-highlighted by extension when the build has the `highlight` feature: only the
+visible lines plus a margin are highlighted, cached per file and mtime, and files over 512 KB stay plain; binary and too-large files show a
+placeholder; the open file is re-read when its mtime changes, polled every second). `j`/`k` move · `Enter`/`l` expand / open · `h` collapse / parent · `.` hidden files ·
 `f` or `/` search (type, `Up`/`Down`, `Enter` opens) · `Tab` focus the preview (`j`/`k`/`PgUp`/`PgDn` scroll) · `E` open in `$VISUAL`/`$EDITOR`
 (the TUI suspends) · `y` copy the absolute path (OSC 52) · `o` open-in picker · `q`/`Esc` close.
 
 ## Free terminals (`prefix t`)
 
-A panel with a tab row (one tab per group, `|2` marks a split) and the shells below. With the panel open **every key goes to the shell**;
+A panel with a tab row (one tab per group, `|2` marks a tab with several panes) and the shells below. With the panel open **every key goes to the shell**;
 use the prefix for app commands (`t` hides the panel, shells keep running; they are per project: the project of the selected agent).
-`T` new tab · `|` split (side by side) · `]` `{` tabs · `}` pane · `X` kill (the tab disappears when its last shell ends) · `Shift+PgUp/PgDn` scroll the shell's history.
+`T` new tab · `|` split right · `-` split down · `]` `{` tabs · `}` next pane · `X` close the pane (the tab disappears when its last shell ends) · `Shift+PgUp/PgDn` scroll the shell's history.
+
+Panes form a **split tree**: any pane can be split again in either direction, so `a | (b / c)` is two splits. A new pane starts in the working directory of the
+pane it splits. **Focus by direction**: `prefix Alt+Left/Right/Up/Down` (the nearest pane that lies beyond the active one and shares rows / columns with it).
+**Resize**: `prefix Ctrl+Left/Right/Up/Down` moves the divider next to the active pane by 5 % towards the key (on the nearest split of that axis; limits 10 %-90 %).
+The dividers around the active pane are drawn in the accent color. (`Alt`/`Ctrl` + arrows are free after the prefix; `prefix Up/Down` stay "next / previous agent".
+If your terminal swallows those chords, rebind the `terminal-focus-*` / `terminal-resize-*` ids in `keybindings.json`, or use the palette.)
+
+**The layout survives a daemon restart**: the tabs, split trees, pane labels and folders are saved in `terminals.json`. The shells are *not* running any more; the
+first time you open a project's terminal panel after a restart, fresh shells are started in the saved folders and the layout reappears (at most
+`freeTerminalMaxCount` shells in total).
 
 ## Settings (`prefix ,`)
 

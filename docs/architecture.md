@@ -146,14 +146,14 @@
     there is no watcher), `FsSearch` (gitignore-aware walk of at most 20 000 files, `nucleo-matcher` ranking). Relative paths use `/`;
     absolute paths, `..` and symlinks that leave the project are refused (`OutsideProject`).
   * *free terminals* (`as_core::terminals::TerminalManager`, shells per project, `agents::pty::pump` shared reader/waiter threads,
-    the same `PtyBackend` as agents so the Windows DSR reply applies; the agent manager uses `pump_with_eof` of the same module): `SpawnTerminal` (new tab, or a pane of `group_id`),
+    the same `PtyBackend` as agents so the Windows DSR reply applies; the agent manager uses `pump_with_eof` of the same module): `SpawnTerminal` (new tab, or a pane of `group_id`: with `split_pane` / `split_dir` `horizontal` = to the right, `vertical` = below; both optional, an old client that sends neither splits the active pane to the right),
     `TerminalInput`, `TerminalResize`, `KillTerminal`, `RenameTerminal`, `SubscribeTerminal` (returns the scrollback, then
     `Event::TerminalOutput` goes to that connection only; subscribe first, snapshot second, so a chunk may repeat but never gets lost),
-    `UnsubscribeTerminal`, `GetTerminalLayout`, `ActivateTerminal`, `ListTerminals`. Events to everyone: `TerminalExit`,
-    `TerminalLayoutChanged { project_dir, layout }` (groups, panes, labels; an exited terminal leaves the layout like in Hydra).
+    `UnsubscribeTerminal`, `GetTerminalLayout`, `ActivateTerminal`, `ResizeTerminalPane { project_dir, pane_id, axis, delta }` (moves the divider nearest above the pane along `axis` by `delta` percentage points; answers the layout), `ListTerminals`. Events to everyone: `TerminalExit`,
+    `TerminalLayoutChanged { project_dir, layout }` (groups, panes, labels; an exited terminal leaves the layout like in Hydra). **Layout tree**: a group (tab) carries `tree`, a `FreeTerminalNode` (`as_core::terminal_tree`): `{"type":"leaf","paneId":..}` or `{"type":"split","dir":"horizontal"|"vertical","ratio":1-99,"a":..,"b":..}` (`horizontal` = `a` left of `b`, `vertical` = `a` above `b`, `ratio` = percent for `a`, kept in 10-90 by resizes); `pane_ids` stays the leaves in reading order, so a client that ignores `tree` (or a daemon that never sent one) still draws the panes side by side. Closing a pane promotes its sibling.
     Lifecycle from the config at use time: `explicit` keeps all, `lru` evicts the least recently active terminal when spawning past
     `freeTerminalMaxCount`, `idle` is swept every minute (`freeTerminalIdleTimeoutMinutes` without input). Scrollback cap =
-    `freeTerminalScrollbackLines` x 200 bytes. Terminals die with the daemon.
+    `freeTerminalScrollbackLines` x 200 bytes. **Persistence**: the layout (not the shells) is written to `terminals.json` (atomic, debounced 500 ms after every layout change, once more before the shells are closed at shutdown and never after): per project the tabs with their trees, the active tab / pane, and per pane its label and working directory. At daemon start the file is only read (tolerantly: a corrupt file is kept as `terminals.json.corrupt` and means "nothing saved"). The first `GetTerminalLayout` (or `SpawnTerminal`) of a project spawns fresh shells into the saved layout, each in its saved folder (the project folder when that is gone), under new terminal ids and tab ids, at most `freeTerminalMaxCount` in total (further panes are dropped from the tree; with no room at all the saved layout is kept for later); a project that was never opened keeps its saved layout in the next write. Shells do not survive a daemon stop, their history does not either.
   * *skills*: `ScanSkills`, `ToggleSkill` (Claude: `enabledPlugins` of the profile's `settings.json`, atomic write, other keys kept;
     Codex: `SKILL.md` <-> `SKILL.md.disabled`, only for files the scan lists).
   * *open-in*: `ListOpenTargets` (editors found on PATH or as macOS app bundles, file manager, terminal, `$EDITOR`), `OpenIn`.
@@ -167,6 +167,17 @@
   (`FreeTerms`) at the bottom (45 %) or full screen: while it is open every key goes to the active shell except the prefix and the
   direct bindings. Panel state lives in `as_tui::panels::*` and talks to the daemon only through the generic `Effect::Req { key, req }`
   -> `Msg::Reply { key, result }` (keys `git:*`, `fs:*`, `term:*`, `set:*`, `open:*`, `diag:*`), so each panel is unit-tested without a daemon.
+  The pane tree of the active tab is laid out in the client (`panels::terminals::tree_rects`: a one-cell separator per split, `neighbor` finds
+  the pane in a direction); resizes are applied locally at once and confirmed by the daemon's layout.
+* **Diff viewer and syntax highlighting (`as_tui::panels::diff_view`, `as_tui::highlight`)**: `DiffView` keeps the unified rows (from
+  `as_core::git::parse_unified_diff`) and a derived side-by-side form (`pair_rows`: the n-th removed line of a run meets the n-th added one,
+  the shorter side is padded, headers span both columns). The renderer switches layout from `diffLayout` (`unified` | `split`, `s` in the Git
+  panel) and the panel width (split needs a 100-column body, else a note and the unified view). Highlighting is behind the cargo feature
+  `highlight` (default for the binary; `as-tui` alone builds without it): `syntect` with `default-features = false` and
+  `default-syntaxes`, `default-themes`, `regex-fancy` (pure-Rust regex engine, no `onig`), themes `InspiredGitHub` (light) and
+  `base16-eighties.dark` / `base16-ocean.dark` (dark / midnight), foreground colors only. Lines are highlighted lazily (visible window + 60 lines,
+  at most 30 ms per frame, the rest on the next frames), per (path, mtime, theme) for the Files preview (4 files cached), files over 512 KB stay plain; diffs
+  keep two parser states (old and new side) restarted at every hunk.
 * **Modals and the prefix (P10)**: the panel modals (Help, Usage, Git, Files, Settings, Open in, Headless) let the prefix through:
   `prefix` + one of *terminals toggle*, *palette*, *help*, *close-dialogs* (keys from the keymap, so overrides apply) closes the
   panel and runs the command; any other key after the prefix is dropped. Forms (new agent, rename, resume, profile, palette, quit,
@@ -234,6 +245,7 @@
 | `keybindings.json` | user overrides `[{ "command": "...", "keys": "..." }]`, keys in TUI syntax (see `docs/tui-keys.md`); polled by the TUI every second |
 | `tui-state.json` | UI state of the TUI: last view, selected agent, sidebar width/sort/status chip, grid tab, expanded tile, tile order, running-only toggle (written by the TUI only, tolerant load) |
 | `workspace.json` | persisted agents, restored at daemon start |
+| `terminals.json` | free-terminal layout per project (tabs, split trees, pane labels and folders); shells are respawned lazily after a restart |
 | `daemon.lock`, `daemon.sock` | daemon single instance + socket |
 | `logs/` | `tracing` JSONL logs, daily rotation |
 | `headless-runs/` | `<id>.jsonl` log + `<id>.meta.json` index entry per headless run |

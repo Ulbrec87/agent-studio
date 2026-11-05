@@ -330,3 +330,38 @@ included, so a test reading "the next frame" can get an event instead of its res
   startup input is no longer held (the symptom is the dialog answered by the delayed `/rename`). Add the new phrase to `DIALOG_PHRASES`.
 - **Manual checks of the update banner** need a local server: `AGENT_STUDIO_UPDATE_URL=http://127.0.0.1:<port>/latest` with a JSON file
   (`tag_name`, `html_url`, `draft`, `prerelease`, `assets`) served by `python3 -m http.server`. Never fake data against api.github.com.
+
+## Known-gaps round (side-by-side diff, syntect, terminal split tree, terminals.json)
+
+- **syntect features.** `default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"]` is the whole set (no
+  `onig`, no C, nothing extra for Windows); `default-syntaxes` already pulls `parsing` + `dump-load`. The embedded default syntaxes are
+  Sublime's old set: **no TOML, TypeScript, Kotlin, Dockerfile**. `highlight::imp::alias` maps `ts/tsx/jsx` to JavaScript, `toml/ini/cfg` to Java
+  Properties, `kt` to Java ...; add to it instead of bundling more syntaxes. Use the `*_newlines` syntax set and feed lines with a trailing `\n`
+  (strip it from the spans again), otherwise rules that anchor on `$` misbehave.
+- **`HighlightLines` borrows the syntax set and theme**: keep both in a `static OnceLock` (`highlight::imp::assets`, loaded by `warm()` on a
+  thread when the Git/Files panel opens, ~50-100 ms) so the highlighter is `'static` and can live in the panel state. It is neither `Clone` nor `Eq`:
+  `LazyLines` / `DiffHighlight` wrap it with a "clone = empty cache, eq = always" impl so the panel structs keep deriving both.
+- **Highlighting is lazy and time-boxed.** At most ~30 ms per frame (`FRAME_BUDGET`); when it runs out the renderer sets `app.dirty` and the next
+  tick (`FRAME_INTERVAL`) continues. A test that asserts on colors must draw until `app.dirty` stays false (`settle()` in `panel_tests`), a debug
+  build is slow enough to split the work. Always process at least one line per call or a slow machine never finishes.
+- **Feature unification hides the no-feature build.** `cargo test --workspace` builds `as-tui` with `highlight` (the root crate's default),
+  `cargo test -p as-tui` without. Tests that need syntect are `#[cfg(feature = "highlight")]` and a plain-text twin asserts the other case; CI also
+  runs `cargo clippy -p as-tui --all-targets` for the no-feature build.
+- **Diff rows keep both layouts.** `DiffView.rows` (unified) is the source, `split` is derived (`pair_rows`) once; `scroll`, `max_scroll`,
+  `next_hunk` follow the *active* layout (`split_active`), which the renderer sets every frame from `diffLayout` and the panel width, remapping
+  `scroll` so the same code stays on top. Code that reads `diff.hunks` directly is unified-only; use `hunk_rows()`.
+- **Theme gained `diff_add_bg` / `diff_del_bg`.** A struct literal of `Theme` (none today) needs them; snapshots are text only, colors are
+  asserted on buffer cells (`fg_colors_of_row`, `bg == theme.diff_*_bg`).
+- **Free-terminal ids are new after a restart.** Restoring (`TerminalManager::restore_project`) spawns fresh shells, so pane ids and tab ids are
+  regenerated (`grp-<n>` from the process-wide counter, or a restored `grp-3` would collide with a new tab). Compare layouts across a restart by
+  shape (`map_panes` to the reading-order index), never by id.
+- **Saving the layout must stop before the shells are killed.** `kill_all` at shutdown removes every pane from the layout and each removal would
+  schedule a save of the *empty* layout. `Daemon::shutdown_services` writes `terminals.json` first and sets `terminals_frozen`; `persist_terminals`
+  is a no-op afterwards. `export()` also returns the saved layouts of projects whose shells were never respawned, otherwise the first save after a
+  restart would drop every project the user did not open.
+- **Restoring spawns PTYs, so it runs on a blocking thread** (`GetTerminalLayout` handler, `spawn_blocking`). The TUI asks for the layout when the
+  panel opens, which is the "first use" trigger; nothing is spawned at daemon start. `freeTerminalMaxCount` caps the *restore* regardless of the policy.
+- **A daemon-level restart test starts the second daemon in a fresh data dir** (copying `terminals.json`), not on the same one: a named pipe
+  that was just closed can stay busy on Windows (see the ConPTY / named pipe entry above).
+- **`prefix Up/Down` were taken** (`next-agent` / `prev-agent`), so pane focus is `prefix Alt+arrows` and resize `prefix Ctrl+arrows`. Some terminals
+  (macOS Terminal.app, tmux without `xterm-keys`) swallow modified arrows: the palette entries and `keybindings.json` rebinding are the way out.

@@ -31,7 +31,11 @@ fn write(path: &Path, text: &str) {
 }
 
 async fn start() -> Harness {
-    let dir = tempfile::tempdir().unwrap();
+    start_at(tempfile::tempdir().unwrap()).await
+}
+
+/// A daemon whose data directory is `dir`.
+async fn start_at(dir: tempfile::TempDir) -> Harness {
     let paths = Paths::at(dir.path().join("data"));
     let backend = FakePtyBackend::new();
     let home = dir.path().join("home");
@@ -86,6 +90,14 @@ async fn start() -> Harness {
 }
 
 impl Harness {
+    /// Stop the daemon and hand back its directory (kept alive: it holds the project folders).
+    async fn stop(self, client: DaemonClient) -> tempfile::TempDir {
+        drop(client);
+        self.stop.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(10), self.task).await;
+        self.dir
+    }
+
     async fn finish(self, client: DaemonClient) {
         drop(client);
         self.stop.cancel();
@@ -201,6 +213,132 @@ async fn files_requests_list_read_search_and_refuse_traversal() {
 }
 
 #[tokio::test]
+async fn the_free_terminal_layout_survives_a_daemon_restart() {
+    use as_core::terminal_tree::SplitDir;
+    let h = start().await;
+    let client = DaemonClient::connect(&h.paths).await.unwrap();
+    let dir = project(&h).to_string_lossy().into_owned();
+    let spawn = |group_id: Option<String>, split_pane: Option<String>, split_dir| {
+        client.request(Request::SpawnTerminal {
+            project_dir: dir.clone(),
+            cwd: None,
+            group_id,
+            split_pane,
+            split_dir,
+            cols: 80,
+            rows: 24,
+        })
+    };
+    let Ok(Response::TerminalSpawned(a)) = spawn(None, None, None).await else {
+        panic!("first shell")
+    };
+    let Ok(Response::TerminalSpawned(b)) = spawn(
+        Some(a.group_id.clone()),
+        Some(a.terminal_id.clone()),
+        Some(SplitDir::Horizontal),
+    )
+    .await
+    else {
+        panic!("split right")
+    };
+    let Ok(Response::TerminalSpawned(c)) = spawn(
+        Some(a.group_id.clone()),
+        Some(b.terminal_id.clone()),
+        Some(SplitDir::Vertical),
+    )
+    .await
+    else {
+        panic!("split down")
+    };
+    ask(
+        &client,
+        Request::RenameTerminal {
+            terminal_id: b.terminal_id.clone(),
+            label: "build".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let Ok(Response::TerminalLayout(before)) = ask(
+        &client,
+        Request::ResizeTerminalPane {
+            project_dir: dir.clone(),
+            pane_id: a.terminal_id.clone(),
+            axis: SplitDir::Horizontal,
+            delta: 20,
+        },
+    )
+    .await
+    else {
+        panic!("resize")
+    };
+    assert_eq!(before.groups[0].pane_ids.len(), 3);
+    assert_eq!(c.layout.groups[0].active_pane_id, c.terminal_id);
+
+    // Stop the daemon: the layout is written before the shells are closed.
+    let data_dir = h.paths.terminals_file();
+    let home = h.stop(client).await;
+    let saved = std::fs::read_to_string(&data_dir).unwrap();
+    assert!(saved.contains("\"build\""), "{saved}");
+
+    // The next daemon starts with that file in its data folder (a fresh folder rather than the
+    // same one: on Windows a named pipe that was just closed can stay busy for a moment).
+    // Reading the layout starts no shell...
+    let next = tempfile::tempdir().unwrap();
+    write(&next.path().join("data").join("terminals.json"), &saved);
+    let h2 = start_at(next).await;
+    let client = DaemonClient::connect(&h2.paths).await.unwrap();
+    assert_eq!(h2.backend.spawn_count(), 0, "lazy");
+    // ...until the project's panel asks for its layout.
+    let Ok(Response::TerminalLayout(after)) = ask(
+        &client,
+        Request::GetTerminalLayout {
+            project_dir: dir.clone(),
+        },
+    )
+    .await
+    else {
+        panic!("layout")
+    };
+    assert_eq!(h2.backend.spawn_count(), 3);
+    assert_eq!(after.groups.len(), 1);
+    assert_eq!(
+        after
+            .panes
+            .iter()
+            .map(|p| p.label.as_str())
+            .collect::<Vec<_>>(),
+        ["Terminal 1", "build", "Terminal 3"]
+    );
+    let shape = |l: &as_core::terminals::FreeTerminalLayout| {
+        let g = &l.groups[0];
+        let ids = g.pane_ids.clone();
+        let mut t = g.tree.clone().unwrap();
+        t.map_panes(&mut |id| ids.iter().position(|p| p == id).unwrap().to_string());
+        (
+            serde_json::to_value(&t).unwrap(),
+            ids.iter().position(|p| *p == g.active_pane_id),
+        )
+    };
+    assert_eq!(shape(&after), shape(&before));
+    for i in 0..3 {
+        assert_eq!(
+            h2.backend.request(i).map(|r| PathBuf::from(r.cwd)),
+            Some(PathBuf::from(&dir)),
+            "fresh shell in the same folder"
+        );
+    }
+    assert!(
+        after
+            .panes
+            .iter()
+            .all(|p| before.panes.iter().all(|o| o.id != p.id))
+    );
+    h2.finish(client).await;
+    drop(home);
+}
+
+#[tokio::test]
 async fn free_terminals_spawn_type_output_layout_kill_and_exit() {
     let h = start().await;
     let client = DaemonClient::connect(&h.paths).await.unwrap();
@@ -212,6 +350,8 @@ async fn free_terminals_spawn_type_output_layout_kill_and_exit() {
             project_dir: dir.clone(),
             cwd: None,
             group_id: None,
+            split_pane: None,
+            split_dir: None,
             cols: 90,
             rows: 20,
         },
@@ -295,6 +435,8 @@ async fn free_terminals_spawn_type_output_layout_kill_and_exit() {
             project_dir: dir.clone(),
             cwd: None,
             group_id: Some(t.group_id.clone()),
+            split_pane: None,
+            split_dir: None,
             cols: 40,
             rows: 10,
         },

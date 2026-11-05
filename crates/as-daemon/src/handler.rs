@@ -362,6 +362,7 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
         | Request::UnsubscribeTerminal { .. }
         | Request::GetTerminalLayout { .. }
         | Request::ActivateTerminal { .. }
+        | Request::ResizeTerminalPane { .. }
         | Request::ListTerminals
         | Request::ScanSkills
         | Request::ToggleSkill(_)

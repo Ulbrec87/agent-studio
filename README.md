@@ -19,8 +19,9 @@ time, like tmux. It is a port of the desktop app [Hydra](https://github.com/jpdl
   from your own sign-in, optional alerts.
 - **Manager agent + MCP server**: a Claude agent that creates, lists, messages and stops the other agents through `studio_*` tools,
   and **headless runs** (a provider CLI run in the background, with a rendered log).
-- **Git panel** (changes, stage, commit, push, branches, read-only PR review through `gh`), **files browser** with search, **free
-  terminals** (shells per project), **Open in** (VS Code, Cursor, Zed, file manager, ...), **skills** toggles.
+- **Git panel** (changes with a unified or side-by-side diff, stage, commit, push, branches, read-only PR review through `gh`),
+  **files browser** with search and a syntax-highlighted preview, **free terminals** (shells per project, split right / down, the
+  layout survives a daemon restart), **Open in** (VS Code, Cursor, Zed, file manager, ...), **skills** toggles.
 - **Command palette**, fully rebindable keys (`keybindings.json`), three themes, optional mouse support.
 - **Settings screen**, diagnostics export (logs + snapshot without secrets), update check, import from Hydra.
 
@@ -47,6 +48,9 @@ git clone https://github.com/kawashita86/agent-studio
 cd agent-studio
 cargo build --release          # ./target/release/agent-studio
 ```
+
+Syntax highlighting (Files preview, diffs) is the cargo feature `highlight`, on by default and pure Rust (about 0.7 MB). Build with
+`--no-default-features` to leave it out; everything then shows plain text.
 
 Agent Studio never updates itself. It checks GitHub Releases now and then and tells you how to upgrade for the way you installed it
 (see [Updates](#updates)).
@@ -115,6 +119,7 @@ replaced by the defaults.
 | `freeTerminalLifecyclePolicy` | `"explicit"` | `explicit`, `lru` or `idle` (when shells are closed) |
 | `freeTerminalMaxCount`, `freeTerminalIdleTimeoutMinutes`, `freeTerminalScrollbackLines` | `6`, `60`, `5000` | free terminal limits |
 | `gitPanelDisplayMode`, `editorPanelDisplayMode` | `"overlay"` | `overlay` (centered) or `split` (side column) |
+| `diffLayout` | `"unified"` | Git panel diff: `unified` or `split` (side by side, needs a 100+ column panel; `s` toggles it) |
 | `claudeProfileByProject` | `{}` | project folder -> Claude config dir (longest path wins; `""` = default profile) |
 | `usage` | see below | usage chip, cost and alerts |
 | `prefixKey` | `"ctrl+a"` | the prefix key, e.g. `"ctrl+b"` |

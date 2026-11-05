@@ -19,6 +19,7 @@ use as_core::sessions::{
     CatalogSessionLocator, ListSessionsOptions, SessionSummary, profiles::make_resolver,
 };
 use as_core::terminals::{TerminalEvent, TerminalManager, TerminalSettings};
+use as_core::terminals_store::TerminalStore;
 use as_core::usage::alerts::{
     AlertConfig, Budgets, TodayUsage, UsageAlert, UsageAlerts, UsageAlertsOptions,
 };
@@ -81,6 +82,11 @@ pub struct Daemon {
     pub headless: HeadlessOrchestrator,
     /// Free terminals (P9).
     pub terminals: Arc<TerminalManager>,
+    /// `terminals.json`: the free-terminal layouts (saved debounced, restored lazily).
+    terminal_store: TerminalStore,
+    terminals_save: Notify,
+    /// Set at shutdown, once the layouts are on disk: no later save may overwrite them.
+    terminals_frozen: AtomicBool,
     /// Where the skills scan/toggle looks (real `~/.claude*` / `~/.codex` unless a test overrides it).
     pub skills: as_core::skills::SkillScanOptions,
     /// Hydra's data dir when not the default (tests).
@@ -120,6 +126,9 @@ impl Daemon {
                 TerminalSettings::from_config(&config.get())
             })
         };
+        // The saved layouts only become shells when a project's terminal panel is first used.
+        let terminal_store = TerminalStore::open(&paths);
+        terminals.restore(terminal_store.load());
         if options.catalog_locator {
             let locator: Arc<dyn SessionLocator> = Arc::new(CatalogSessionLocator::new(
                 options.catalogs.claude.clone(),
@@ -205,6 +214,9 @@ impl Daemon {
             history,
             headless,
             terminals,
+            terminal_store,
+            terminals_save: Notify::new(),
+            terminals_frozen: AtomicBool::new(false),
             skills: options
                 .skills
                 .unwrap_or_else(as_core::skills::SkillScanOptions::from_env),
@@ -350,6 +362,7 @@ impl Daemon {
                         project_dir,
                         layout,
                     }) => {
+                        this.terminals_save.notify_one();
                         this.registry.broadcast(&Event::TerminalLayoutChanged {
                             project_dir,
                             layout,
@@ -360,6 +373,16 @@ impl Daemon {
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
+            }
+        });
+        // Debounced persistence of the layouts (`terminals.json`).
+        let this = self.clone();
+        tokio::spawn(async move {
+            loop {
+                this.terminals_save.notified().await;
+                tokio::time::sleep(SAVE_DEBOUNCE).await;
+                let saver = this.clone();
+                let _ = tokio::task::spawn_blocking(move || saver.persist_terminals()).await;
             }
         });
         let this = self.clone();
@@ -493,6 +516,17 @@ impl Daemon {
         }
     }
 
+    /// Write the free-terminal layouts. Not once they were frozen at shutdown: closing the shells at
+    /// shutdown must not erase the layout that the next start restores.
+    pub fn persist_terminals(&self) {
+        if self.terminals_frozen.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Err(err) = self.terminal_store.save(&self.terminals.export()) {
+            tracing::error!(%err, "saving the terminal layouts failed");
+        }
+    }
+
     pub fn is_shutting_down(&self) -> bool {
         self.shutdown_flag.load(Ordering::SeqCst)
     }
@@ -522,6 +556,9 @@ impl Daemon {
         }
         tracing::info!(stop_agents, "stopping services");
         self.persist(true);
+        // The layouts are written before the shells go away (and not again afterwards).
+        self.persist_terminals();
+        self.terminals_frozen.store(true, Ordering::SeqCst);
         self.terminals.kill_all();
         self.history.lock().stop();
         self.usage.stop(); // flushes the usage cache

@@ -488,6 +488,7 @@ impl App {
             next_toast: 0,
         };
         app.agents = agents;
+        app.git.layout = app.config.diff_layout;
         app
     }
 
@@ -793,6 +794,7 @@ impl App {
         }
         self.theme = Theme::new(config.theme, self.color_mode);
         self.settings.on_config(&config);
+        self.git.layout = config.diff_layout;
         self.config = config;
         self.dirty = true;
     }
@@ -1547,6 +1549,15 @@ impl App {
             Command::TerminalToggle
             | Command::TerminalNew
             | Command::TerminalSplit
+            | Command::TerminalSplitDown
+            | Command::TerminalFocusLeft
+            | Command::TerminalFocusRight
+            | Command::TerminalFocusUp
+            | Command::TerminalFocusDown
+            | Command::TerminalResizeLeft
+            | Command::TerminalResizeRight
+            | Command::TerminalResizeUp
+            | Command::TerminalResizeDown
             | Command::TerminalKill
             | Command::TerminalNextTab
             | Command::TerminalPrevTab

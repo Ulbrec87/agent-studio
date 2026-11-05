@@ -3,8 +3,11 @@
 
 use super::*;
 
+use as_core::terminal_tree::SplitDir;
+
 use crate::panels::Outcome;
 use crate::panels::settings::Section;
+use crate::panels::terminals::Dir;
 
 impl App {
     /// The folder panels work on: the selected agent's project (the worktree for worktree agents,
@@ -28,6 +31,7 @@ impl App {
 
     pub(super) fn open_git(&mut self) -> Vec<Effect> {
         let dir = self.panel_dir();
+        crate::highlight::warm();
         self.modal = Some(Modal::Git);
         self.dirty = true;
         self.git.open(&dir)
@@ -35,6 +39,7 @@ impl App {
 
     pub(super) fn open_files(&mut self, search: bool) -> Vec<Effect> {
         let dir = self.panel_dir();
+        crate::highlight::warm();
         self.modal = Some(Modal::Files);
         self.dirty = true;
         let mut fx = self.files.open(&dir);
@@ -110,9 +115,22 @@ impl App {
                 self.free_terms.toggle(&dir, self.screen)
             }
             // Opening already requested the first terminal.
-            Command::TerminalNew | Command::TerminalSplit if opening => Vec::new(),
+            Command::TerminalNew | Command::TerminalSplit | Command::TerminalSplitDown
+                if opening =>
+            {
+                Vec::new()
+            }
             Command::TerminalNew => self.free_terms.new_tab(),
-            Command::TerminalSplit => self.free_terms.split(),
+            Command::TerminalSplit => self.free_terms.split(SplitDir::Horizontal),
+            Command::TerminalSplitDown => self.free_terms.split(SplitDir::Vertical),
+            Command::TerminalFocusLeft => self.free_terms.focus_dir(Dir::Left),
+            Command::TerminalFocusRight => self.free_terms.focus_dir(Dir::Right),
+            Command::TerminalFocusUp => self.free_terms.focus_dir(Dir::Up),
+            Command::TerminalFocusDown => self.free_terms.focus_dir(Dir::Down),
+            Command::TerminalResizeLeft => self.free_terms.resize_dir(Dir::Left),
+            Command::TerminalResizeRight => self.free_terms.resize_dir(Dir::Right),
+            Command::TerminalResizeUp => self.free_terms.resize_dir(Dir::Up),
+            Command::TerminalResizeDown => self.free_terms.resize_dir(Dir::Down),
             Command::TerminalKill => self.free_terms.kill_active(),
             Command::TerminalNextTab => self.free_terms.cycle_tab(1),
             Command::TerminalPrevTab => self.free_terms.cycle_tab(-1),

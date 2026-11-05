@@ -29,6 +29,6 @@ expression: text(&t)
 │  Ctrl+A y  sidebar y                           Toggle YOLO for Selected Agent                    │
 │  Ctrl+A Y  sidebar Y                           Toggle Global YOLO                                │
 │                                                                                                  │
-│ j/k PgUp/PgDn g/G scroll · Esc close · 1-25 of 92                                                │
+│ j/k PgUp/PgDn g/G scroll · Esc close · 1-25 of 93                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
  HELP  j/k PgUp/PgDn scroll · g/G top/bottom · Esc closes

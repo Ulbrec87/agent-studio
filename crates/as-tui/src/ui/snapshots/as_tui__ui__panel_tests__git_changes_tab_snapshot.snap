@@ -32,7 +32,7 @@ expression: text(&t)
      │                                │                                                                │
      │                                │                                                                │
      │                                                                                                 │
-     │j/k file · Enter diff · Space stage/unstage · a stage all · c commit · P push · n/N hunk · r refr│
+     │j/k file · Enter diff · Space stage/unstage · a stage all · c commit · P push · n/N hunk · s spli│
  All ╰─────────────────────────────────────────────────────────────────────────────────────────────────╯
  / search…        ↕created │
  GIT  Tab/1-3 tabs · j/k move · Space stage · c commit · P push · q close

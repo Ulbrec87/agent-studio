@@ -35,4 +35,4 @@ expression: text(&t)
 │                                                     │                                                      │
 │                                                     │                                                      │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- TERMINALS  typing into the shell · Ctrl+A t hide · Ctrl+A T new tab · Ctrl+A | split · Ctrl+A ]/{ tabs · Ctrl
+ TERMINALS  typing into the shell · Ctrl+A t hide · Ctrl+A T new tab · Ctrl+A | split → · Ctrl+A - split ↓ · C

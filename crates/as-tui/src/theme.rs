@@ -50,6 +50,9 @@ pub struct Theme {
     pub input_bg: Color,
     pub term_bg: Color,
     pub term_fg: Color,
+    /// Background of added / removed diff lines.
+    pub diff_add_bg: Color,
+    pub diff_del_bg: Color,
 }
 
 /// Nearest xterm-256 color of an RGB value (6x6x6 cube or the gray ramp).
@@ -121,6 +124,8 @@ impl Theme {
                 input_bg: h(0x191919),
                 term_bg: h(0x191919),
                 term_fg: h(0xE8E8E8),
+                diff_add_bg: h(0x1E3A27),
+                diff_del_bg: h(0x442426),
             },
             ThemeId::Dark => Self {
                 id,
@@ -145,6 +150,8 @@ impl Theme {
                 input_bg: h(0x30302e),
                 term_bg: h(0x262624),
                 term_fg: h(0xE8E4E0),
+                diff_add_bg: h(0x2B4A30),
+                diff_del_bg: h(0x572B2B),
             },
             ThemeId::Light => Self {
                 id,
@@ -170,6 +177,8 @@ impl Theme {
                 // Hydra keeps the terminal dark in every theme.
                 term_bg: h(0x262624),
                 term_fg: h(0xE8E4E0),
+                diff_add_bg: h(0xDDF3E0),
+                diff_del_bg: h(0xFBDCDC),
             },
         }
     }

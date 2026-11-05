@@ -207,10 +207,11 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
             &[
                 (&["toggle-terminal"], "hide"),
                 (&["terminal-new"], "new tab"),
-                (&["terminal-split"], "split"),
+                (&["terminal-split"], "split \u{2192}"),
+                (&["terminal-split-down"], "split \u{2193}"),
                 (&["terminal-next-tab", "terminal-prev-tab"], "tabs"),
                 (&["terminal-next-pane"], "pane"),
-                (&["terminal-kill"], "kill"),
+                (&["terminal-kill"], "close"),
             ],
             Scope::Prefix,
             true,
