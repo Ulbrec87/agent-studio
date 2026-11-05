@@ -377,19 +377,10 @@ async fn ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it() {
 }
 
 async fn ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it_body() {
-    std::thread::spawn(|| {
-        std::thread::sleep(Duration::from_secs(40));
-        eprintln!("DIAG watchdog abort");
-        std::process::exit(99);
-    });
     let dir = tempfile::tempdir().unwrap();
-    eprintln!("DIAG stage 1");
     let paths = Paths::at(dir.path());
-    eprintln!("DIAG stage 2");
     let backend = FakePtyBackend::new();
-    eprintln!("DIAG stage 3");
     let task: Arc<parking_lot::Mutex<Option<JoinHandle<anyhow::Result<()>>>>> = Arc::default();
-    eprintln!("DIAG stage 4");
 
     // Leftovers of a crashed daemon must be cleaned up first.
     std::fs::write(
@@ -400,7 +391,6 @@ async fn ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it_body() {
         ),
     )
     .unwrap();
-    eprintln!("DIAG stage 5");
 
     let spawn = {
         let (task, backend) = (task.clone(), backend.clone());
@@ -414,13 +404,9 @@ async fn ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it_body() {
             Ok(())
         }
     };
-    eprintln!("DIAG stage 6");
     let client = ensure_daemon_with(&paths, &spawn).await.unwrap();
-    eprintln!("DIAG stage 7");
     assert_eq!(client.hello().await.unwrap().pid, std::process::id());
-    eprintln!("DIAG stage 8");
     assert!(task.lock().is_some(), "spawned exactly once");
-    eprintln!("DIAG stage 9");
 
     // A second call finds the running one and does not spawn.
     let again = ensure_daemon_with(&paths, |_: &Paths| -> anyhow::Result<()> {
@@ -428,27 +414,19 @@ async fn ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it_body() {
     })
     .await
     .unwrap();
-    eprintln!("DIAG stage 10");
     assert_eq!(again.status().await.unwrap().clients, 2);
-    eprintln!("DIAG stage 11");
     // Windows: a named pipe stays "busy" for new connections (and the final probe) while any
     // server-side instance is still open, so close our own connections before stopping.
     drop(client);
-    eprintln!("DIAG stage 12");
     drop(again);
-    eprintln!("DIAG stage 13");
 
     assert!(stop_daemon(&paths, false).await.unwrap());
-    eprintln!("DIAG stage 14");
     let handle = task.lock().take().unwrap();
-    eprintln!("DIAG stage 15");
     handle.await.unwrap().unwrap();
-    eprintln!("DIAG stage 16");
     assert!(
         !stop_daemon(&paths, false).await.unwrap(),
         "nothing left to stop"
     );
-    eprintln!("DIAG stage 17");
 }
 
 #[tokio::test]
