@@ -1202,3 +1202,237 @@ fn models_come_from_the_daemon_and_follow_the_provider() {
     };
     assert_eq!(form.model_options()[0].id, "opus-9");
 }
+
+// ── P10: modal prefix, header clicks, update banner ─────────────────────────
+
+use crate::keymap::Command as Cmd;
+use as_core::updates::{CheckStatus, InstallMethod, UpdateInfo, UpdateState};
+
+fn update_state(status: CheckStatus) -> UpdateState {
+    let available = status == CheckStatus::Available;
+    UpdateState {
+        enabled: true,
+        current_version: "0.1.0".into(),
+        status,
+        checked_at_ms: Some(1),
+        latest: available.then(|| UpdateInfo {
+            version: "0.2.0".into(),
+            tag: "v0.2.0".into(),
+            url: "https://example.test/r".into(),
+            notes: String::new(),
+            asset_url: None,
+        }),
+        install_method: InstallMethod::Homebrew,
+        hint: if available {
+            "Run `brew upgrade agent-studio`".into()
+        } else {
+            String::new()
+        },
+    }
+}
+
+#[test]
+fn prefix_commands_work_inside_the_panels_modals() {
+    // Terminals toggle: the panel gives way.
+    let mut app = two_agents();
+    app.exec(Cmd::Settings);
+    assert!(matches!(app.modal, Some(Modal::Settings)));
+    assert!(app.handle_key(ctrl_a()).is_empty());
+    assert!(app.prefix_pending);
+    assert!(matches!(app.modal, Some(Modal::Settings)), "still open");
+    app.handle_key(chr('t'));
+    assert!(!app.prefix_pending);
+    assert!(app.modal.is_none());
+    assert!(app.free_terms.open, "the terminals panel opened");
+
+    // Palette and help replace the panel.
+    let mut app = two_agents();
+    app.exec(Cmd::GitPanel);
+    prefix(&mut app, 'p');
+    assert!(matches!(app.modal, Some(Modal::Palette(_))));
+    let mut app = two_agents();
+    app.exec(Cmd::ToggleFiles);
+    prefix(&mut app, '?');
+    assert!(matches!(app.modal, Some(Modal::Help)));
+
+    // Close.
+    let mut app = two_agents();
+    app.exec(Cmd::Settings);
+    prefix_key(&mut app, key(KeyCode::Esc));
+    assert!(app.modal.is_none());
+}
+
+fn prefix_key(app: &mut App, k: KeyEvent) -> Vec<Effect> {
+    app.handle_key(ctrl_a());
+    app.handle_key(k)
+}
+
+#[test]
+fn other_prefix_commands_are_dropped_inside_a_modal() {
+    let mut app = two_agents();
+    app.exec(Cmd::Settings);
+    // `n` (new agent) is not on the allow-list: nothing happens, the prefix is spent.
+    let fx = prefix(&mut app, 'n');
+    assert!(fx.is_empty());
+    assert!(matches!(app.modal, Some(Modal::Settings)));
+    assert!(!app.prefix_pending);
+    // Unknown key after the prefix: same.
+    prefix(&mut app, 'w');
+    assert!(matches!(app.modal, Some(Modal::Settings)));
+    // `q` still closes the panel afterwards (the key was not eaten as a panel key either).
+    app.handle_key(chr('q'));
+    assert!(app.modal.is_none());
+}
+
+#[test]
+fn forms_and_text_entry_keep_ctrl_a_for_themselves() {
+    // The new agent form is not a panel.
+    let mut app = two_agents();
+    app.exec(Cmd::NewAgent);
+    app.handle_key(ctrl_a());
+    assert!(!app.prefix_pending);
+    assert!(matches!(app.modal, Some(Modal::NewAgent(_))));
+    // The file search takes typed text.
+    let mut app = two_agents();
+    app.exec(Cmd::FileSearch);
+    assert!(app.files.search.active);
+    app.handle_key(ctrl_a());
+    assert!(!app.prefix_pending);
+    assert!(matches!(app.modal, Some(Modal::Files)));
+}
+
+#[test]
+fn clicking_a_header_tab_switches_the_view() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut app = two_agents();
+    let header = app.layout().header;
+    let spans = crate::ui::header::tab_spans(header);
+    let click = |col: u16, row: u16| MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: col,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    let (_, grid_x, _) = spans[1];
+    app.handle_mouse(click(grid_x + 1, 0));
+    assert_eq!(app.view, ViewMode::Grid);
+    let (_, overview_x, w) = spans[2];
+    app.handle_mouse(click(overview_x + w - 1, 0));
+    assert_eq!(app.view, ViewMode::Overview);
+    let (_, chat_x, _) = spans[0];
+    app.handle_mouse(click(chat_x, 0));
+    assert_eq!(app.view, ViewMode::Chat);
+    // Between the title chip and the tabs, and past the last tab: nothing.
+    app.handle_mouse(click(2, 0));
+    assert_eq!(app.view, ViewMode::Chat);
+    app.handle_mouse(click(overview_x + w + 3, 0));
+    assert_eq!(app.view, ViewMode::Chat);
+    // A modal owns the screen.
+    app.exec(Cmd::Help);
+    app.handle_mouse(click(grid_x + 1, 0));
+    assert_eq!(app.view, ViewMode::Chat);
+}
+
+#[test]
+fn tab_hit_testing_matches_the_drawn_header() {
+    // The spans start right after the title chip and tile without gaps.
+    let area = Rect::new(0, 0, 100, 1);
+    let spans = crate::ui::header::tab_spans(area);
+    assert_eq!(spans[0].1, 15);
+    assert_eq!(spans[1].1, spans[0].1 + spans[0].2);
+    assert_eq!(crate::ui::header::tab_at(area, 14), None);
+    assert_eq!(crate::ui::header::tab_at(area, 15), Some(ViewMode::Chat));
+    assert_eq!(crate::ui::header::tab_at(area, 200), None);
+}
+
+#[test]
+fn update_banner_shows_dismisses_and_comes_back_on_a_manual_check() {
+    let mut app = two_agents();
+    assert!(app.update_banner().is_none());
+    app.handle_event(Event::UpdateAvailable(Box::new(update_state(
+        CheckStatus::Available,
+    ))));
+    assert_eq!(
+        app.update_banner().map(|i| i.version.as_str()),
+        Some("0.2.0")
+    );
+    assert!(app.update_hint().contains("brew upgrade"));
+    // Esc after the prefix dismisses it, for this version, and the choice is saved.
+    prefix_key(&mut app, key(KeyCode::Esc));
+    assert!(app.update_banner().is_none());
+    assert_eq!(
+        app.state_snapshot().dismissed_update.as_deref(),
+        Some("0.2.0")
+    );
+    // The same version announced again stays dismissed.
+    app.handle_event(Event::UpdateAvailable(Box::new(update_state(
+        CheckStatus::Available,
+    ))));
+    assert!(app.update_banner().is_none());
+    // A restart restores the dismissal.
+    let saved = app.state_snapshot();
+    let mut fresh = two_agents();
+    fresh.restore_state(saved);
+    fresh.handle_event(Event::UpdateAvailable(Box::new(update_state(
+        CheckStatus::Available,
+    ))));
+    assert!(fresh.update_banner().is_none());
+    // A manual check shows it again and toasts the result.
+    app.handle_msg(Msg::Reply {
+        key: "upd:check".into(),
+        result: Ok(as_proto::Response::UpdateState(Box::new(update_state(
+            CheckStatus::Available,
+        )))),
+    });
+    assert!(app.update_banner().is_some());
+    assert!(app.toasts.iter().any(|t| t.body.contains("0.2.0")));
+}
+
+#[test]
+fn manual_update_check_requests_and_reports() {
+    let mut app = two_agents();
+    let fx = app.exec(Cmd::CheckUpdates);
+    assert!(fx.iter().any(|e| matches!(
+        e,
+        Effect::Req { key, req: as_proto::Request::CheckForUpdates } if key == "upd:check"
+    )));
+    let n = app.toasts.len();
+    app.handle_msg(Msg::Reply {
+        key: "upd:check".into(),
+        result: Ok(as_proto::Response::UpdateState(Box::new(update_state(
+            CheckStatus::UpToDate,
+        )))),
+    });
+    assert_eq!(app.toasts.len(), n + 1);
+    assert!(app.toasts.last().unwrap().body.contains("up to date"));
+    assert!(app.update_banner().is_none());
+    // The prefix key is the catalog's default.
+    let fx = prefix(&mut app, 'U');
+    assert!(
+        fx.iter()
+            .any(|e| matches!(e, Effect::Req { key, .. } if key == "upd:check"))
+    );
+    // An older daemon (no such request) is silent for the startup read.
+    let n = app.toasts.len();
+    app.handle_msg(Msg::Reply {
+        key: "upd:state".into(),
+        result: Err("unsupported request".into()),
+    });
+    assert_eq!(app.toasts.len(), n);
+}
+
+#[test]
+fn start_asks_for_the_update_state() {
+    let mut app = App::new(
+        AppConfig::default(),
+        Vec::new(),
+        ColorMode::TrueColor,
+        PathBuf::from("/tmp"),
+    );
+    app.on_resize(120, 40);
+    let fx = app.start();
+    assert!(fx.iter().any(|e| matches!(
+        e,
+        Effect::Req { key, req: as_proto::Request::GetUpdateState } if key == "upd:state"
+    )));
+}

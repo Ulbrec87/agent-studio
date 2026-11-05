@@ -11,6 +11,12 @@
 //!    drawn); if the prompt shows up again (a redraw after an arrow key) the wait restarts;
 //! 4. [`StartupOptions::trust_settle`] later the held writes go out.
 //!
+//! The same gate covers Claude's other first-run dialogs that Enter would answer for the user: the
+//! project MCP server approval ("New MCP server found in .mcp.json", default "Use this and all
+//! future MCP servers") and the custom API key prompt ("Detected a custom API key in your
+//! environment. Do you want to use this API key?"). They are matched by [`DIALOG_PHRASES`] and follow
+//! the same hold / answer / settle sequence (answer = Enter or a digit).
+//!
 //! If that does not happen within [`StartupOptions::trust_timeout`] the writes are dropped (and
 //! logged); when the process exits they are dropped silently. Without a prompt the writes go out
 //! on Hydra's schedule, once the CLI printed anything (or after [`StartupOptions::no_output_grace`]).
@@ -22,14 +28,24 @@ use regex::Regex;
 
 use super::model_detect::strip_ansi;
 
-/// Phrases of the trust dialog, compared after removing everything but letters and digits (the
-/// terminal UI may position words with cursor moves instead of spaces).
-const TRUST_PHRASES: [&str; 5] = [
+/// Phrases of the first-run dialogs, compared after removing everything but letters and digits
+/// (the terminal UI may position words with cursor moves instead of spaces).
+const DIALOG_PHRASES: [&str; 12] = [
+    // Folder trust.
     "trustthisfolder",
     "trustthefilesinthisfolder",
     "doyoutrust",
     "isthisaprojectyou",
     "yesitrust",
+    // Project MCP server approval (`.mcp.json`).
+    "newmcpserverfound",
+    "newmcpserversfound",
+    "usethisandallfuturemcpservers",
+    "continuewithoutusingthismcpserver",
+    "continuewithoutusingthesemcpservers",
+    // Custom API key prompt.
+    "detectedacustomapikey",
+    "doyouwanttousethisapikey",
 ];
 /// Output kept to look for the prompt in (bytes).
 const TAIL_BYTES: usize = 8192;
@@ -63,11 +79,12 @@ impl Default for StartupOptions {
     }
 }
 
-/// Is Claude's "do you trust this folder" dialog in `raw` (terminal output, escapes allowed)?
+/// Is one of Claude's first-run dialogs ("do you trust this folder", MCP server approval, custom
+/// API key) in `raw` (terminal output, escapes allowed)?
 pub fn contains_trust_prompt(raw: &str) -> bool {
     let plain = strip_ansi(raw).to_lowercase();
     let squashed = NON_ALNUM.replace_all(&plain, "");
-    TRUST_PHRASES.iter().any(|p| squashed.contains(p))
+    DIALOG_PHRASES.iter().any(|p| squashed.contains(p))
 }
 
 fn visible_chars(raw: &str) -> usize {
@@ -290,5 +307,55 @@ mod tests {
         g.on_output(PROMPT.as_bytes(), 500);
         g.on_output(MAIN_UI.as_bytes(), 600);
         assert!(g.holding());
+    }
+
+    const MCP_PROMPT: &str = "\x1b[1m New MCP server found in .mcp.json: studio\x1b[0m\r\n\r\n \x1b[36m\u{276f} 1. Use this and all future MCP servers in this project\x1b[0m\r\n   2. Use this MCP server\r\n   3. Continue without using this MCP server\r\n";
+    const API_KEY_PROMPT: &str = "Detected a custom API key in your environment\r\nsk-ant-...xyz\r\nDo you want to use this API key?\r\n \u{276f} 1. Yes\r\n   2. No (recommended)\r\n";
+
+    #[test]
+    fn recognises_the_mcp_approval_and_api_key_dialogs() {
+        assert!(contains_trust_prompt(MCP_PROMPT));
+        assert!(contains_trust_prompt(
+            "3 new MCP servers found in .mcp.json"
+        ));
+        assert!(contains_trust_prompt(
+            "Continue\x1b[1Cwithout\x1b[1Cusing\x1b[1Cthese\x1b[1CMCP\x1b[1Cservers"
+        ));
+        assert!(contains_trust_prompt(API_KEY_PROMPT));
+        // Talking about MCP servers is not the dialog.
+        assert!(!contains_trust_prompt(
+            "You can add an MCP server with `claude mcp add`; my API key is set."
+        ));
+        assert!(!contains_trust_prompt(MAIN_UI));
+    }
+
+    #[test]
+    fn the_mcp_dialog_holds_the_startup_input_until_answered() {
+        let mut g = TrustGate::new(0);
+        g.on_output(MCP_PROMPT.as_bytes(), 500);
+        assert!(g.holding());
+        assert_eq!(g.poll(5_000, &opts()), GateState::Wait);
+        // Moving the selection is not an answer.
+        g.on_user_input(b"\x1b[B");
+        g.on_output(MCP_PROMPT.as_bytes(), 5_100);
+        assert!(g.holding());
+        g.on_user_input(b"\r");
+        g.on_output(MAIN_UI.as_bytes(), 6_000);
+        assert!(!g.holding());
+        assert_eq!(g.poll(7_499, &opts()), GateState::Wait);
+        assert_eq!(g.poll(7_500, &opts()), GateState::Proceed);
+    }
+
+    #[test]
+    fn the_api_key_dialog_holds_and_expires_like_the_trust_dialog() {
+        let mut g = TrustGate::new(0);
+        g.on_output(API_KEY_PROMPT.as_bytes(), 100);
+        assert!(g.holding());
+        assert_eq!(g.poll(299_999, &opts()), GateState::Wait);
+        assert_eq!(g.poll(300_000, &opts()), GateState::Expired);
+        // A digit answers it.
+        g.on_user_input(b"2");
+        g.on_output(MAIN_UI.as_bytes(), 400_000);
+        assert_eq!(g.poll(401_500, &opts()), GateState::Proceed);
     }
 }

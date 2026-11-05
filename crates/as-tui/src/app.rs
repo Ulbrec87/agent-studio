@@ -400,6 +400,9 @@ pub struct App {
     pub free_terms: FreeTerms,
     pub settings: SettingsUi,
     pub open_in: OpenInUi,
+    /// The daemon's update state (P10) and the version whose banner the user dismissed.
+    pub update: Option<as_core::updates::UpdateState>,
+    pub update_dismissed: Option<String>,
     /// The daemon's MCP server, once known.
     pub mcp: Option<McpStatus>,
     pub broadcast: TextArea,
@@ -462,6 +465,8 @@ impl App {
             free_terms: FreeTerms::default(),
             settings: SettingsUi::default(),
             open_in: OpenInUi::default(),
+            update: None,
+            update_dismissed: None,
             mcp: None,
             broadcast: TextArea::multi_line(),
             help_scroll: 0,
@@ -494,6 +499,7 @@ impl App {
             Effect::LoadOverview,
             Effect::LoadUsageState,
             Effect::LoadMcpStatus,
+            crate::panels::req("upd:state", as_proto::Request::GetUpdateState),
         ];
         if self.view == ViewMode::Overview {
             self.overview.entered(self.wall_ms(), self.now);
@@ -740,6 +746,7 @@ impl App {
             ev @ (Event::TerminalOutput { .. }
             | Event::TerminalExit { .. }
             | Event::TerminalLayoutChanged { .. }) => fx.extend(self.on_terminal_event(ev)),
+            Event::UpdateAvailable(state) => self.on_update_available(*state),
             Event::OverviewEvents(events) => {
                 let moved = self.overview.add_events(&events);
                 if moved && self.view == ViewMode::Overview {
@@ -1451,6 +1458,15 @@ impl App {
                 }
                 self.dirty = true;
             }
+            MouseEventKind::Down(MouseButton::Left) if layout.header.contains(at) => {
+                // A click on a view tab switches the view (modals own the screen).
+                if self.modal.is_none()
+                    && let Some(view) = crate::ui::header::tab_at(layout.header, mouse.column)
+                {
+                    self.dirty = true;
+                    return self.set_view(view);
+                }
+            }
             MouseEventKind::Down(MouseButton::Left) => {
                 if let Some(side) = layout.sidebar.filter(|s| s.contains(at)) {
                     if self.modal.is_some() {
@@ -1526,6 +1542,7 @@ impl App {
             Command::Settings => self.open_settings(None),
             Command::OpenIn => self.open_open_in(None),
             Command::ExportDiagnostics => self.export_diagnostics(),
+            Command::CheckUpdates => self.check_updates(),
             Command::ImportHydra => self.open_import_hydra(),
             Command::TerminalToggle
             | Command::TerminalNew
@@ -1655,6 +1672,7 @@ impl App {
             }
             Command::ClearToasts => {
                 self.toasts.clear();
+                self.dismiss_update_banner();
                 if self.view == ViewMode::Grid && self.focus == Focus::Terminal {
                     self.focus = Focus::Grid;
                 }
@@ -1799,7 +1817,58 @@ impl App {
 
     // ── modals ──────────────────────────────────────────────────────────────
 
+    /// Whether the open modal is a panel that lets the prefix through (see [`Self::modal_prefix`]):
+    /// the read/browse panels, not the forms, and not while one of them takes typed text (a git
+    /// prompt, the file search, a settings value, the headless filter), where `Ctrl+A` is text.
+    fn modal_takes_prefix(&self) -> bool {
+        match &self.modal {
+            Some(Modal::Help | Modal::Usage(_) | Modal::OpenIn) => true,
+            Some(Modal::Git) => self.git.prompt.is_none(),
+            Some(Modal::Files) => !self.files.search.active,
+            Some(Modal::Settings) => self.settings.edit.is_none(),
+            Some(Modal::Headless) => !self.headless.filtering,
+            _ => false,
+        }
+    }
+
+    /// Prefix handling inside a panel modal: `prefix` then one of an allow-list of global
+    /// commands (terminals, palette, help, close) runs it; any other key after the prefix is
+    /// dropped. Returns `None` when the key is not part of a prefix sequence.
+    fn modal_prefix(&mut self, key: &KeyEvent) -> Option<Vec<Effect>> {
+        if !self.modal_takes_prefix() {
+            return None;
+        }
+        if self.prefix_pending {
+            self.prefix_pending = false;
+            let command = self.keymap.after_prefix(key);
+            let allowed = matches!(
+                command,
+                Some(
+                    Command::TerminalToggle
+                        | Command::CommandPalette
+                        | Command::Help
+                        | Command::ClearToasts
+                )
+            );
+            if !allowed {
+                return Some(Vec::new());
+            }
+            let command = command?;
+            // The panel gives way to the command (its state stays, like after `Esc`).
+            self.modal = None;
+            return Some(self.exec(command));
+        }
+        if self.keymap.is_prefix(key) {
+            self.prefix_pending = true;
+            return Some(Vec::new());
+        }
+        None
+    }
+
     fn modal_key(&mut self, key: KeyEvent) -> Vec<Effect> {
+        if let Some(fx) = self.modal_prefix(&key) {
+            return fx;
+        }
         let Some(modal) = self.modal.take() else {
             return Vec::new();
         };
@@ -2103,6 +2172,7 @@ impl App {
 
 mod headless_ui;
 mod panels;
+mod updates_ui;
 pub use headless_ui::headless_log_options;
 mod overview;
 mod usage_ui;

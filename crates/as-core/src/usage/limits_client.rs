@@ -84,10 +84,11 @@ impl HttpClient for ReqwestHttp {
             })
             .as_ref()
             .ok_or(HttpError)?;
-        let mut builder = client
-            .get(&request.url)
-            .bearer_auth(request.bearer.expose())
-            .timeout(request.timeout);
+        let mut builder = client.get(&request.url).timeout(request.timeout);
+        // An empty bearer means a public endpoint (the update check): send no Authorization.
+        if !request.bearer.expose().is_empty() {
+            builder = builder.bearer_auth(request.bearer.expose());
+        }
         for (k, v) in &request.headers {
             builder = builder.header(k.as_str(), v.as_str());
         }

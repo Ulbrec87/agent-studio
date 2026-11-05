@@ -18,6 +18,7 @@ use as_core::overview::{
 use as_core::sessions::{ClaudeProfile, ListSessionsOptions, SessionSummary};
 use as_core::skills::{SkillScan, SkillToggle};
 use as_core::terminals::{FreeTerminalLayout, SpawnedTerminal, TerminalInfo};
+use as_core::updates::UpdateState;
 use as_core::usage::report::{UsageReport, UsageReportProvider};
 use as_core::usage::{UsagePeriod, UsageState, UsageSummary};
 use as_core::{
@@ -397,6 +398,12 @@ pub enum Request {
     },
     /// Write a diagnostics folder (logs + snapshot, no secrets); answers `Path`.
     ExportDiagnostics,
+
+    // ── P10: updates ────────────────────────────────────────────────────────
+    /// The last known update state (no network); answers `UpdateState`.
+    GetUpdateState,
+    /// Ask GitHub Releases now (even with `checkForUpdates` off); answers `UpdateState`.
+    CheckForUpdates,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -452,6 +459,7 @@ pub enum Response {
     HydraPreview(Box<ImportPreview>),
     HydraReport(Box<ImportReport>),
     Path(String),
+    UpdateState(Box<UpdateState>),
 }
 
 /// The MCP server of the daemon (Hydra `McpServerStatus`).
@@ -545,6 +553,8 @@ pub enum Event {
         project_dir: String,
         layout: FreeTerminalLayout,
     },
+    /// A newer release was found (sent once per version found by a check).
+    UpdateAvailable(Box<UpdateState>),
 }
 
 /// Hydra `NotificationType` (agent part).

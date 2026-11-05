@@ -240,6 +240,28 @@ mod tests {
     }
 
     #[test]
+    fn update_check_and_mouse_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path());
+        let c = store.get();
+        assert!(c.check_for_updates, "update checks are on by default");
+        assert!(!c.mouse, "mouse capture is off by default");
+        let next = store
+            .update(&json!({ "checkForUpdates": false, "mouse": true }))
+            .unwrap();
+        assert!(!next.check_for_updates && next.mouse);
+        let reopened = store_in(dir.path()).get();
+        assert!(!reopened.check_for_updates && reopened.mouse);
+        // A value of the wrong type is ignored, the rest still applies.
+        let next = store
+            .update(&json!({ "checkForUpdates": "no", "mouse": false }))
+            .unwrap();
+        assert!(!next.check_for_updates && !next.mouse);
+        let v = serde_json::to_value(&next).unwrap();
+        assert_eq!(v["checkForUpdates"], json!(false));
+    }
+
+    #[test]
     fn defaults_the_usage_block_alerts_off() {
         let dir = tempfile::tempdir().unwrap();
         let c = store_in(dir.path()).get();

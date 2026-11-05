@@ -38,16 +38,16 @@
     `GetOverview`, `GetOverviewHistory { since_ms }`, `GetOverviewWaits`, `GetOverviewEvents { since_ms, limit }`,
     `GetAgentDetails { agent_id }` (P6, see *Overview* below),
     `GetUsageState`, `GetUsageSummary { period, project_key }`, `GetUsageReport { provider, days }` (7-90), `RefreshUsage`,
-    `UsageVisible(bool)` (P7, see *Usage* below),
+    `UsageVisible(bool)` (P7, see *Usage* below), `GetUpdateState`, `CheckForUpdates` (P10, see *Updates* below),
     `GetMcpStatus`, `StartHeadlessRun`, `ListHeadlessRuns`, `GetHeadlessRun`, `CancelHeadlessRun`, `GetHeadlessRunLog` (P8, see
     *MCP server* and *Headless runs* below).
   * `Response`: `Ok`, `Pong`, `Flag(bool)`, `Hello(HelloInfo)`, `Agents`, `Agent(Option)`, `Ids`, `Buffer { data }`,
     `Config`, `Preflight`, `Status`, `Sessions`, `Profiles`, `Models` (P4), `Overview`, `OverviewHistory`,
-    `OverviewWaits`, `OverviewEvents`, `AgentDetails(Option)` (P6), `UsageState`, `UsageSummary`, `UsageReport` (P7), `McpStatus { running, port, error, manager_workspace }`,
+    `OverviewWaits`, `OverviewEvents`, `AgentDetails(Option)` (P6), `UsageState`, `UsageSummary`, `UsageReport` (P7), `UpdateState` (P10), `McpStatus { running, port, error, manager_workspace }`,
     `HeadlessRun`, `HeadlessRuns`, `HeadlessRunLog` (P8).
   * `Event`: `AgentOutput { agent_id, data }`, `AgentStatus { agent_id, status, session_id, model }`, `AgentWaiting`,
     `AgentsChanged`, `ConfigChanged`, `DaemonShuttingDown`, `Notification(StudioNotification)` (P3),
-    `OverviewSnapshot`, `OverviewEvents` (P6), `UsageChanged(UsageState)` (P7), `HeadlessRunEvent { run_id, data }`
+    `OverviewSnapshot`, `OverviewEvents` (P6), `UsageChanged(UsageState)` (P7), `UpdateAvailable(UpdateState)` (P10), `HeadlessRunEvent { run_id, data }`
     (one output line), `HeadlessRunChanged(HeadlessRun)` (started / session id captured / finished) (P8). New phases add variants only. A client that talks to an older daemon
     gets an error for the Overview and Usage requests; the TUI then shows "The overview is not available" and keeps working.
 * **Sessions (P4)**: `ListSessions` returns `SessionSummary`s (camelCase like Hydra's `ClaudeSessionSummary`, plus
@@ -146,7 +146,7 @@
     there is no watcher), `FsSearch` (gitignore-aware walk of at most 20 000 files, `nucleo-matcher` ranking). Relative paths use `/`;
     absolute paths, `..` and symlinks that leave the project are refused (`OutsideProject`).
   * *free terminals* (`as_core::terminals::TerminalManager`, shells per project, `agents::pty::pump` shared reader/waiter threads,
-    the same `PtyBackend` as agents so the Windows DSR reply applies): `SpawnTerminal` (new tab, or a pane of `group_id`),
+    the same `PtyBackend` as agents so the Windows DSR reply applies; the agent manager uses `pump_with_eof` of the same module): `SpawnTerminal` (new tab, or a pane of `group_id`),
     `TerminalInput`, `TerminalResize`, `KillTerminal`, `RenameTerminal`, `SubscribeTerminal` (returns the scrollback, then
     `Event::TerminalOutput` goes to that connection only; subscribe first, snapshot second, so a chunk may repeat but never gets lost),
     `UnsubscribeTerminal`, `GetTerminalLayout`, `ActivateTerminal`, `ListTerminals`. Events to everyone: `TerminalExit`,
@@ -167,6 +167,25 @@
   (`FreeTerms`) at the bottom (45 %) or full screen: while it is open every key goes to the active shell except the prefix and the
   direct bindings. Panel state lives in `as_tui::panels::*` and talks to the daemon only through the generic `Effect::Req { key, req }`
   -> `Msg::Reply { key, result }` (keys `git:*`, `fs:*`, `term:*`, `set:*`, `open:*`, `diag:*`), so each panel is unit-tested without a daemon.
+* **Modals and the prefix (P10)**: the panel modals (Help, Usage, Git, Files, Settings, Open in, Headless) let the prefix through:
+  `prefix` + one of *terminals toggle*, *palette*, *help*, *close-dialogs* (keys from the keymap, so overrides apply) closes the
+  panel and runs the command; any other key after the prefix is dropped. Forms (new agent, rename, resume, profile, palette, quit,
+  confirmations) and panels that currently take typed text (a git prompt, the file search, a Settings value, the headless filter) keep
+  `Ctrl+A` for themselves. The footer shows `PREFIX` and the four allowed keys.
+* **Mouse (P10)**: off by default (`mouse` in `config.json`, `--mouse`, `AGENT_STUDIO_MOUSE=1`; read once at start). With it on, a click on
+  the header tabs (Chat/Grid/Overview, `ui::header::tab_at`) switches the view, a click on a sidebar row selects/folds, a click on a
+  tile focuses it, the wheel scrolls the Chat scrollback. The terminal's own selection needs `Shift`+drag while the mouse is captured.
+* **Updates (P10, `as_core::updates`)**: `GetUpdateState` (no network) / `CheckForUpdates` (asks now, also with `checkForUpdates: false`)
+  answer `Response::UpdateState`; `Event::UpdateAvailable(UpdateState)` is pushed once per newly found version. The daemon checks 10 s
+  after start and every 6 h when `checkForUpdates` is on: one `GET https://api.github.com/repos/kawashita86/agent-studio/releases/latest`
+  through the `HttpClient` seam of the usage limits (empty bearer = no `Authorization` header). `404` = no release yet, network errors /
+  rate limits only change `UpdateState.status` (`offline`, `rate_limited`, `failed`), drafts and prereleases are ignored, versions are
+  compared as semver. The state carries the install method guessed from `current_exe()` (cargo, Homebrew, winget, scoop, chocolatey,
+  direct, unknown) and a one-sentence upgrade `hint`; for a direct install the hint is the download URL of the archive for this OS and CPU
+  (`agent-studio-<tag>-<target triple>.tar.gz|zip`). The binary is never replaced. `AGENT_STUDIO_UPDATE_URL` overrides the API URL (tests,
+  manual checks). The TUI shows a dismissible banner (stacked with the toasts; `prefix Esc` dismisses it for that version, remembered in
+  `tui-state.json` as `dismissedUpdate`), the palette command *Check for Updates* (`prefix U`) and a line in Settings > About. The CLI
+  `agent-studio update-check` runs the same check in-process, without a daemon.
 * **Overview history (`<root>/overview-history/v1-YYYY-MM-DD.jsonl`, mode 600, folder 700)**: one writer (the daemon).
   Lines: `{"start":<ms>}` (each daemon start; time between the last point and the next one is *unmeasured*),
   `{"point":[at,needsYou,working,idle,total,{agentId:status}]}` every 5 s (a trailing `1` marks a delta line: only the
@@ -232,6 +251,18 @@
 | `~/.claude*/.credentials.json` / macOS keychain (`security`) | OAuth token for the plan-limits endpoint (read-only, never refreshed, never logged) |
 | `~/.codex/{sessions,archived_sessions}/**/rollout-*.jsonl` (`$CODEX_HOME`) | Codex session catalog (P4) + usage (tokens and passive limits) |
 | `~/.claude/settings.json`, `~/.claude/plugins`, `~/.codex/skills` | skills tab |
+
+## Network access
+
+Only two outgoing requests exist, both from the daemon (or the one-shot CLI) with a short timeout: the Claude plan limits
+(`api.anthropic.com/api/oauth/usage`, with the user's own OAuth token, opt-out `usage.*`) and the update check
+(`api.github.com/.../releases/latest`, no credential, opt-out `checkForUpdates: false`). Agents talk to their providers on their own.
+
+## Startup dialogs of Claude
+
+`agents::startup::TrustGate` holds the automatic startup input (`/rename`, the first prompt) while one of Claude's first-run dialogs is on
+the agent's output: folder trust, project MCP server approval, custom API key. They are matched by tolerant phrases
+(`DIALOG_PHRASES`, ANSI stripped, non-alphanumerics removed); answering = Enter or a digit typed by the user.
 
 ## Crates
 

@@ -12,6 +12,29 @@ use as_core::ViewMode;
 use crate::app::{App, ConnState, running_count};
 use crate::palette::view_label;
 
+/// Title chip and the gap after it, before the first tab.
+const TITLE: &str = " Agent Studio ";
+
+/// Where each view tab is drawn: `(view, first column, width)` in screen columns.
+pub fn tab_spans(area: Rect) -> Vec<(ViewMode, u16, u16)> {
+    let mut x = area.x + u16::try_from(TITLE.width() + 1).unwrap_or(0);
+    let mut out = Vec::new();
+    for view in [ViewMode::Chat, ViewMode::Grid, ViewMode::Overview] {
+        let w = u16::try_from(view_label(view).width() + 2).unwrap_or(0);
+        out.push((view, x, w));
+        x += w;
+    }
+    out
+}
+
+/// The view tab under screen column `column` of the header row, if any.
+pub fn tab_at(area: Rect, column: u16) -> Option<ViewMode> {
+    tab_spans(area)
+        .into_iter()
+        .find(|(_, x, w)| column >= *x && column < x + w)
+        .map(|(view, _, _)| view)
+}
+
 pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     if area.height == 0 {
         return;
@@ -20,7 +43,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let bar = Style::default().fg(t.text).bg(t.surface_raised);
     let mut left = vec![
         Span::styled(
-            " Agent Studio ",
+            TITLE,
             Style::default()
                 .fg(t.accent_text)
                 .bg(t.accent)

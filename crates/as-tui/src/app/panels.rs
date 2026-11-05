@@ -229,6 +229,10 @@ impl App {
                 }
                 Vec::new()
             }
+            "upd" => {
+                self.on_update_reply(key, result);
+                Vec::new()
+            }
             "diag" => {
                 match result {
                     Ok(as_proto::Response::Path(p)) => {

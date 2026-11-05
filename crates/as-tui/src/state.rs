@@ -30,6 +30,8 @@ pub struct TuiState {
     pub grid_only_running: bool,
     /// Project dir -> agent ids in the user's tile order.
     pub tile_order: HashMap<String, Vec<String>>,
+    /// Version of the update banner the user dismissed.
+    pub dismissed_update: Option<String>,
 }
 
 impl TuiState {
@@ -66,6 +68,7 @@ impl TuiState {
         field!("expandedTile", state.expanded_tile);
         field!("gridOnlyRunning", state.grid_only_running);
         field!("tileOrder", state.tile_order);
+        field!("dismissedUpdate", state.dismissed_update);
         state
     }
 
@@ -92,6 +95,7 @@ mod tests {
             expanded_tile: Some("a1".into()),
             grid_only_running: true,
             tile_order: HashMap::from([("/work/api".to_string(), vec!["b".into(), "a".into()])]),
+            dismissed_update: Some("0.2.0".into()),
         }
     }
 

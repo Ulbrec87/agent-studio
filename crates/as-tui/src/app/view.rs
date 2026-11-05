@@ -528,6 +528,7 @@ impl App {
             expanded_tile: self.grid.expanded.clone(),
             grid_only_running: self.grid.only_running,
             tile_order: self.grid.order.stored().clone(),
+            dismissed_update: self.update_dismissed.clone(),
         }
     }
 
@@ -549,6 +550,7 @@ impl App {
         self.grid.only_running = state.grid_only_running;
         self.grid.order = TileOrder::from_stored(state.tile_order);
         self.restored_selection = state.selected_agent;
+        self.update_dismissed = state.dismissed_update;
     }
 }
 

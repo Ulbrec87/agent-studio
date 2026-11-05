@@ -13,7 +13,7 @@ Update the row (and add new rows) in the same commit that ports the code.
 | `electron/agents/shellWrapper.ts` | `as-core::agents::shell` | P1 | done |
 | `electron/agents/agentEnv.ts` | `as-core::agents::env` | P1 | done |
 | `electron/util/fix-path.ts` | `as-core::agents::shell` (login-shell PATH) | P1 | done (`shell::fixed_path` returns the PATH; daemon applies it in P2) |
-| `electron/agents/AgentManager.ts` | `as-core::agents::manager` (+ `agents::startup` trust-prompt gate) | P1/P4 | wip — session discovery (`SessionLocator`, backoff) and `import_sessions` done in P4; worktree → P10 (`TODO(P10)`) |
+| `electron/agents/AgentManager.ts` | `as-core::agents::manager` (+ `agents::startup` trust-prompt gate) | P1/P4/P9/P10 | done (session discovery + `import_sessions` in P4, worktree mode in P9 (`GitRunner` + `WorkMode::Worktree`, CLI `new --worktree`), reader/waiter threads are the shared `agents::pty::pump_with_eof` since P10) |
 | `shared/terminalModelDetection.ts` | `as-core::agents::model_detect` | P1 | done |
 | `electron/workspace/WorkspaceStore.ts` | `as-core::workspace` | P1 | done |
 | `electron/daemon/*` (protocol, server, client, lock, lifecycle) | `as-proto` (messages, codec, client, lifecycle, lock), `as-daemon` (server, registry, handler) ; TUI uses `as_proto::DaemonClient` | P2 | done (no notifications/MCP/overview/usage/headless yet) |
@@ -53,7 +53,10 @@ Update the row (and add new rows) in the same commit that ports the code.
 | `EDITOR_REGISTRY` / open-in | `as-core::open_in`, `as-tui::panels::open_in` | P9 | done |
 | "Import from Hydra" (decision 8) | `as-core::hydra_import`, Settings > Data, CLI `import-hydra` | P9 | done (Hydra's `mod+x` shortcuts are not converted) |
 | `electron/observability` export diagnostics | `as-daemon::handler::p9::export_diagnostics` (folder with logs + `snapshot.json`, secrets redacted) | P9 | done |
-| `electron/observability/*` | `tracing` setup in bin (`src/logging.rs`) + `diagnostics` subcommand | P0/P10 | wip |
-| `electron/updates/UpdateService.ts` | `as-core::updates` (GitHub release check) | P10 | todo |
-| `electron/remote/*`, `hydra-remote/`, `firebase-backend/` | — | P11 | deferred |
-| Monaco editor, sounds, electron-builder, Homebrew/AUR/winget | — | — | dropped |
+| `electron/observability/*` (JSONL logs, rotation, diagnostics bundle, remote error endpoint) | `tracing` setup in bin (`src/logging.rs`: daily rotation, JSON) + the diagnostics export of P9 (Settings > Data, palette) | P0/P9 | done (no standalone `diagnostics` subcommand: use the TUI; the remote error endpoint of Hydra is not ported: `enableRemoteErrorReporting` / `errorReportingEndpoint` stay in the config for round-tripping only) |
+| `electron/updates/UpdateService.ts`, `src/hooks/useUpdates.ts`, `Updates/{UpdateBanner,UpdatePanel}.tsx` | `as-core::updates` (semver compare, release API parsing, install-method detection, per-platform asset pick), `as-daemon::services::{update_loop, check_updates}`, `as-proto` `GetUpdateState`/`CheckForUpdates` + `Event::UpdateAvailable`, `as-tui::app::updates_ui` (banner, toast, palette/`prefix U`, About), CLI `update-check` | P10 | done (check only: never replaces the binary, the hint says how to upgrade; no update download/install progress, no "release notes" panel) |
+| `.github/workflows/release.yml`, `electron-builder` config, `scripts/release-*.mjs` | `.github/workflows/release.yml` (tag `v*` / manual dry run: 5 targets, archives + `SHA256SUMS`, GitHub Release with generated notes), `[profile.release]` | P10 | done (only validated by a tag or `workflow_dispatch` run) |
+| `packaging/{homebrew,aur,winget}`, `update-{homebrew,aur,winget}.yml` | — | — | deferred (future work: see `docs/releasing.md`) |
+| mouse support of the TUI (new) | `as-tui::{app::handle_mouse, ui::header::tab_at}`, config `mouse` / `--mouse` / `AGENT_STUDIO_MOUSE` | P10 | done (off by default) |
+| `electron/remote/*`, `hydra-remote/`, `firebase-backend/` (remote control, `remoteControlEnabled`) | — | P11 | deferred (decision 2 of the plan: after v0.1.0) |
+| Monaco editor, sounds, electron-builder | — | — | dropped (editing = `$EDITOR`, sounds = terminal bell, packaging = release archives) |

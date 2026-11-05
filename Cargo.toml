@@ -20,6 +20,14 @@ license = "MIT"
 repository = "https://github.com/kawashita86/agent-studio"
 version = "0.1.0"
 
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+# Keep unwinding: the daemon relies on catching panics of background tasks.
+panic = "unwind"
+
 [workspace.lints.rust]
 unsafe_code = "warn"
 

@@ -99,7 +99,7 @@ Format: `## <short title>` + what happened + what to do instead.
   with no redraw of the dialog. Not released within 5 min: the held writes are dropped with a `warn` log; the process
   exiting drops them silently. Without a dialog the writes go out on Hydra's schedule once the CLI printed anything
   (or after 10 s of silence). `rename_agent` on a running Claude defers its `/rename` the same way. Only Claude is gated.
-  Other first-run dialogs (MCP server approval, API-key prompt) are not detected. Verified by hand with a real
+  P10 added the MCP server approval and the custom API-key prompt to the same gate (see "P10 gotchas"). Verified by hand with a real
   untrusted folder: the dialog stays up, no exit, `/rename` and the prompt arrive after "Yes".
 - **Session-id regexes tightened.** Hydra's `session[ _-]?id?[:=\s]+([a-z0-9-]{8,})` also took "session management" ->
   "management". Claude now needs a UUID after "session id", OpenCode a `ses_<10+ alphanumerics>` id anywhere. The generic
@@ -289,7 +289,7 @@ included, so a test reading "the next frame" can get an event instead of its res
   (they answered Claude's trust dialog). Look at the footer (`FILES`, `GIT`, ...) before typing; `q` closes every panel.
 - **Free terminals are not agents.** They have their own `PtyBackend` use (`terminals::TerminalManager`), their own subscription key
   (`term:<id>` in the same per-connection set) and no run ids: the pump (`agents::pty::pump`) reports the exit once the reader had
-  500 ms to drain. The manager still has its own copy of the reader/waiter code (run ids, trust gate); do not "unify" it blindly.
+  500 ms to drain. Since P10 the manager uses the same threads through `pty::pump_with_eof` (its callbacks carry the run id and call `on_eof`).
 - **Subscribe is subscribe-then-snapshot for terminals.** A chunk arriving in the gap shows up twice (in the buffer and as an event);
   the other order would lose it. Agents avoid this with the dispatcher task; shells were not worth the extra machinery.
 - **Panel replies are keyed strings.** `Effect::Req { key }` -> `Msg::Reply { key }`: stale answers (a diff for a file the cursor left)
@@ -300,3 +300,33 @@ included, so a test reading "the next frame" can get an event instead of its res
   `git worktree list`'s first entry (`GitRunner::main_worktree`).
 - **Manual checks create real Claude files** again (trust entries for `/tmp/as9repo/.worktrees/...` in the profile's `.claude.json`,
   `history.jsonl`, `projects/-tmp-as9repo-*`): only the project folders are safe to delete.
+
+## P10 gotchas
+
+- **Rust ignores SIGPIPE: `println!` panics on a closed pipe.** `agent-studio status | head -1` died with "failed printing to stdout".
+  One-shot CLI output goes through the `outln!`/`out!` macros of `src/out.rs` (BrokenPipe = quiet exit 0, other errors = message + exit 1).
+  Never add a bare `println!` to the one-shot commands.
+- **The update check reuses the usage `HttpClient`, with an empty bearer.** `ReqwestHttp` skips `Authorization` when the bearer is empty.
+  GitHub needs a `User-Agent`; `404` on `releases/latest` means "no release yet", not an error. A test that builds a `DaemonOptions`
+  literal must set `updates: false` (or inject `update_http`), otherwise the daemon would call GitHub 10 s after the start.
+- **`cargo install` is not a published crate yet.** The hint for a cargo install says `cargo install --git <repo> --locked --force`,
+  matching the README. Switch it to `cargo install agent-studio --locked` when the crate is on crates.io.
+- **`[profile.release]` keeps `panic = "unwind"`.** Background tasks of the daemon and the PTY threads must not abort the whole process on a
+  panic in one of them. `strip = true` removes symbols: a crash report from a release binary has no function names.
+- **macOS x86_64 is a cross build on the arm runner** (`macos-latest`), so the release workflow does not run that binary (no smoke test).
+  `macos-13` (the old Intel runner) no longer exists. The Linux arm build uses the free `ubuntu-24.04-arm` runner.
+- **Release assets are named `agent-studio-<tag>-<target triple>.tar.gz|zip`.** `as_core::updates::select_asset` matches on the triple and
+  the extension: change both together.
+- **The prefix in panels is handled before the panel sees the key** (`App::modal_prefix`), so `Ctrl+A` is never a text-editing key in the
+  panels that do not take text; panels that do (git prompt, file search, Settings edit, headless search) are excluded by `modal_takes_prefix`.
+  A new panel with a text field must be added there.
+- **Footer hints are built from `Keymap::hint_for(id)`**, which returns the first label of a command (`Ctrl+A g`, `sidebar j`, `grid x`).
+  Scope words are stripped for hints that already say where they apply. New hints should use catalog ids, not hard-coded letters.
+- **Toast height depends on the wrapped body** (`ui::toasts::height_for`, at most 6 body lines + ellipsis). Stack math must call it,
+  not a constant.
+- **More Claude first-run dialogs in the `TrustGate`**: MCP approval ("New MCP server found in .mcp.json", "Use this and all future MCP
+  servers", "Continue without using this MCP server") and the API key prompt ("Detected a custom API key", "Do you want to use this API
+  key?"). Phrases were taken from Claude Code's current wording, not from a live capture of every variant: if Claude rewords a dialog the
+  startup input is no longer held (the symptom is the dialog answered by the delayed `/rename`). Add the new phrase to `DIALOG_PHRASES`.
+- **Manual checks of the update banner** need a local server: `AGENT_STUDIO_UPDATE_URL=http://127.0.0.1:<port>/latest` with a JSON file
+  (`tag_name`, `html_url`, `draft`, `prerelease`, `assets`) served by `python3 -m http.server`. Never fake data against api.github.com.

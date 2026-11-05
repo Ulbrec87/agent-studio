@@ -226,6 +226,8 @@ pub enum Command {
     OpenIn,
     ExportDiagnostics,
     ImportHydra,
+    /// Ask GitHub Releases for a newer version (P10).
+    CheckUpdates,
     TerminalToggle,
     TerminalNew,
     TerminalSplit,
@@ -310,6 +312,7 @@ pub const ALL_COMMANDS: &[Command] = &[
     Command::OpenIn,
     Command::ExportDiagnostics,
     Command::ImportHydra,
+    Command::CheckUpdates,
     Command::TerminalToggle,
     Command::TerminalNew,
     Command::TerminalSplit,
@@ -394,6 +397,7 @@ impl Command {
             Command::OpenIn => "open-in",
             Command::ExportDiagnostics => "export-diagnostics",
             Command::ImportHydra => "import-hydra",
+            Command::CheckUpdates => "updates",
             Command::TerminalToggle => "toggle-terminal",
             Command::TerminalNew => "terminal-new",
             Command::TerminalSplit => "terminal-split",
@@ -990,7 +994,7 @@ mod tests {
 
     #[test]
     fn none_unbinds_and_later_phase_commands_are_ignored() {
-        let (km, problems) = build(&[rule("quit", "none"), rule("updates", "ctrl+g")]);
+        let (km, problems) = build(&[rule("quit", "none"), rule("remote-control", "ctrl+g")]);
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(
             km.after_prefix(&ev(KeyCode::Char('q'), KeyModifiers::NONE)),

@@ -1,0 +1,147 @@
+name: Release
+
+# Tag `vX.Y.Z` (the tag must match the version in Cargo.toml): build binaries for every platform,
+# package them, publish a GitHub Release with generated notes and SHA256SUMS.
+# Manual run (workflow_dispatch): the same build and packaging, uploaded as workflow artifacts only,
+# nothing is published (dry run).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          # Both macOS targets build on the Apple Silicon runner (x86_64 is a cross build).
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Check that the tag matches Cargo.toml
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          crate_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$crate_version" != "$tag_version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the crate version $crate_version"
+            exit 1
+          fi
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Smoke test
+        # The x86_64 macOS binary is built on an arm runner: skip running it.
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          exe=target/${{ matrix.target }}/release/agent-studio
+          [ "$RUNNER_OS" = Windows ] && exe="$exe.exe"
+          "$exe" --version
+
+      - name: Package
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="dry-run-${GITHUB_SHA::7}"
+          fi
+          name="agent-studio-${version}-${TARGET}"
+          exe=agent-studio
+          [ "$RUNNER_OS" = Windows ] && exe=agent-studio.exe
+          mkdir -p "dist/$name"
+          cp "target/${TARGET}/release/${exe}" README.md LICENSE "dist/$name/"
+          cd dist
+          if [ "$RUNNER_OS" = Windows ]; then
+            archive="$name.zip"
+            7z a -tzip "$archive" "$name" > /dev/null
+          else
+            archive="$name.tar.gz"
+            tar -czf "$archive" "$name"
+          fi
+          rm -rf "$name"
+          if command -v sha256sum > /dev/null; then
+            sha256sum "$archive" > "$archive.sha256"
+          else
+            shasum -a 256 "$archive" > "$archive.sha256"
+          fi
+          ls -l
+          cat "$archive.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: publish release
+    needs: build
+    # Only for tags; a manual run stops after `build` (dry run).
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - name: SHA256SUMS
+        working-directory: dist
+        run: |
+          cat ./*.sha256 | sort -k2 > SHA256SUMS
+          rm ./*.sha256
+          cat SHA256SUMS
+          ls -l
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS
+          generate_release_notes: true
+          # `v0.2.0-rc.1` style tags are published as prereleases (the update check ignores them).
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true

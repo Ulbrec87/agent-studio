@@ -261,7 +261,8 @@ mod tests {
         assert_eq!(by_label("Switch view: Chat").detail, "current");
         // Hidden commands (index switching, the palette itself) and later phases stay out.
         assert!(!p.entries.iter().any(|e| e.label == "Open Command Palette"));
-        assert!(!p.entries.iter().any(|e| e.label == "Check for Updates"));
+        assert!(!p.entries.iter().any(|e| e.label == "Remote Control"));
+        assert_eq!(by_label("Check for Updates").hint, "Ctrl+A U");
         // Commands come first, ordered by category.
         assert_eq!(p.entries[0].category, "Navigation");
         assert!(matches!(p.entries[0].action, PaletteAction::Command(_)));

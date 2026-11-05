@@ -18,7 +18,7 @@ Tick a phase when it is pushed to `origin/main` with fmt + clippy + tests green.
 - [x] P7 Usage & limits
 - [x] P8 MCP manager + headless
 - [x] P9 Git, files, free terminals, settings, skills, open-in
-- [ ] P10 Polish
+- [x] P10 Polish
 - [ ] P11 Remote control (deferred, see §8)
 
 ---
@@ -194,9 +194,9 @@ agent-studio/
 | F19 Palette / shortcuts | **Port** | |
 | F20 Open in… | **Port** | spawn `code`/`cursor`/`zed`/`xdg-open` |
 | F21 Remote control (Firebase + PWA) | **Drop / defer** (see Q) | needs Firebase project + separate web app |
-| F22 Updates | **Reduce** | GitHub release check + "run `cargo install`/brew" hint, or `self_update` |
-| F23 Observability | **Port, simplified** | `tracing` JSONL + rotation, `agent-studio diagnostics` bundle |
-| F24 Packaging / CI | **New** | GH Actions: fmt, clippy, test; release binaries via `cargo-dist` later |
+| F22 Updates | **Reduce** (done P10) | GitHub release check + upgrade hint for the install method (`as-core::updates`); the binary never replaces itself |
+| F23 Observability | **Port, simplified** (done P0/P9) | `tracing` JSONL + rotation, diagnostics export bundle from the TUI (no standalone subcommand) |
+| F24 Packaging / CI | **New** (done P10) | GH Actions: fmt, clippy, test on 3 OSes; `release.yml` builds 5 targets and publishes archives + `SHA256SUMS` (Homebrew/winget/AUR: future work, `docs/releasing.md`) |
 
 ---
 

@@ -9,6 +9,7 @@ use ratatui::widgets::Widget;
 use as_core::ViewMode;
 
 use crate::app::{App, Focus, Modal};
+use crate::keymap::Scope;
 
 fn picker_hints(mode: &'static str) -> (&'static str, String) {
     (
@@ -17,14 +18,106 @@ fn picker_hints(mode: &'static str) -> (&'static str, String) {
     )
 }
 
+const SEP: &str = " \u{00B7} ";
+
+/// The key of a command id in one scope (`Prefix`: the label starts with the prefix key, `App`:
+/// `sidebar `, `Grid`: `grid `), the shortest one when it has several (`h` over `Left`). The scope
+/// word is dropped unless `full` (`Ctrl+A g`), because the mode label already says where a key
+/// applies. `None` when the command has no key in that scope (the user unbound or moved it).
+fn key_of(app: &App, id: &str, scope: Scope, full: bool) -> Option<String> {
+    let word = match scope {
+        Scope::Prefix => format!("{} ", app.prefix_label()),
+        Scope::App => "sidebar ".to_string(),
+        Scope::Grid => "grid ".to_string(),
+        Scope::Scroll | Scope::Direct => return None,
+    };
+    app.keymap
+        .labels_for(id)
+        .iter()
+        .filter(|l| l.starts_with(&word))
+        .min_by_key(|l| l.chars().count())
+        .map(|l| {
+            if full {
+                l.clone()
+            } else {
+                l[word.len()..].to_string()
+            }
+        })
+}
+
+/// `key word` pairs joined with a middle dot; a pair whose command has no binding is left out.
+/// An entry with several ids shows their keys joined with `/` (`j/k`).
+fn hints(app: &App, items: &[(&[&str], &str)], scope: Scope, full: bool) -> String {
+    items
+        .iter()
+        .filter_map(|(ids, word)| {
+            let keys: Vec<String> = ids
+                .iter()
+                .filter_map(|id| key_of(app, id, scope, full))
+                .collect();
+            if keys.is_empty() {
+                return None;
+            }
+            // `Ctrl+A ]/{`, not `Ctrl+A ]/Ctrl+A {`.
+            let keys: Vec<String> = if full {
+                let word = format!("{} ", app.prefix_label());
+                keys.iter()
+                    .enumerate()
+                    .map(|(i, k)| match k.strip_prefix(&word) {
+                        Some(rest) if i > 0 => rest.to_string(),
+                        _ => k.clone(),
+                    })
+                    .collect()
+            } else {
+                keys
+            };
+            // `h` `j` `k` `l` read better as `hjkl`.
+            let joined = if keys.len() > 2 && keys.iter().all(|k| k.chars().count() == 1) {
+                keys.concat()
+            } else {
+                keys.join("/")
+            };
+            Some(format!("{joined} {word}"))
+        })
+        .collect::<Vec<_>>()
+        .join(SEP)
+}
+
+fn prefix_hints(app: &App) -> String {
+    hints(
+        app,
+        &[
+            (&["new-agent"], "new"),
+            (&["toggle-view"], "grid"),
+            (&["command-palette"], "palette"),
+            (&["broadcast"], "broadcast"),
+            (&["resume-session"], "resume"),
+            (&["close-agent"], "kill"),
+            (&["restart-agent"], "restart"),
+            (&["remove-agent"], "remove"),
+            (&["rename-agent"], "rename"),
+            (&["toggle-yolo"], "yolo"),
+            (&["next-agent", "prev-agent"], "agents"),
+            (&["switch-agent-by-index"], "jump"),
+            (&["focus-sidebar"], "sidebar"),
+            (&["toggle-tile-expand"], "expand"),
+            (&["focus-sidebar-search"], "search"),
+            (&["show-shortcuts"], "help"),
+            (&["quit"], "quit"),
+        ],
+        Scope::Prefix,
+        false,
+    )
+}
+
 /// `(mode label, hints)` for the footer.
 pub fn mode_and_hints(app: &App) -> (&'static str, String) {
-    let p = app.prefix_label();
     if app.prefix_pending {
-        return (
-            "PREFIX",
-            "n new \u{00B7} g grid \u{00B7} p palette \u{00B7} b broadcast \u{00B7} o resume \u{00B7} x kill \u{00B7} R restart \u{00B7} d remove \u{00B7} r rename \u{00B7} y yolo \u{00B7} j/k agents \u{00B7} 1-9 jump \u{00B7} s sidebar \u{00B7} z expand \u{00B7} / search \u{00B7} ? help \u{00B7} q quit".into(),
-        );
+        let mut text = prefix_hints(app);
+        if app.modal.is_some() {
+            text = modal_prefix_hints(app);
+        }
+        return ("PREFIX", text);
     }
     match &app.modal {
         Some(Modal::NewAgent(form)) if form.picker.is_some() => return picker_hints("SESSIONS"),
@@ -109,12 +202,20 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
         None => {}
     }
     if app.free_terms.open {
-        return (
-            "TERMINALS",
-            format!(
-                "typing into the shell \u{00B7} {p} t hide \u{00B7} {p} T new tab \u{00B7} {p} | split \u{00B7} {p} ] / {{ tabs \u{00B7} {p} }} pane \u{00B7} {p} X kill"
-            ),
+        let keys = hints(
+            app,
+            &[
+                (&["toggle-terminal"], "hide"),
+                (&["terminal-new"], "new tab"),
+                (&["terminal-split"], "split"),
+                (&["terminal-next-tab", "terminal-prev-tab"], "tabs"),
+                (&["terminal-next-pane"], "pane"),
+                (&["terminal-kill"], "kill"),
+            ],
+            Scope::Prefix,
+            true,
         );
+        return ("TERMINALS", format!("typing into the shell{SEP}{keys}"));
     }
     if app.scroll_mode {
         return (
@@ -125,17 +226,55 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
     match app.focus {
         Focus::Terminal if app.view == ViewMode::Grid => (
             "TILE",
-            format!("typing into the tile \u{00B7} {p} Esc back to the grid \u{00B7} {p} g chat \u{00B7} {p} ? help"),
+            format!(
+                "typing into the tile{SEP}{}",
+                hints(
+                    app,
+                    &[
+                        (&["close-dialogs"], "back to the grid"),
+                        (&["toggle-view"], "chat"),
+                        (&["show-shortcuts"], "help"),
+                    ],
+                    Scope::Prefix,
+                    true,
+                )
+            ),
         ),
         Focus::Terminal => (
             "TERMINAL",
-            format!(
-                "{p} ? help \u{00B7} {p} p palette \u{00B7} {p} g grid \u{00B7} {p} n new \u{00B7} {p} s sidebar \u{00B7} {p} q quit"
+            hints(
+                app,
+                &[
+                    (&["show-shortcuts"], "help"),
+                    (&["command-palette"], "palette"),
+                    (&["toggle-view"], "grid"),
+                    (&["new-agent"], "new"),
+                    (&["focus-sidebar"], "sidebar"),
+                    (&["quit"], "quit"),
+                ],
+                Scope::Prefix,
+                true,
             ),
         ),
         Focus::Grid => (
             "GRID",
-            "hjkl move \u{00B7} Enter type \u{00B7} c chat \u{00B7} z expand \u{00B7} [ ] tab \u{00B7} < > reorder \u{00B7} b broadcast \u{00B7} u running \u{00B7} C columns \u{00B7} Tab sidebar".into(),
+            hints(
+                app,
+                &[
+                    (&["grid-left", "grid-down", "grid-up", "grid-right"], "move"),
+                    (&["grid-attach"], "type"),
+                    (&["grid-open-chat"], "chat"),
+                    (&["toggle-tile-expand"], "expand"),
+                    (&["grid-prev-tab", "grid-next-tab"], "tab"),
+                    (&["grid-move-prev", "grid-move-next"], "reorder"),
+                    (&["broadcast"], "broadcast"),
+                    (&["grid-only-running"], "running"),
+                    (&["grid-cycle-columns"], "columns"),
+                ],
+                Scope::Grid,
+                false,
+            ) + SEP
+                + "Tab sidebar",
         ),
         Focus::Broadcast => (
             "BROADCAST",
@@ -143,7 +282,22 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
         ),
         Focus::App => (
             "APP",
-            "j/k move \u{00B7} Enter attach \u{00B7} Space fold \u{00B7} / search \u{00B7} f status \u{00B7} S sort \u{00B7} n new \u{00B7} o resume \u{00B7} Esc back".into(),
+            hints(
+                app,
+                &[
+                    (&["cursor-down", "cursor-up"], "move"),
+                    (&["activate"], "attach"),
+                    (&["toggle-collapse"], "fold"),
+                    (&["focus-sidebar-search"], "search"),
+                    (&["cycle-sidebar-status"], "status"),
+                    (&["cycle-sidebar-sort"], "sort"),
+                    (&["new-agent"], "new"),
+                    (&["resume-session"], "resume"),
+                ],
+                Scope::App,
+                false,
+            ) + SEP
+                + "Esc back",
         ),
         Focus::Overview => (
             "OVERVIEW",
@@ -154,6 +308,21 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
             "Enter send \u{00B7} Alt+Enter newline \u{00B7} Esc terminal".into(),
         ),
     }
+}
+
+/// After the prefix inside a modal: only a few global commands work there.
+fn modal_prefix_hints(app: &App) -> String {
+    hints(
+        app,
+        &[
+            (&["toggle-terminal"], "terminals"),
+            (&["command-palette"], "palette"),
+            (&["show-shortcuts"], "help"),
+            (&["close-dialogs"], "close"),
+        ],
+        Scope::Prefix,
+        false,
+    )
 }
 
 pub fn render(app: &App, area: Rect, buf: &mut Buffer) {

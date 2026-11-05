@@ -145,6 +145,10 @@ async fn run_async(paths: Paths, options: TuiOptions) -> Result<()> {
     let client = Arc::new(ensure_daemon(&paths).await.context("starting the daemon")?);
     let mut events = client.take_events();
     let config = client.get_config().await.context("reading the config")?;
+    // `--mouse`, AGENT_STUDIO_MOUSE=1 or `"mouse": true` in config.json (read once, at start).
+    let options = TuiOptions {
+        mouse: options.mouse || config.mouse,
+    };
     let agents = client.list_agents().await.context("listing the agents")?;
     let cwd = std::env::current_dir().unwrap_or_default();
     let mut app = App::new(config, agents, ColorMode::detect(), cwd);

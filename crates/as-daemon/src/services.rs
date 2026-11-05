@@ -94,6 +94,10 @@ pub struct Daemon {
     usage_alerts: OnceLock<Arc<UsageAlerts>>,
     usage_kick: Notify,
     usage_idle: AtomicBool,
+    /// Update check (P10): GitHub Releases, never replaces the binary.
+    pub updates: Arc<as_core::updates::UpdateService>,
+    /// The version the clients were last told about (one `UpdateAvailable` per version).
+    updates_announced: Mutex<Option<String>>,
     pub started: Instant,
     pub preflight_on_create: bool,
     os_notifications: bool,
@@ -179,6 +183,13 @@ impl Daemon {
         let overview = Arc::new(Mutex::new(OverviewTracker::new(deps)));
 
         let usage = Arc::new(build_usage_service(&paths, options.usage_options));
+        let updates = Arc::new(as_core::updates::UpdateService::new(
+            as_core::updates::UpdateOptions::production(
+                options
+                    .update_http
+                    .unwrap_or_else(|| Arc::new(ReqwestHttp::new())),
+            ),
+        ));
 
         let (control, control_rx) = mpsc::unbounded_channel();
         let daemon = Arc::new(Self {
@@ -205,6 +216,8 @@ impl Daemon {
             usage_alerts: OnceLock::new(),
             usage_kick: Notify::new(),
             usage_idle: AtomicBool::new(false),
+            updates,
+            updates_announced: Mutex::new(None),
             started: Instant::now(),
             preflight_on_create: options.preflight_on_create,
             os_notifications: options.os_notifications,
@@ -226,6 +239,9 @@ impl Daemon {
         }
         if options.usage {
             tokio::spawn(usage_loop(daemon.clone()));
+        }
+        if options.updates {
+            tokio::spawn(update_loop(daemon.clone()));
         }
         if options.import_sessions {
             daemon.spawn_session_import();
@@ -778,6 +794,55 @@ async fn usage_loop(daemon: Arc<Daemon>) {
             d.usage.tick();
         })
         .await;
+    }
+}
+
+/// Delay before the first update check (the daemon has more urgent things to do at start).
+const UPDATE_STARTUP_DELAY: Duration = Duration::from_secs(10);
+
+/// Update check at startup and every 6 h while `checkForUpdates` is on. Offline, rate limits and
+/// 404 only change the state; nothing is shown for them.
+async fn update_loop(daemon: Arc<Daemon>) {
+    tokio::time::sleep(UPDATE_STARTUP_DELAY).await;
+    loop {
+        if daemon.services_stopped.load(Ordering::SeqCst) {
+            break;
+        }
+        if daemon.config.get().check_for_updates {
+            daemon.check_updates().await;
+        }
+        tokio::time::sleep(as_core::updates::CHECK_INTERVAL).await;
+    }
+}
+
+impl Daemon {
+    /// The update state with the config's `checkForUpdates` filled in (no network).
+    pub fn update_state(&self) -> as_core::updates::UpdateState {
+        self.updates
+            .set_enabled(self.config.get().check_for_updates);
+        self.updates.state()
+    }
+
+    /// Ask GitHub Releases now. A newer version that the clients were not told about yet is
+    /// broadcast as `UpdateAvailable`.
+    pub async fn check_updates(self: &Arc<Self>) -> as_core::updates::UpdateState {
+        let service = self.updates.clone();
+        let checked = tokio::task::spawn_blocking(move || service.check()).await;
+        if checked.is_err() {
+            tracing::warn!("update check task failed");
+        }
+        let state = self.update_state();
+        if let Some(info) = state.available() {
+            let mut announced = self.updates_announced.lock();
+            if announced.as_deref() != Some(info.version.as_str()) {
+                *announced = Some(info.version.clone());
+                drop(announced);
+                tracing::info!(version = %info.version, "update available");
+                self.registry
+                    .broadcast(&Event::UpdateAvailable(Box::new(state.clone())));
+            }
+        }
+        state
     }
 }
 

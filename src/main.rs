@@ -1,5 +1,7 @@
 //! Agent Studio entry point: clap dispatch and logging init.
 
+#[macro_use]
+mod out;
 mod logging;
 mod oneshot;
 
@@ -91,6 +93,8 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Check GitHub Releases for a newer version (does not need the daemon).
+    UpdateCheck,
     /// Print the version.
     Version,
 }
@@ -102,7 +106,7 @@ fn version_line() -> String {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     if cli.version || matches!(cli.command, Some(Command::Version)) {
-        println!("{}", version_line());
+        outln!("{}", version_line());
         return Ok(());
     }
     let paths = match cli.home {
@@ -157,6 +161,8 @@ mod tests {
                 dir: Some(_)
             })
         ));
+        let cli = Cli::parse_from(["agent-studio", "update-check"]);
+        assert!(matches!(cli.command, Some(Command::UpdateCheck)));
         let cli = Cli::parse_from(["agent-studio", "stop", "--force"]);
         assert!(matches!(cli.command, Some(Command::Stop { force: true })));
     }

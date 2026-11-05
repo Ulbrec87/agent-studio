@@ -14,12 +14,12 @@ expression: text(&t)
      │ Keybindings            │ Default project folder       (empty)                                   │
      │ Data & diagnostics     │ Sound effects                [x]                                       │
      │ About                  │ Prefix key                   ctrl+a                                    │
+     │                        │ Check for updates            [x]                                       │
+     │                        │ Mouse support                [ ]                                       │
      │                        │ Import sessions at start     [x]                                       │
      │                        │ Session import limit         500                                       │
      │                        │ Session max age (days)       7                                         │
      │                        │ Import only under            (empty)                                   │
-     │                        │                                                                        │
-     │                        │                                                                        │
      │                        │                                                                        │
      │                        │                                                                        │
      │                        │                                                                        │

@@ -968,6 +968,21 @@ pub fn render_settings(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<
                 None => lines.push("Daemon: asking\u{2026}".into()),
             }
             lines.push(format!("MCP: {}", ui.mcp));
+            match &ui.update {
+                Some(u) => {
+                    let mut line = format!("Updates: {}", u.summary());
+                    if !u.enabled {
+                        line.push_str(" (automatic checks off)");
+                    }
+                    lines.push(line);
+                    if u.available().is_some() {
+                        lines.push(format!("  {}", u.hint));
+                    }
+                }
+                None => lines.push("Updates: unknown".into()),
+            }
+            lines.push(String::new());
+            lines.push("Enter / c: check for updates now".into());
             for (i, l) in lines.iter().enumerate() {
                 buf.set_stringn(
                     body.x,

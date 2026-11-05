@@ -103,6 +103,18 @@ pub const GENERAL: &[Item] = &[
         "tmux-style prefix, e.g. ctrl+a (applies at once)",
     ),
     item(
+        "checkForUpdates",
+        "Check for updates",
+        Kind::Bool,
+        "Ask GitHub for a newer release at start and every 6 h",
+    ),
+    item(
+        "mouse",
+        "Mouse support",
+        Kind::Bool,
+        "Clicks and wheel; hides native text selection (Shift+drag). Applies at next start",
+    ),
+    item(
         "importSessionsOnStartup",
         "Import sessions at start",
         Kind::Bool,
@@ -345,6 +357,8 @@ pub struct SettingsUi {
     pub import: Option<ImportStage>,
     /// Enter on "Keybindings": the app opens the file in `$EDITOR`.
     pub want_keybindings_file: bool,
+    /// The daemon's update state (About).
+    pub update: Option<as_core::updates::UpdateState>,
 }
 
 impl Default for SettingsUi {
@@ -368,6 +382,7 @@ impl Default for SettingsUi {
             data_dir: String::new(),
             import: None,
             want_keybindings_file: false,
+            update: None,
         }
     }
 }
@@ -549,7 +564,13 @@ impl SettingsUi {
                 Vec::new()
             }
             Section::Data => self.data_key(key),
-            Section::Profiles | Section::About => Vec::new(),
+            Section::About => match key.code {
+                KeyCode::Enter | KeyCode::Char('c') => {
+                    vec![req("upd:check", Request::CheckForUpdates)]
+                }
+                _ => Vec::new(),
+            },
+            Section::Profiles => Vec::new(),
             _ => self.item_key(key),
         };
         (Outcome::Stay, fx)

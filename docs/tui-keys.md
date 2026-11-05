@@ -15,7 +15,9 @@ Prefix key: **`Ctrl+A`** (config `prefixKey`, e.g. `"ctrl+b"`). Every binding is
 | **Input** (chat input bar) | `prefix i` toggles the bar |
 | **Scroll mode** | `prefix [`, mouse wheel (with `--mouse`) or `Shift+PgUp` (Chat view only) |
 
-The footer shows the current mode; after the prefix it shows `PREFIX` plus the available keys.
+The footer shows the current mode; after the prefix it shows `PREFIX` plus the available keys. The key hints are generated from the
+effective bindings (defaults + `keybindings.json` + the configured prefix), so an override shows up at once; a command you unbound
+(`none`) is left out of the hint line.
 
 ## Views
 
@@ -65,6 +67,7 @@ wins. `prefix g` / `prefix \` toggle Chat/Grid (Hydra `mod+\`), `prefix O` shows
 | `}` | `terminal-next-pane` | next pane of the tab |
 | `X` | `terminal-kill` | kill the active terminal |
 | *(palette)* | `terminal-rename`, `terminal-fullscreen` | rename the active terminal; panel bottom / full screen |
+| `U` | `updates` | check for updates now (banner + toast; see *Updates* below) |
 | `,` | `settings` | settings |
 | `I` | `open-in` | open the project in an editor / file manager / terminal |
 | *(palette)* | `import-hydra`, `export-diagnostics` | import from Hydra (also CLI `import-hydra`); write a diagnostics folder |
@@ -197,13 +200,47 @@ Generated from the keymap, grouped by category (Navigation, Agents, Grid, Sideba
 General), so user overrides show up; unbound commands read `(unbound)`. `j`/`k`/arrows, `PgUp`/`PgDn`, `g`/`G` scroll,
 `Esc`/`q`/`?` close.
 
+## Prefix inside panels
+
+The panel modals (help, usage, git, files, settings, open in, headless) take every key, but let the **prefix** through for four global
+commands: `prefix t` (toggle the terminals panel), `prefix p` / `prefix :` (command palette), `prefix ?` (help) and `prefix Esc`
+(`close-dialogs`: close the panel). The panel closes (or is replaced by the palette / help) and the command runs; any other key after
+the prefix is dropped (the footer shows `PREFIX` with these four keys while it waits). The forms (new agent, rename, resume, profile,
+palette, quit, confirmations) and panels that currently take text (a git commit/PR prompt, the file search, a Settings value, the headless
+search) keep `Ctrl+A` for themselves, as text editing keys do. Choice: not every global command, because most of them would act on the
+view *behind* the panel (kill an agent, switch the view) while its state is hidden.
+
+## Mouse
+
+Off by default, because capturing the mouse takes native text selection away from the terminal (hold `Shift`, or `Option` in some macOS
+terminals, while dragging to select text; most terminals also copy with that). Turn it on with `"mouse": true` in `config.json` (Settings >
+General, applies at the next start), `agent-studio --mouse` or `AGENT_STUDIO_MOUSE=1`. With the mouse captured:
+
+| Where | Click / wheel |
+|-------|---------------|
+| header tabs `Chat` `Grid` `Overview` | switch the view |
+| sidebar row | select the agent and type into it / fold a project |
+| Grid tab strip, tile header, tile body | switch tab / open the agent in Chat / type into the tile |
+| Chat pane | focus the terminal; the wheel scrolls the scrollback (3 lines per notch, enters scroll mode) |
+
+Modals own the screen: clicks outside them do nothing.
+
+## Updates
+
+The daemon asks GitHub Releases for a newer version 10 s after it starts and every 6 h (`checkForUpdates`, default on; Settings >
+General). A newer stable release shows a banner at the bottom right: `Update available: X.Y.Z` with how to upgrade for the way you
+installed (`brew upgrade agent-studio`, `cargo install --git ... --locked --force`, or the download URL of the archive for your OS and
+CPU). `prefix Esc` dismisses it for that version (remembered). `prefix U` / palette *Check for Updates* asks now and answers with a toast
+(also when automatic checks are off), Settings > About shows the state (`Enter`/`c` there checks too). The binary never replaces itself.
+CLI: `agent-studio update-check`.
+
 ## Keybindings file
 
 `<data root>/keybindings.json`, shape as in Hydra: `[{ "command": "<id>", "keys": "<keys>" }]`. An entry replaces **all**
 default keys of that command (merge like Hydra's `mergeKeybindingsWithDefaults`; the last entry of a command wins). The
 TUI polls the file every second (and after "Open Keybindings File"), rebuilds the keymap and shows problems as toasts:
 invalid JSON, unknown command ids, unparsable keys (the command keeps its default) and conflicts (the user's binding wins,
-the other command loses the key). Commands of later phases (`settings`, `git-panel`, ...) are accepted and ignored.
+the other command loses the key). Commands the TUI does not implement (`remote-control`, `save-file`) are accepted and ignored.
 
 `keys` = one or more bindings joined by `" | "`; each binding is:
 

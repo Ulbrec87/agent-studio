@@ -54,6 +54,8 @@ async fn start() -> Harness {
         overview_config_dirs: Some(Vec::new()),
         usage: false,
         mcp: false,
+        updates: false,
+        update_http: None,
         headless_override: None,
         usage_options: as_daemon::UsageOptions {
             sources: Some(Vec::new()),

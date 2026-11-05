@@ -37,4 +37,4 @@ expression: text(&t)
                            ││> run the tests                                                                                     │
  All Run Wait Idle Err     ││  ? for shortcuts                                                                                   │
  / search…        ↕created │╰────────────────────────────────────────────────────────────────────────────────────────────────────╯
- GRID  hjkl move · Enter type · c chat · z expand · [ ] tab · < > reorder · b broadcast · u running · C columns · Tab sidebar
+ GRID  hjkl move · Enter type · c chat · z expand · [/] tab · </> reorder · b broadcast · u running · C columns · Tab sidebar

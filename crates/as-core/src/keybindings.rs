@@ -556,7 +556,14 @@ pub const COMMANDS: &[CommandDef] = &[
         false,
         "",
     ),
-    later("updates", "Check for Updates", "Panels", true, true),
+    def(
+        "updates",
+        "Check for Updates",
+        "Panels",
+        true,
+        true,
+        "prefix U",
+    ),
     def(
         "headless",
         "Headless Runs",

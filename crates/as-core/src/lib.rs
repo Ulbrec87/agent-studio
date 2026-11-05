@@ -17,6 +17,7 @@ pub mod sessions;
 pub mod skills;
 pub mod terminals;
 pub mod types;
+pub mod updates;
 pub mod usage;
 pub mod usage_settings;
 pub mod util;

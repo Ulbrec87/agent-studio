@@ -698,3 +698,131 @@ fn sidebar_chips_and_sort_label() {
         .any(|y| (0..28).any(|x| buf[(x, y)].symbol() == "R" && buf[(x, y)].bg == accent));
     assert!(hit, "the Run chip is highlighted");
 }
+
+// ── P10: footer hints follow the bindings, toasts wrap, the update banner ───
+
+fn footer_hints(app: &App) -> (&'static str, String) {
+    super::footer::mode_and_hints(app)
+}
+
+#[test]
+fn footer_hints_show_the_default_prefix_keys() {
+    let mut app = new_app(mixed_agents(), 100, 30);
+    let (mode, hints) = footer_hints(&app);
+    assert_eq!(mode, "TERMINAL");
+    assert!(hints.contains("Ctrl+A ? help"), "{hints}");
+    assert!(hints.contains("Ctrl+A q quit"), "{hints}");
+    app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    let (mode, hints) = footer_hints(&app);
+    assert_eq!(mode, "PREFIX");
+    assert!(
+        hints.starts_with("n new \u{b7} g grid \u{b7} p palette"),
+        "{hints}"
+    );
+    assert!(hints.contains("j/k agents"), "{hints}");
+    assert!(hints.contains("1-9 jump"), "{hints}");
+}
+
+#[test]
+fn footer_hints_follow_user_overrides_and_unbinding() {
+    let mut app = new_app(mixed_agents(), 100, 30);
+    app.apply_keybindings(
+        Some(
+            r#"[
+            {"command": "new-agent", "keys": "prefix w"},
+            {"command": "quit", "keys": "none"},
+            {"command": "show-shortcuts", "keys": "prefix h"}
+        ]"#,
+        ),
+        false,
+    );
+    let (_, hints) = footer_hints(&app);
+    assert!(hints.contains("Ctrl+A h help"), "{hints}");
+    assert!(hints.contains("Ctrl+A w new"), "{hints}");
+    assert!(
+        !hints.contains("quit"),
+        "an unbound command has no hint: {hints}"
+    );
+    app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    let (_, hints) = footer_hints(&app);
+    assert!(hints.contains("w new"), "{hints}");
+    assert!(!hints.contains("n new"), "{hints}");
+    assert!(hints.contains("h help"), "{hints}");
+    assert!(!hints.contains("q quit"), "{hints}");
+    // The label follows a changed prefix key too.
+    let mut app = new_app(mixed_agents(), 100, 30);
+    app.config.prefix_key = "ctrl+b".into();
+    app.apply_keybindings(None, false);
+    let (_, hints) = footer_hints(&app);
+    assert!(hints.contains("Ctrl+B ? help"), "{hints}");
+}
+
+#[test]
+fn footer_hints_of_the_grid_and_sidebar_follow_overrides() {
+    let mut app = new_app(mixed_agents(), 100, 30);
+    app.apply_keybindings(
+        Some(r#"[{"command": "new-agent", "keys": "app N"}, {"command": "grid-open-chat", "keys": "grid x"}]"#),
+        false,
+    );
+    app.focus = Focus::App;
+    let (mode, hints) = footer_hints(&app);
+    assert_eq!(mode, "APP");
+    assert!(hints.contains("N new"), "{hints}");
+    app.focus = Focus::Grid;
+    let (mode, hints) = footer_hints(&app);
+    assert_eq!(mode, "GRID");
+    assert!(hints.contains("x chat"), "{hints}");
+    assert!(hints.contains("hjkl move"), "{hints}");
+}
+
+#[test]
+fn a_long_toast_wraps_instead_of_being_cut() {
+    let mut app = new_app(mixed_agents(), 100, 30);
+    app.toast(
+        ToastKind::Warn,
+        "Keybindings",
+        "ctrl+a w is bound to both new-agent and quit; keeping new-agent. THE-END-MARKER",
+    );
+    let t = draw(&mut app, 100, 30);
+    let screen = text(&t);
+    assert!(screen.contains("THE-END-MARKER"), "{screen}");
+    assert!(screen.contains("Keybindings"), "{screen}");
+    // The old fixed-height toast showed one body line.
+    let lines = screen.lines().filter(|l| l.contains('\u{2502}')).count();
+    assert!(lines >= 3, "{screen}");
+    // Many long toasts never draw outside the screen.
+    for _ in 0..6 {
+        app.toast(ToastKind::Error, "Error", &"very long text ".repeat(30));
+    }
+    let _ = draw(&mut app, 100, 30);
+    app.on_resize(50, 12);
+    let _ = draw(&mut app, 50, 12);
+}
+
+#[test]
+fn the_update_banner_is_drawn_until_dismissed() {
+    use as_core::updates::{CheckStatus, InstallMethod, UpdateInfo, UpdateState};
+    let mut app = new_app(mixed_agents(), 100, 30);
+    app.handle_event(Event::UpdateAvailable(Box::new(UpdateState {
+        enabled: true,
+        current_version: "0.1.0".into(),
+        status: CheckStatus::Available,
+        checked_at_ms: Some(1),
+        latest: Some(UpdateInfo {
+            version: "0.2.0".into(),
+            tag: "v0.2.0".into(),
+            url: "https://example.test/r".into(),
+            notes: String::new(),
+            asset_url: None,
+        }),
+        install_method: InstallMethod::Homebrew,
+        hint: "Run `brew upgrade agent-studio`".into(),
+    })));
+    let screen = text(&draw(&mut app, 100, 30));
+    assert!(screen.contains("Update available: 0.2.0"), "{screen}");
+    assert!(screen.contains("brew upgrade agent-studio"), "{screen}");
+    app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    app.handle_key(key(KeyCode::Esc));
+    let screen = text(&draw(&mut app, 100, 30));
+    assert!(!screen.contains("Update available"), "{screen}");
+}

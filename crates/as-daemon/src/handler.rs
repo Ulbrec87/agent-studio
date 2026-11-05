@@ -370,6 +370,10 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
         | Request::PreviewHydraImport { .. }
         | Request::ApplyHydraImport { .. }
         | Request::ExportDiagnostics) => p9::handle(daemon, client, req).await,
+        Request::GetUpdateState => Ok(Response::UpdateState(Box::new(daemon.update_state()))),
+        Request::CheckForUpdates => Ok(Response::UpdateState(Box::new(
+            daemon.check_updates().await,
+        ))),
         Request::Shutdown { stop_agents } => {
             if !stop_agents && m.active_count() > 0 {
                 return Err(format!(

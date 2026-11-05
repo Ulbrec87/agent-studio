@@ -5,7 +5,7 @@
 //! and publishes [`AgentEvent`]s on a broadcast channel (see [`AgentManager::subscribe`]).
 //!
 //! Threading model: one blocking reader thread and one blocking waiter thread per
-//! running PTY; delayed work (submit queue, `/rename`, initial prompt, force kill)
+//! running PTY (`pty::pump_with_eof`, shared with the free terminals); delayed work (submit queue, `/rename`, initial prompt, force kill)
 //! are tokio tasks spawned on the runtime that created the manager. A single
 //! `parking_lot::Mutex` guards the state and is never held across an `.await`.
 //! PTY writes go through a per-process writer mutex, outside the state lock.
@@ -71,11 +71,7 @@ const SESSION_HINT_MAX_LENGTH: usize = 400;
 pub const SESSION_DISCOVERY_GRACE_MS: i64 = 5 * 60 * 1000;
 /// Output window scanned for the active model.
 const MODEL_DETECTION_WINDOW: usize = 12_000;
-/// After the process exits, wait at most this long for the reader thread to drain the PTY.
-/// (Windows ConPTY only reports EOF when the pseudo-console closes, so there it always waits this long.)
-const READER_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 const EVENT_CHANNEL_CAPACITY: usize = 4096;
-const READ_CHUNK: usize = 16 * 1024;
 
 static LEADING_TAG: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^<[^>]+>").expect("static regex"));
@@ -843,41 +839,22 @@ impl Shared {
         self: &Arc<Self>,
         id: &str,
         run_id: u64,
-        mut reader: Box<dyn Read + Send>,
-        mut waiter: Box<dyn super::pty::PtyWaiter>,
+        reader: Box<dyn Read + Send>,
+        waiter: Box<dyn super::pty::PtyWaiter>,
     ) {
-        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-        let (shared, agent) = (self.clone(), id.to_string());
-        let spawned = std::thread::Builder::new()
-            .name(format!("agent-{id}-read"))
-            .spawn(move || {
-                let mut buf = vec![0u8; READ_CHUNK];
-                loop {
-                    match reader.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => shared.on_data(&agent, run_id, &buf[..n]),
-                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                        Err(_) => break, // EIO on Linux once the child closed the PTY
-                    }
-                }
-                shared.on_eof(&agent, run_id);
-                let _ = done_tx.send(());
-            });
-        if let Err(err) = spawned {
-            tracing::error!(%err, "cannot start the PTY reader thread");
-        }
-        let (shared, agent) = (self.clone(), id.to_string());
-        let spawned = std::thread::Builder::new()
-            .name(format!("agent-{id}-wait"))
-            .spawn(move || {
-                let code = waiter.wait();
-                // Let the reader finish delivering the last output before announcing the exit.
-                let _ = done_rx.recv_timeout(READER_DRAIN_TIMEOUT);
-                shared.on_exit(&agent, run_id, code);
-            });
-        if let Err(err) = spawned {
-            tracing::error!(%err, "cannot start the PTY waiter thread");
-        }
+        // The shared pump runs the reader and waiter threads (and holds back the exit until the
+        // reader had up to 500 ms to deliver the last output); the run id lets the callbacks of a
+        // replaced PTY be ignored.
+        let (on_data, on_eof, on_exit) = (self.clone(), self.clone(), self.clone());
+        let (a_data, a_eof, a_exit) = (id.to_string(), id.to_string(), id.to_string());
+        super::pty::pump_with_eof(
+            &format!("agent-{id}"),
+            reader,
+            waiter,
+            move |data| on_data.on_data(&a_data, run_id, data),
+            move || on_eof.on_eof(&a_eof, run_id),
+            move |code| on_exit.on_exit(&a_exit, run_id, code),
+        );
     }
 
     fn run_is_current(&self, id: &str, run_id: u64) -> bool {

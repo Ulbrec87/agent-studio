@@ -21,21 +21,46 @@ pub fn run(paths: &Paths, command: Command) -> Result<()> {
     runtime.block_on(execute(paths, command))
 }
 
+/// `agent-studio update-check`: one request to GitHub Releases, no daemon involved.
+async fn update_check() -> Result<()> {
+    use as_core::updates::{CheckStatus, UpdateOptions, UpdateService};
+    let state = tokio::task::spawn_blocking(|| {
+        let http = std::sync::Arc::new(as_core::usage::limits_client::ReqwestHttp::new());
+        UpdateService::new(UpdateOptions::production(http)).check()
+    })
+    .await
+    .context("update check task")?;
+    outln!("{}", state.summary());
+    if let Some(info) = state.available() {
+        outln!("{}", state.hint);
+        outln!("Release notes: {}", info.url);
+    }
+    match state.status {
+        CheckStatus::Offline | CheckStatus::RateLimited | CheckStatus::Failed => {
+            bail!("the update check did not complete")
+        }
+        _ => Ok(()),
+    }
+}
+
 async fn execute(paths: &Paths, command: Command) -> Result<()> {
     if let Command::Stop { force } = command {
         return if stop_daemon(paths, force).await? {
-            println!("daemon stopped");
+            outln!("daemon stopped");
             Ok(())
         } else {
-            println!("daemon is not running");
+            outln!("daemon is not running");
             Ok(())
         };
+    }
+    if matches!(command, Command::UpdateCheck) {
+        return update_check().await;
     }
     let client = ensure_daemon(paths).await?;
     match command {
         Command::Ls => {
             let agents = client.list_agents().await?;
-            print!("{}", agents_table(&agents));
+            out!("{}", agents_table(&agents));
         }
         Command::New {
             project,
@@ -52,7 +77,7 @@ async fn execute(paths: &Paths, command: Command) -> Result<()> {
                 payload.work_mode = as_core::WorkMode::Worktree;
             }
             let agent = client.create_agent(payload).await?;
-            println!("{}  {}  {}", agent.id, agent.name, agent.status_label());
+            outln!("{}  {}  {}", agent.id, agent.name, agent.status_label());
         }
         Command::Send { id, text } => {
             if !client.send_input(&id, &text.join(" ")).await? {
@@ -69,15 +94,16 @@ async fn execute(paths: &Paths, command: Command) -> Result<()> {
         }
         Command::Status => {
             let s = client.status().await?;
-            println!("daemon   running (pid {})", s.pid);
-            println!("version  {} (protocol {})", s.version, s.protocol);
-            println!("uptime   {}", human_duration(s.uptime_secs));
-            println!("agents   {} ({} running)", s.agent_count, s.running_count);
-            println!("clients  {}", s.clients);
-            println!("home     {}", paths.root().display());
+            outln!("daemon   running (pid {})", s.pid);
+            outln!("version  {} (protocol {})", s.version, s.protocol);
+            outln!("uptime   {}", human_duration(s.uptime_secs));
+            outln!("agents   {} ({} running)", s.agent_count, s.running_count);
+            outln!("clients  {}", s.clients);
+            outln!("home     {}", paths.root().display());
         }
         Command::ImportHydra { dir, yes } => import_hydra(&client, dir, yes).await?,
-        Command::Stop { .. } | Command::Version | Command::Daemon { .. } => {}
+        Command::Stop { .. } | Command::UpdateCheck | Command::Version | Command::Daemon { .. } => {
+        }
     }
     Ok(())
 }
@@ -92,41 +118,42 @@ async fn import_hydra(client: &DaemonClient, dir: Option<PathBuf>, yes: bool) ->
     else {
         bail!("unexpected answer from the daemon");
     };
-    println!("Hydra data: {}", p.dir);
-    println!("agents:       {} new of {}", p.agents_new, p.agents_total);
-    println!(
+    outln!("Hydra data: {}", p.dir);
+    outln!("agents:       {} new of {}", p.agents_new, p.agents_total);
+    outln!(
         "keybindings:  {} of {} importable",
-        p.keybindings_importable, p.keybindings_total
+        p.keybindings_importable,
+        p.keybindings_total
     );
-    println!("config values that differ: {}", p.config_changes.len());
+    outln!("config values that differ: {}", p.config_changes.len());
     for c in &p.config_changes {
-        println!("  {}: {} -> {}", c.key, c.current, c.incoming);
+        outln!("  {}: {} -> {}", c.key, c.current, c.incoming);
     }
     for w in &p.warnings {
-        println!("note: {w}");
+        outln!("note: {w}");
     }
     if !yes {
         use std::io::Write;
-        print!("Import now? [y/N] ");
+        out!("Import now? [y/N] ");
         std::io::stdout().flush()?;
         let mut answer = String::new();
         std::io::stdin().read_line(&mut answer)?;
         if !answer.trim().eq_ignore_ascii_case("y") {
-            println!("nothing imported");
+            outln!("nothing imported");
             return Ok(());
         }
     }
     let Response::HydraReport(r) = client.request(Request::ApplyHydraImport { dir }).await? else {
         bail!("unexpected answer from the daemon");
     };
-    println!(
+    outln!(
         "imported {} config value(s), {} agent(s), {} keybinding(s)",
         r.config_keys_applied,
         r.agents_added.len(),
         r.keybindings_added
     );
     for w in &r.warnings {
-        println!("note: {w}");
+        outln!("note: {w}");
     }
     Ok(())
 }

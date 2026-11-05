@@ -54,12 +54,25 @@ pub trait PtyBackend: Send + Sync + 'static {
 ///
 /// `on_data` gets every chunk, then `on_exit` the exit code once the process ended and the reader
 /// had up to 500 ms to deliver the last output (ConPTY only closes the reader with the console).
-/// Shared by free terminals; the agent manager has its own copy with run ids.
+/// Shared by free terminals and the agent manager (which adds run ids in its callbacks).
 pub fn pump(
+    name: &str,
+    reader: Box<dyn Read + Send>,
+    waiter: Box<dyn PtyWaiter>,
+    on_data: impl Fn(&[u8]) + Send + 'static,
+    on_exit: impl FnOnce(i32) + Send + 'static,
+) {
+    pump_with_eof(name, reader, waiter, on_data, || {}, on_exit);
+}
+
+/// [`pump`] with `on_eof`, called on the reader thread once the reader ended (before the exit
+/// is announced, so everything the process printed has been delivered by then).
+pub fn pump_with_eof(
     name: &str,
     mut reader: Box<dyn Read + Send>,
     mut waiter: Box<dyn PtyWaiter>,
     on_data: impl Fn(&[u8]) + Send + 'static,
+    on_eof: impl FnOnce() + Send + 'static,
     on_exit: impl FnOnce(i32) + Send + 'static,
 ) {
     let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
@@ -75,6 +88,7 @@ pub fn pump(
                     Err(_) => break, // EIO on Linux once the child closed the PTY
                 }
             }
+            on_eof();
             let _ = done_tx.send(());
         });
     if let Err(err) = spawned {

@@ -86,6 +86,10 @@ pub struct DaemonOptions {
     pub skills: Option<as_core::skills::SkillScanOptions>,
     /// Hydra data dir used by the import requests when none is given (tests).
     pub hydra_dir: Option<std::path::PathBuf>,
+    /// Check GitHub Releases at start and every 6 h (when the config allows it).
+    pub updates: bool,
+    /// The HTTP client of the update check (real `reqwest` by default; tests never hit the network).
+    pub update_http: Option<Arc<dyn as_core::usage::limits_client::HttpClient>>,
 }
 
 impl Default for DaemonOptions {
@@ -106,6 +110,8 @@ impl Default for DaemonOptions {
             usage_options: UsageOptions::default(),
             skills: None,
             hydra_dir: None,
+            updates: true,
+            update_http: None,
         }
     }
 }

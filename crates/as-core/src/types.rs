@@ -479,6 +479,11 @@ pub struct AppConfig {
     pub usage: UsageSettings,
     /// TUI prefix key (tmux style), e.g. `ctrl+a`.
     pub prefix_key: String,
+    /// The daemon asks GitHub Releases for a newer version (at start and every 6 h).
+    pub check_for_updates: bool,
+    /// Capture the mouse in the TUI (clicks on tabs and the sidebar, wheel scrolling). Off by
+    /// default: capturing the mouse disables the terminal's own text selection (use Shift+drag).
+    pub mouse: bool,
 }
 
 impl Default for AppConfig {
@@ -522,6 +527,8 @@ impl Default for AppConfig {
             claude_profile_by_project: BTreeMap::new(),
             usage: UsageSettings::default(),
             prefix_key: DEFAULT_PREFIX_KEY.into(),
+            check_for_updates: true,
+            mouse: false,
         }
     }
 }

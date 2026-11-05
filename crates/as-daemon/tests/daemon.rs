@@ -10,7 +10,8 @@ use as_core::{AgentStatus, CreateAgentPayload, ManagerOptions, ProviderId};
 use as_daemon::{DaemonOptions, SessionCatalogs, serve};
 use as_proto::lifecycle::{ensure_daemon_with, stop_daemon};
 use as_proto::{
-    ClientMsg, DaemonClient, Event, NotificationKind, Request, ServerMsg, codec, lock, transport,
+    ClientMsg, DaemonClient, Event, NotificationKind, Request, Response, ServerMsg, codec, lock,
+    transport,
 };
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
@@ -45,6 +46,8 @@ fn options(backend: &FakePtyBackend) -> DaemonOptions {
         // Never the developer's real logs, credentials or the network.
         usage: true,
         mcp: true,
+        updates: false,
+        update_http: None,
         // The "CLI" of headless runs prints two stream-json lines.
         headless_override: Some(Arc::new(|_run| {
             Some(if cfg!(windows) {
@@ -107,11 +110,17 @@ async fn wait_for_socket(paths: &Paths) {
 }
 
 async fn start() -> Harness {
+    start_with(|_| {}).await
+}
+
+async fn start_with(tweak: impl FnOnce(&mut DaemonOptions)) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::at(dir.path());
     let backend = FakePtyBackend::new();
     let stop = CancellationToken::new();
-    let task = tokio::spawn(serve(paths.clone(), options(&backend), stop.clone()));
+    let mut opts = options(&backend);
+    tweak(&mut opts);
+    let task = tokio::spawn(serve(paths.clone(), opts, stop.clone()));
     wait_for_socket(&paths).await;
     Harness {
         _dir: dir,
@@ -946,4 +955,106 @@ async fn mcp_status_manager_agent_and_headless_runs() {
             .await
             .is_err()
     );
+}
+
+/// Answers the release API with a fixed release and counts the calls.
+struct ReleaseHttp {
+    tag: &'static str,
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+impl as_core::usage::limits_client::HttpClient for ReleaseHttp {
+    fn get(
+        &self,
+        request: &as_core::usage::limits_client::HttpRequest,
+    ) -> Result<as_core::usage::limits_client::HttpResponse, as_core::usage::limits_client::HttpError>
+    {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // A public endpoint: no credential is ever sent.
+        assert_eq!(request.bearer.expose(), "");
+        Ok(as_core::usage::limits_client::HttpResponse {
+            status: 200,
+            retry_after: None,
+            body: serde_json::json!({
+                "tag_name": self.tag,
+                "html_url": "https://example.test/release",
+                "body": "notes",
+                "draft": false,
+                "prerelease": false,
+                "assets": [],
+            })
+            .to_string(),
+        })
+    }
+}
+
+#[tokio::test]
+async fn update_check_state_event_and_toggle() {
+    let http = Arc::new(ReleaseHttp {
+        tag: "v99.0.0",
+        calls: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let h = start_with({
+        let http = http.clone();
+        move |o| o.update_http = Some(http)
+    })
+    .await;
+    let client = DaemonClient::connect(&h.paths).await.unwrap();
+    let mut events = client.take_events().unwrap();
+    client.hello().await.unwrap();
+
+    let Response::UpdateState(state) = client.request(Request::GetUpdateState).await.unwrap()
+    else {
+        panic!("expected an update state");
+    };
+    assert_eq!(state.status, as_core::updates::CheckStatus::Idle);
+    assert!(state.enabled);
+    assert_eq!(
+        http.calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "no network for a read"
+    );
+
+    let Response::UpdateState(state) = client.request(Request::CheckForUpdates).await.unwrap()
+    else {
+        panic!("expected an update state");
+    };
+    assert_eq!(state.status, as_core::updates::CheckStatus::Available);
+    assert_eq!(
+        state.available().map(|i| i.version.as_str()),
+        Some("99.0.0")
+    );
+    let Event::UpdateAvailable(pushed) = next_event(&mut events, "update available", |e| {
+        matches!(e, Event::UpdateAvailable(_))
+    })
+    .await
+    else {
+        unreachable!()
+    };
+    assert_eq!(pushed.latest, state.latest);
+
+    // The same version is announced once.
+    client.request(Request::CheckForUpdates).await.unwrap();
+    let again = tokio::time::timeout(
+        Duration::from_millis(300),
+        next_event(&mut events, "second announcement", |e| {
+            matches!(e, Event::UpdateAvailable(_))
+        }),
+    )
+    .await;
+    assert!(again.is_err(), "announced twice");
+    assert_eq!(http.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+    // `checkForUpdates` shows in the state (a manual check still works when it is off).
+    client
+        .update_config(serde_json::json!({ "checkForUpdates": false }))
+        .await
+        .unwrap();
+    let Response::UpdateState(state) = client.request(Request::GetUpdateState).await.unwrap()
+    else {
+        panic!("expected an update state");
+    };
+    assert!(!state.enabled);
+    assert_eq!(state.status, as_core::updates::CheckStatus::Available);
+    h.stop.cancel();
 }

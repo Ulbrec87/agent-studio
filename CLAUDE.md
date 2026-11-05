@@ -22,6 +22,9 @@ cargo run -- daemon --foreground    # run the daemon in the foreground (dev)
 cargo test --workspace              # all tests
 cargo fmt --all --check             # formatting
 cargo clippy --workspace --all-targets -- -D warnings   # lints, must be clean
+cargo build --release               # release profile (thin LTO, stripped), what release.yml builds
+cargo run -- import-hydra [--dir D] [-y]   # import Hydra config/agents/keybindings (read-only on Hydra's files)
+cargo run -- update-check           # ask GitHub Releases for a newer version (no daemon needed)
 ```
 
 A phase/step is done only when **fmt, clippy (-D warnings) and tests** all pass.
@@ -32,13 +35,17 @@ real daemon/config in `~/.config/agent-studio`.
 ## Layout
 
 ```
-src/main.rs            bin `agent-studio` — clap: (default) tui | daemon | ls | send | kill | version
+src/main.rs            bin `agent-studio` — clap: (default) tui | daemon | ls | new | send | kill | rm | restart |
+                       status | stop | import-hydra | update-check | version; `oneshot.rs` runs the one-shot
+                       commands, `out.rs` prints without panicking on a closed pipe, `logging.rs` sets up tracing
 crates/as-core/        domain logic, NO UI and NO socket code (agents/PTY, providers, config,
-                       workspace, sessions, profiles, overview, usage, headless, git, skills, fs)
+                       workspace, sessions, profiles, overview, usage, headless, git, fs, skills, open_in,
+                       terminals (free shells), hydra_import, keybindings catalog, updates)
 crates/as-proto/       serde types for daemon <-> client messages (requests, responses, events)
-crates/as-daemon/      local-socket server, lock file, lifecycle, MCP server (rmcp), notifications
+crates/as-daemon/      local-socket server, lock file, lifecycle, MCP server (rmcp), notifications, update loop
 crates/as-tui/         ratatui app: views, widgets, keymap, daemon client
-docs/                  plans, architecture, porting map, decisions, agent log
+docs/                  index (README.md), plans, architecture, key bindings, porting map, releasing, agent log
+.github/workflows/     ci.yml (fmt, clippy, tests on 3 OSes), release.yml (tag `v*` / manual dry run)
 ```
 
 Dependency direction: `as-tui → as-proto → as-core`, `as-daemon → as-proto → as-core`.
@@ -57,7 +64,8 @@ Dependency direction: `as-tui → as-proto → as-core`, `as-daemon → as-proto
 - No `unwrap()`/`expect()` in non-test code except for true invariants (comment why).
   Errors: `anyhow` in binaries/daemon glue, `thiserror` for typed errors in `as-core`.
 - Logging with `tracing` only (no `println!` in the daemon; the TUI must never print to stdout
-  while the alternate screen is active).
+  while the alternate screen is active; one-shot CLI output uses `outln!`/`out!` from `src/out.rs`, never bare
+  `println!`, so a closed pipe does not panic).
 - Pure logic ported from Hydra's `shared/` comes **with its tests**: port the `*.test.ts` cases.
 - UI rendering tests use ratatui's `TestBackend` (+ `insta` snapshots where useful).
 - Keep modules small and focused; prefer one module per Hydra service.
@@ -73,8 +81,9 @@ the agent PTY; app commands are `prefix <key>`. Quitting with running agents ask
 
 ## Git workflow
 
-- **During the initial port (phases P0–P10 of the plan): commit and push directly to `origin/main`
-  after each phase**, with Conventional Commits (`feat(core): …`, `docs: …`).
-- **After the port is complete: feature branches + pull requests** (`feat/<name>`, `fix/<name>`),
-  never push to `main` directly.
-- Tick the phase in the plan's progress list and update `docs/porting-map.md` in the same commit.
+- **The initial port (phases P0–P10 of the plan) is complete.** History note: it was committed and pushed
+  directly to `origin/main`, one commit per phase. **From now on everything goes through feature branches and
+  pull requests** (`feat/<name>`, `fix/<name>`, `docs/<name>`), never a direct push to `main`.
+- Conventional Commits (`feat(core): …`, `fix(tui): …`, `docs: …`). CI must be green on Linux, macOS and Windows.
+- When you port or change something from Hydra, update `docs/porting-map.md` in the same commit; releases follow
+  `docs/releasing.md` (P11, remote control, stays deferred). See `CONTRIBUTING.md` for the full workflow.
