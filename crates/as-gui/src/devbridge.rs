@@ -5,7 +5,8 @@
 //! any connection whose URL does not carry the random token (`ws://127.0.0.1:<port>/?token=<token>`).
 //!
 //! One JSON text frame per message:
-//! * client -> server `{"id": N, "request": <as_proto::Request JSON>}`; the special request `{"kind": "app_info"}` answers the shell's `AppInfo`.
+//! * client -> server `{"id": N, "request": <as_proto::Request JSON>}`; the special request `{"kind": "app_info"}` answers the shell's `AppInfo`,
+//!   `{"kind": "shell", "command": "log_event", "args": {..}}` runs the one shell command a browser may use (the renderer log).
 //! * server -> client `{"id": N, "result": <Response JSON>}` or `{"id": N, "error": "<message>"}`
 //! * server -> client pushes `{"event": <Event JSON>}` and `{"status": {"connected": bool, "error"?: string}}`
 //!   (the current status is sent right after connecting).
@@ -101,6 +102,23 @@ pub async fn bind(
     Ok(Bound { addr, task })
 }
 
+/// The shell commands a browser may use through the dev bridge: only the renderer log (there is no window to open anything in,
+/// quit or ask; "open in" stays a daemon request there). Request: `{"kind":"shell","command":"log_event","args":{"event":{..}}}`.
+fn run_shell_command(request: &Value) -> Result<Value, String> {
+    match request.get("command").and_then(Value::as_str) {
+        Some("log_event") => {
+            if let Some(event) = request.get("args").and_then(|a| a.get("event")) {
+                crate::gui_log::record(event);
+            }
+            Ok(Value::Null)
+        }
+        other => Err(format!(
+            "shell command not available in the dev bridge: {}",
+            other.unwrap_or("?")
+        )),
+    }
+}
+
 fn has_token(query: Option<&str>, token: &str) -> bool {
     query
         .unwrap_or("")
@@ -171,10 +189,10 @@ async fn serve_connection(
         let request = frame.get("request").cloned().unwrap_or(Value::Null);
         let (link, app_info, out_tx) = (link.clone(), app_info.clone(), out_tx.clone());
         tokio::spawn(async move {
-            let result = if request.get("kind").and_then(Value::as_str) == Some("app_info") {
-                Ok(app_info)
-            } else {
-                link.request(request).await
+            let result = match request.get("kind").and_then(Value::as_str) {
+                Some("app_info") => Ok(app_info),
+                Some("shell") => run_shell_command(&request),
+                _ => link.request(request).await,
             };
             let reply = match result {
                 Ok(result) => json!({ "id": id, "result": result }),

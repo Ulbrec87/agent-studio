@@ -109,6 +109,7 @@ export function UpdateBanner({
             You&apos;re on {state.currentVersion}.
             {state.installMethod === 'brew' && !state.canAutoInstall && ' Installed via Homebrew.'}
           </p>
+          {!state.canAutoInstall && state.upgradeHint && <p className={styles.body}>{state.upgradeHint}</p>}
           {actionError && <p className={styles.error}>{actionError}</p>}
           <div className={styles.actions}>
             <button

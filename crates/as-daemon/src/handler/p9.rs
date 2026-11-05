@@ -323,6 +323,18 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
             Ok(Response::HydraReport(Box::new(report)))
         }
 
+        Request::GetGuiKeybindings => {
+            let path = daemon.paths.gui_keybindings_file();
+            Ok(Response::GuiKeybindings(
+                blocking(move || as_core::gui_keybindings::read(&path)).await?,
+            ))
+        }
+        Request::CreateGuiKeybindingsFile { content } => {
+            let path = daemon.paths.gui_keybindings_file();
+            blocking(move || as_core::gui_keybindings::create_template(&path, &content))
+                .await?
+                .map(Response::Flag)
+        }
         Request::ExportDiagnostics => {
             let d = daemon.clone();
             blocking(move || export_diagnostics(&d))

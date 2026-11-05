@@ -724,6 +724,7 @@ impl App {
                 }
             }
             Event::AgentsChanged => fx.push(Effect::Refresh),
+            Event::AgentRestarted { agent_id } => self.on_restarted(&agent_id),
             Event::ConfigChanged(config) => {
                 self.apply_config(*config);
                 fx.extend(self.grid_refresh_if_open());
@@ -797,6 +798,22 @@ impl App {
         self.git.layout = config.diff_layout;
         self.config = config;
         self.dirty = true;
+    }
+
+    /// A new process replaced the agent's old one (started elsewhere: CLI, MCP, YOLO/model switch): its screen starts blank,
+    /// like the daemon's buffer did. Without this the old session's text stays on screen under the new one.
+    fn on_restarted(&mut self, agent_id: &str) {
+        let Some(term) = self.terms.get_mut(agent_id) else {
+            return;
+        };
+        let (cols, rows) = term.emu.size();
+        term.emu = Box::new(Vt100Emulator::new(cols, rows));
+        if let SubState::Requested(pending) = &mut term.sub {
+            pending.clear(); // output of the old process, queued before the subscription answered
+        }
+        if self.is_on_screen(agent_id) {
+            self.dirty = true;
+        }
     }
 
     fn on_output(&mut self, agent_id: &str, data: &[u8]) -> Vec<Effect> {

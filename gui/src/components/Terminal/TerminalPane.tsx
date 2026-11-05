@@ -77,6 +77,8 @@ export function TerminalPane({
   const writtenLengthRef = useRef(0)
   const targetOutputRef = useRef(rawOutput)
   const writeInFlightRef = useRef(false)
+  // Writes whatever output the current xterm has not seen yet (set by the output effect below).
+  const flushOutputRef = useRef<() => void>(() => undefined)
   const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const dragCounterRef = useRef(0)
@@ -194,6 +196,9 @@ export function TerminalPane({
     terminalRef.current = terminal
     writtenLengthRef.current = 0
     writeInFlightRef.current = false
+    // A new xterm (font, cursor or renderer setting changed) starts empty: replay the output we already have instead of showing a
+    // blank terminal until the next chunk arrives.
+    flushOutputRef.current()
 
     // Handle resize
     const observer = new ResizeObserver(() => {
@@ -373,6 +378,7 @@ export function TerminalPane({
       })
     }
 
+    flushOutputRef.current = flushPendingOutput
     flushPendingOutput()
   }, [rawOutput])
 

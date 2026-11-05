@@ -49,21 +49,7 @@ export function mapMcpStatus(s: { running: boolean; port: number | null; error: 
   return { running: s.running, port: s.port ?? null, error: s.error ?? null, managerWorkspace: s.manager_workspace ?? null }
 }
 
-/** Settings that exist in Hydra's `AppConfig` but not in the daemon's (G2 may move them there); kept in the browser/webview storage. */
-export const GUI_ONLY_CONFIG_KEYS = ['terminalFontFamily', 'terminalFontSize', 'terminalEnableWebgl'] as const
-
-export function splitConfigPatch(patch: Partial<AppConfig>): { daemon: Record<string, unknown>; gui: Record<string, unknown> } {
-  const daemon: Record<string, unknown> = {}
-  const gui: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) continue
-    if ((GUI_ONLY_CONFIG_KEYS as readonly string[]).includes(key)) gui[key] = value
-    else daemon[key] = value
-  }
-  return { daemon, gui }
-}
-
-/** The daemon's config plus defaults for the keys it does not know, plus the GUI-only overlay. */
-export function toHydraConfig(daemonConfig: Partial<AppConfig>, guiOverlay: Record<string, unknown> = {}): AppConfig {
-  return { ...DEFAULT_CONFIG, ...daemonConfig, ...guiOverlay } as AppConfig
+/** The daemon's config with defaults for keys it does not know yet (an older daemon predating a Hydra key). */
+export function toHydraConfig(daemonConfig: Partial<AppConfig>): AppConfig {
+  return { ...DEFAULT_CONFIG, ...daemonConfig } as AppConfig
 }

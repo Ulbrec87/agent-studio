@@ -572,6 +572,8 @@ export interface AppUpdateState {
   downloadUrl: string | null
   // HTML page URL for the latest release.
   releaseUrl: string | null
+  // Agent Studio extension: how to upgrade for the way the app was installed ("Run `brew upgrade agent-studio`", "Download <url>").
+  upgradeHint?: string | null
 }
 
 // ── Observability ──────────────────────────────────────────────────────────

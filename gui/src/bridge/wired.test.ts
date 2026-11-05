@@ -12,8 +12,8 @@ describe('bridge README', () => {
     // Agent Studio extensions are documented below the table, not in it.
     implemented.delete('getDaemonStatus')
     expect([...wired].sort()).toEqual([...implemented].sort())
-    // G1 rows that are still stubs must be the documented no-ops.
-    const g1Stubs = rows.filter((r) => r[3] === 'G1' && r[4] === 'stub').map((r) => r[1]).sort()
-    expect(g1Stubs).toEqual(['confirmQuit', 'logEvent', 'onConfirmQuit', 'onKeybindingsChange', 'quitBackground'])
+    // After G2b only the deferred remote-control methods (P11) are stubs.
+    const stubs = rows.filter((r) => r[4] === 'stub').map((r) => r[1]).sort()
+    expect(stubs).toEqual(['disableRemoteControl', 'enableRemoteControl', 'getRemoteControlState', 'onRemoteStateChange'])
   })
 })

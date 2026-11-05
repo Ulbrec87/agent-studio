@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { toError, type DaemonStatus, type ProtoEvent } from './protocol'
-import type { RawTransport } from './transport'
+import type { RawTransport, ShellBridge } from './transport'
 
 /** True inside a Tauri webview (the runtime injects `__TAURI_INTERNALS__`). */
 export function isTauri(): boolean {
@@ -21,6 +21,23 @@ function subscribe<T>(name: string, cb: (payload: T) => void): () => void {
   }
 }
 
+/** The Tauri commands of the shell besides `daemon_request` (see `crates/as-gui/src/shell.rs`). */
+export const SHELL_COMMANDS = ['log_event', 'open_in', 'list_open_targets', 'quit_app'] as const
+
+function createShell(): ShellBridge {
+  return {
+    supports: (command) => (SHELL_COMMANDS as readonly string[]).includes(command),
+    async invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+      try {
+        return await invoke<T>(command, args)
+      } catch (err) {
+        throw toError(err)
+      }
+    },
+    on: (event, callback) => subscribe<unknown>(event, callback)
+  }
+}
+
 /**
  * Transport backed by the Rust shell (`crates/as-gui`).
  * - `{ kind: 'app_info' }` -> `app_info` command (no daemon needed).
@@ -29,6 +46,7 @@ function subscribe<T>(name: string, cb: (payload: T) => void): () => void {
  */
 export function createTauriTransport(): RawTransport {
   return {
+    shell: createShell(),
     async request(req) {
       try {
         if (typeof req === 'object' && req !== null && (req as { kind?: unknown }).kind === 'app_info') {

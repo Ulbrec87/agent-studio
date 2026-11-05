@@ -38,6 +38,7 @@ function makeAgent(id: string, overrides: Partial<AgentState> = {}): AgentState 
 describe('useAgents', () => {
   let outputHandler: ((payload: AgentOutputPayload) => void) | null
   let statusHandler: ((payload: AgentStatusPayload) => void) | null
+  let restartedHandler: ((payload: { agentId: string }) => void) | null
 
   const listAgents = vi.fn<() => Promise<AgentState[]>>()
   const getAgentBuffer = vi.fn<(agentId: string) => Promise<string[]>>()
@@ -47,6 +48,7 @@ describe('useAgents', () => {
   beforeEach(() => {
     outputHandler = null
     statusHandler = null
+    restartedHandler = null
     vi.clearAllMocks()
 
     listAgents.mockResolvedValue([])
@@ -75,6 +77,10 @@ describe('useAgents', () => {
       }),
       onAgentStatus: vi.fn().mockImplementation((cb: (payload: AgentStatusPayload) => void) => {
         statusHandler = cb
+        return () => undefined
+      }),
+      onAgentRestarted: vi.fn().mockImplementation((cb: (payload: { agentId: string }) => void) => {
+        restartedHandler = cb
         return () => undefined
       })
     } as typeof window.hydra
@@ -187,5 +193,44 @@ describe('useAgents', () => {
     })
 
     expect(result.current.agents.get(created.id)?.rawOutput).toBe('live codex frame')
+  })
+
+  // G2b oddity (a): a restart started elsewhere (CLI, TUI, MCP, YOLO/model switch) left the old session on screen under the new one,
+  // because only the UI's own restart button cleared the output.
+  it('drops the old screen when the daemon announces a restart and keeps what the new process writes', async () => {
+    listAgents.mockResolvedValue([makeAgent('agent-1', { status: 'running' })])
+    getAgentBuffer.mockResolvedValue(['old session text'])
+    const { result } = renderHook(() => useAgents('agent-1'))
+    await waitFor(() => expect(result.current.agents.get('agent-1')?.rawOutput).toBe('old session text'))
+
+    // Output that is still queued (not flushed yet) belongs to the old process too.
+    act(() => outputHandler?.({ agentId: 'agent-1', data: ' + old tail' }))
+    act(() => restartedHandler?.({ agentId: 'agent-1' }))
+    expect(result.current.agents.get('agent-1')?.rawOutput).toBe('')
+
+    act(() => outputHandler?.({ agentId: 'agent-1', data: 'new session text' }))
+    await waitFor(() => expect(result.current.agents.get('agent-1')?.rawOutput).toBe('new session text'))
+    // An unknown agent is ignored.
+    act(() => restartedHandler?.({ agentId: 'ghost' }))
+    expect(result.current.agents.get('agent-1')?.rawOutput).toBe('new session text')
+  })
+
+  // G2b oddity (b): output (and a daemon-side `/rename ...` echo) of one agent must never show up in another agent's terminal.
+  it('keeps the output of different agents apart, also across restarts and buffer reloads', async () => {
+    listAgents.mockResolvedValue([makeAgent('a', { status: 'running' }), makeAgent('b', { status: 'running' })])
+    getAgentBuffer.mockImplementation(async (id: string) => [`buffer of ${id}`])
+    const { result } = renderHook(() => useAgents('a'))
+    await waitFor(() => expect(result.current.agentList.length).toBe(2))
+    act(() => {
+      outputHandler?.({ agentId: 'a', data: '\n/rename alpha' })
+      outputHandler?.({ agentId: 'b', data: '\n/rename beta' })
+    })
+    act(() => restartedHandler?.({ agentId: 'b' }))
+    act(() => outputHandler?.({ agentId: 'b', data: 'beta again' }))
+    await waitFor(() => expect(result.current.agents.get('b')?.rawOutput).toBe('beta again'))
+    const a = result.current.agents.get('a')?.rawOutput ?? ''
+    expect(a).toContain('/rename alpha')
+    expect(a).not.toContain('beta')
+    expect(result.current.agents.get('b')?.rawOutput).not.toContain('alpha')
   })
 })

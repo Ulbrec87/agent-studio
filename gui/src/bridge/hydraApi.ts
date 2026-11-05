@@ -168,6 +168,8 @@ export interface HydraAPI {
   onDaemonStatus: (callback: (status: { connected: boolean; error?: string }) => void) => () => void
   /** The agent list changed (created/removed/renamed by any client, or the connection was re-established): reload it. */
   onAgentsChanged: (callback: () => void) => () => void
+  /** A new process replaced the agent's old one (restart, YOLO/model switch, by any client): drop the copy of its screen. */
+  onAgentRestarted: (callback: (payload: { agentId: string }) => void) => () => void
 }
 
 /** Build the complete `window.hydra` object on top of a bridge. */
@@ -288,5 +290,6 @@ export function createHydraApi(bridge: Bridge): HydraAPI {
     getDaemonStatus: () => bridge.call<{ connected: boolean; error?: string }>('getDaemonStatus'),
     onDaemonStatus: (callback: (status: { connected: boolean; error?: string }) => void) => bridge.subscribe('onDaemonStatus', callback),
     onAgentsChanged: (callback: () => void) => bridge.subscribe('onAgentsChanged', callback),
+    onAgentRestarted: (callback: (payload: { agentId: string }) => void) => bridge.subscribe('onAgentRestarted', callback),
   }
 }

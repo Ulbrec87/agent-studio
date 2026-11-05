@@ -14,7 +14,10 @@ use serde_json::{Map, Value};
 use tokio::sync::watch;
 
 use crate::paths::Paths;
-use crate::types::{AppConfig, DEFAULT_PREFIX_KEY, MAX_CONCURRENT_AGENTS_HARD_LIMIT};
+use crate::types::{
+    AppConfig, DEFAULT_PREFIX_KEY, DEFAULT_TERMINAL_FONT_FAMILY, MAX_CONCURRENT_AGENTS_HARD_LIMIT,
+    TERMINAL_FONT_SIZE_RANGE,
+};
 use crate::usage_settings::normalize_usage_settings;
 use crate::util::write_atomic;
 
@@ -47,6 +50,13 @@ fn sanitize(mut config: AppConfig) -> AppConfig {
     );
     config.free_terminal_max_count = config.free_terminal_max_count.max(1);
     config.free_terminal_idle_timeout_minutes = config.free_terminal_idle_timeout_minutes.max(1);
+    config.terminal_font_size = config.terminal_font_size.clamp(
+        *TERMINAL_FONT_SIZE_RANGE.start(),
+        *TERMINAL_FONT_SIZE_RANGE.end(),
+    );
+    if config.terminal_font_family.trim().is_empty() {
+        config.terminal_font_family = DEFAULT_TERMINAL_FONT_FAMILY.to_string();
+    }
     if config.prefix_key.trim().is_empty() {
         config.prefix_key = DEFAULT_PREFIX_KEY.to_string();
     }
@@ -339,6 +349,68 @@ mod tests {
                 weekly_alert_percent: 100,
                 ..Default::default()
             }
+        );
+    }
+
+    #[test]
+    fn terminal_rendering_keys_have_hydra_defaults_and_are_validated() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path());
+        let c = store.get();
+        assert_eq!(c.terminal_font_size, 12);
+        assert_eq!(
+            c.terminal_font_family,
+            "\"SF Mono\", \"Menlo\", \"Monaco\", monospace"
+        );
+        assert!(!c.terminal_enable_webgl);
+        assert_eq!(
+            store
+                .update(&json!({ "terminalFontSize": 99 }))
+                .unwrap()
+                .terminal_font_size,
+            32
+        );
+        assert_eq!(
+            store
+                .update(&json!({ "terminalFontSize": 2 }))
+                .unwrap()
+                .terminal_font_size,
+            8
+        );
+        assert_eq!(
+            store
+                .update(&json!({ "terminalFontSize": 15 }))
+                .unwrap()
+                .terminal_font_size,
+            15
+        );
+        // A wrong type is ignored, an empty family falls back to the default.
+        assert_eq!(
+            store
+                .update(&json!({ "terminalFontSize": "big" }))
+                .unwrap()
+                .terminal_font_size,
+            15
+        );
+        assert_eq!(
+            store
+                .update(&json!({ "terminalFontFamily": "  " }))
+                .unwrap()
+                .terminal_font_family,
+            "\"SF Mono\", \"Menlo\", \"Monaco\", monospace"
+        );
+        let c = store
+            .update(&json!({ "terminalFontFamily": "Fira Code", "terminalEnableWebgl": true }))
+            .unwrap();
+        assert_eq!(
+            (c.terminal_font_family.as_str(), c.terminal_enable_webgl),
+            ("Fira Code", true)
+        );
+        // Persisted in config.json under the camelCase keys.
+        let text = std::fs::read_to_string(dir.path().join("config.json")).unwrap();
+        assert!(
+            text.contains("\"terminalFontFamily\": \"Fira Code\""),
+            "{text}"
         );
     }
 

@@ -33,7 +33,8 @@ async function setup(configure?: (raw: FakeRaw) => void) {
     raw,
     fallback: createMockTransport(),
     appInfo: { name: 'Agent Studio', version: '1', dataDir: '/data', platform: 'linux' },
-    storage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => void store.set(k, v) }
+    storage: { getItem: (k) => store.get(k) ?? null, removeItem: (k) => void store.delete(k) },
+    keybindingsPollMs: 0
   })
   const api: HydraAPI = createHydraApi(createBridge(transport))
   await tick() // let the initial status/resync settle
@@ -261,30 +262,50 @@ describe('events', () => {
 })
 
 describe('config, sessions, overview, usage', () => {
-  it('config: defaults for keys the daemon lacks, GUI-only keys in storage, the rest to the daemon', async () => {
-    const { raw, api, store } = await setup((r) => {
+  it('config: defaults for keys the daemon lacks, everything (terminal keys included) goes to the daemon', async () => {
+    const { raw, api } = await setup((r) => {
       r.handlers.set('get_config', () => ({ type: 'config', payload: { theme: 'dark', maxAgents: 4 } }))
       r.handlers.set('update_config', (p) => ({ type: 'config', payload: { theme: 'dark', maxAgents: 4, ...(p as object) } }))
     })
     expect(await api.getConfig()).toEqual({ ...DEFAULT_CONFIG, theme: 'dark', maxAgents: 4 })
-    const next = await api.setConfig({ theme: 'light', terminalFontSize: 18 })
-    expect(raw.of('update_config')[0].payload).toEqual({ theme: 'light' })
-    expect(next.theme).toBe('light')
-    expect(next.terminalFontSize).toBe(18)
-    expect(JSON.parse(store.get('agent-studio.gui-config') ?? '{}')).toEqual({ terminalFontSize: 18 })
-    expect((await api.getConfig()).terminalFontSize).toBe(18)
-    // Only GUI-only keys: the daemon is not called, the change event is local.
+    const next = await api.setConfig({ theme: 'light', terminalFontSize: 18, terminalFontFamily: 'Fira Code', terminalEnableWebgl: true })
+    expect(raw.of('update_config')[0].payload).toEqual({ theme: 'light', terminalFontSize: 18, terminalFontFamily: 'Fira Code', terminalEnableWebgl: true })
+    expect(next).toMatchObject({ theme: 'light', terminalFontSize: 18, terminalFontFamily: 'Fira Code', terminalEnableWebgl: true })
+    // The daemon's change event is the only change notification (no local echo).
     const changed = vi.fn()
     api.onConfigChange(changed)
-    await api.setConfig({ terminalFontSize: 20 })
+    raw.push('config_changed', { theme: 'dark', terminalFontSize: 20 })
+    expect(changed.mock.calls[0][0]).toMatchObject({ theme: 'dark', terminalFontSize: 20, terminalEnableWebgl: false })
+  })
+
+  it('migrates the terminal settings the old localStorage overlay kept, once, without overriding the config', async () => {
+    const store = new Map([['agent-studio.gui-config', JSON.stringify({ terminalFontSize: 18, terminalFontFamily: 'Fira Code', terminalEnableWebgl: true })]])
+    const raw = new FakeRaw()
+    // The config already has a custom family: the overlay must not override it. The size and WebGL values are still defaults.
+    raw.handlers.set('get_config', () => ({ type: 'config', payload: { terminalFontFamily: 'Mono', terminalFontSize: 12, terminalEnableWebgl: false } }))
+    raw.handlers.set('update_config', (p) => ({ type: 'config', payload: p }))
+    transport = createDaemonTransport({
+      raw,
+      fallback: createMockTransport(),
+      appInfo: { name: 'Agent Studio', version: '1', dataDir: '/data', platform: 'linux' },
+      storage: { getItem: (k) => store.get(k) ?? null, removeItem: (k) => void store.delete(k) },
+      keybindingsPollMs: 0
+    })
+    await tick(20)
+    expect(raw.of('update_config').map((r) => r.payload)).toEqual([{ terminalFontSize: 18, terminalEnableWebgl: true }])
+    expect(store.has('agent-studio.gui-config')).toBe(false)
+    // A reconnect does not run it again.
+    raw.setStatus({ connected: false })
+    raw.setStatus({ connected: true })
+    await tick(20)
     expect(raw.of('update_config')).toHaveLength(1)
-    expect(changed.mock.calls[0][0].terminalFontSize).toBe(20)
   })
 
   it('paths and keybindings are local', async () => {
     const { api } = await setup()
     expect(await api.getConfigPath()).toBe('/data/config.json')
     expect(await api.getKeybindingsPath()).toBe('/data/gui-keybindings.json')
+    // No daemon answer for the keybindings file (older daemon): Hydra's defaults.
     expect((await api.getKeybindings()).length).toBeGreaterThan(5)
   })
 
@@ -343,10 +364,9 @@ describe('errors and fallback', () => {
     await expect(api.killAgent('x')).rejects.toThrow(/unexpected daemon response "pong"/)
   })
 
-  it('G2b methods (headless, skills, updates) still fall through to the mock instead of failing', async () => {
+  it('the deferred remote-control methods (P11) still fall through to the mock instead of failing', async () => {
     const { raw, api } = await setup()
-    expect(await api.listHeadlessRuns()).toEqual([])
-    expect(await api.getUpdateState()).toBeTruthy()
+    expect((await api.getRemoteControlState()).enabled).toBe(false)
     expect(raw.requests).toHaveLength(0)
   })
 })

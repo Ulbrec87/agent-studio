@@ -401,6 +401,31 @@ fn waiting_state_lifecycle_and_title() {
 }
 
 #[test]
+fn a_restart_elsewhere_blanks_the_agents_screen() {
+    let mut app = two_agents();
+    app.terms.get_mut("a").unwrap().sub = SubState::Live;
+    app.handle_event(Event::AgentOutput {
+        agent_id: "a".into(),
+        data: b"old\r\nsession\r\ntext".to_vec(),
+    });
+    assert_eq!(app.terms["a"].emu.content_rows(), 3);
+    app.handle_event(Event::AgentRestarted {
+        agent_id: "a".into(),
+    });
+    assert_eq!(app.terms["a"].emu.content_rows(), 1, "blank again");
+    assert_eq!(app.terms["a"].emu.cursor_raw(), (0, 0));
+    app.handle_event(Event::AgentOutput {
+        agent_id: "a".into(),
+        data: b"new".to_vec(),
+    });
+    assert_eq!(app.terms["a"].emu.cursor_raw(), (3, 0));
+    // Unknown agents are ignored.
+    app.handle_event(Event::AgentRestarted {
+        agent_id: "zz".into(),
+    });
+}
+
+#[test]
 fn status_events_update_agents_and_clear_waiting() {
     let mut app = two_agents();
     app.handle_event(Event::AgentWaiting {

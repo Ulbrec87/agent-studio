@@ -1,6 +1,8 @@
 // Open-in, folder suggestions and the native pieces (folder dialog, opening URLs, clipboard image).
-// "Open in editor/app/path" are daemon requests (`OpenIn`, `ListOpenTargets`): the daemon starts the editor. The dialog and the
-// URL opener are Tauri plugins and only exist in the desktop app; in a browser (dev bridge) they degrade as documented below.
+// "Open in editor/app/path" run in the desktop shell (`open_in`, `list_open_targets`: the daemon may have been started outside the
+// graphical session and have no display) and fall back to the daemon's `OpenIn` / `ListOpenTargets` where there is no shell (browser
+// dev bridge). The dialog and the URL opener are Tauri plugins and only exist in the desktop app; in a browser they degrade as
+// documented below.
 import type { DirSuggestion, EditorId } from '@shared/types'
 import type { BridgeContext, MethodGroup } from './context'
 import { isTauri } from './tauriTransport'
@@ -49,6 +51,8 @@ export interface NativeDeps {
   pickDirectory?: () => Promise<string | null>
   openUrl?: (url: string) => Promise<void>
   writeImage?: (blob: Blob) => Promise<void>
+  /** Runs before `openPath` opens something (the keybindings group creates its file when the user opens it). */
+  beforeOpenPath?: (path: string) => Promise<void>
 }
 
 async function tauriPickDirectory(): Promise<string | null> {
@@ -58,7 +62,7 @@ async function tauriPickDirectory(): Promise<string | null> {
   return typeof picked === 'string' ? picked : null
 }
 
-async function tauriOpenUrl(url: string): Promise<void> {
+export async function tauriOpenUrl(url: string): Promise<void> {
   if (isTauri()) {
     const { openUrl } = await import('@tauri-apps/plugin-opener')
     await openUrl(url)
@@ -72,10 +76,11 @@ async function webWriteImage(blob: Blob): Promise<void> {
   await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
 }
 
-export function createNativeMethods({ ctx, pickDirectory = tauriPickDirectory, openUrl = tauriOpenUrl, writeImage = webWriteImage }: NativeDeps): MethodGroup {
+export function createNativeMethods({ ctx, pickDirectory = tauriPickDirectory, openUrl = tauriOpenUrl, writeImage = webWriteImage, beforeOpenPath }: NativeDeps): MethodGroup {
   const openIn = async (target: string, path: string): Promise<boolean> => {
     try {
-      await ctx.call('open_in', { target, path }, 'ok')
+      if (ctx.shell?.supports('open_in')) await ctx.shell.invoke('open_in', { target, path })
+      else await ctx.call('open_in', { target, path }, 'ok')
       return true
     } catch {
       return false
@@ -91,11 +96,22 @@ export function createNativeMethods({ ctx, pickDirectory = tauriPickDirectory, o
 
   return {
     methods: {
-      getInstalledEditors: (async () =>
-        editorIdsFromTargets(await ctx.call<Array<{ target: string }>>('list_open_targets', undefined, 'open_targets'))) as never,
+      getInstalledEditors: (async () => {
+        const options = ctx.shell?.supports('list_open_targets')
+          ? await ctx.shell.invoke<Array<{ target: string }>>('list_open_targets')
+          : await ctx.call<Array<{ target: string }>>('list_open_targets', undefined, 'open_targets')
+        return editorIdsFromTargets(options)
+      }) as never,
       openInEditor: ((dir: string) => openInApp('vscode', dir)) as never,
       openInApp: ((editor: EditorId, dir: string) => openInApp(editor, dir)) as never,
-      openPath: ((path: string) => openIn('files', path)) as never,
+      openPath: (async (path: string) => {
+        try {
+          await beforeOpenPath?.(path)
+        } catch (err) {
+          console.warn('[bridge] preparing the file to open failed', err)
+        }
+        return openIn('files', path)
+      }) as never,
       openExternal: (async (url: unknown) => {
         if (!isOpenableUrl(url)) return false
         try {

@@ -2,27 +2,36 @@
 // `createDaemonTransport` is a Hydra-level `Transport` (`{ method, args }` in, `{ channel, args }` events out) on top of a
 // raw protocol transport (Tauri commands or the dev-bridge WebSocket). Methods that are not wired yet (G2b) fall through to
 // the fallback (the in-memory mock), so the UI never hits a missing method.
-import { DEFAULT_KEYBINDINGS } from '@shared/keybindings'
-import type { AgentState, AppConfig, CreateAgentPayload, ListClaudeSessionsOptions, ProviderId } from '@shared/types'
+import { DEFAULT_CONFIG, type AgentState, type AppConfig, CreateAgentPayload, ListClaudeSessionsOptions, ProviderId } from '@shared/types'
 import type { UsagePeriod } from '@shared/usage/types'
 import type { UsageReportProvider } from '@shared/usage/report'
 import { APP_INFO_REQUEST, type AppInfo, type HydraEvent, type HydraRequest, type RawTransport, type Transport } from './transport'
 import { bytesToBase64, toError, utf8Bytes, type DaemonStatus, type ProtoEvent, type ProtoRequest, type ProtoResponse } from './protocol'
-import { compact, expectPayload, mapMcpStatus, mapNotification, mapPreflight, splitConfigPatch, toHydraConfig } from './mappers'
+import { compact, expectPayload, mapMcpStatus, mapNotification, mapPreflight, toHydraConfig } from './mappers'
 import { createAgentStreams } from './streams'
 import type { BridgeContext, MethodGroup } from './context'
 import { GIT_METHODS, createGitMethods } from './gitApi'
 import { FILE_METHODS, createFileMethods } from './filesApi'
 import { TERMINAL_METHODS, createTerminalMethods } from './terminalsApi'
 import { NATIVE_METHODS, createNativeMethods, type NativeDeps } from './nativeApi'
+import { HEADLESS_CHANNELS, HEADLESS_METHODS, createHeadlessMethods } from './headlessApi'
+import { SKILL_METHODS, createSkillMethods } from './skillsApi'
+import { UPDATE_CHANNELS, UPDATE_METHODS, createUpdateMethods } from './updatesApi'
+import { DIAGNOSTICS_METHODS, createDiagnosticsMethods } from './diagnosticsApi'
+import { KEYBINDINGS_FILE, KEYBINDING_CHANNELS, KEYBINDING_METHODS, createKeybindingMethods } from './keybindingsApi'
+import { QUIT_CHANNELS, QUIT_METHODS, createQuitMethods } from './quitApi'
 
 export interface DaemonTransportOptions {
   raw: RawTransport
   /** Answers every method that is not wired to the daemon yet. */
   fallback: Transport
   appInfo?: AppInfo
-  /** Where GUI-only settings live (default: `window.localStorage`, guarded). */
-  storage?: Pick<Storage, 'getItem' | 'setItem'> | null
+  /** Where the pre-G2b GUI settings may still sit (default: `window.localStorage`, guarded); read once to migrate them into the config. */
+  storage?: Pick<Storage, 'getItem' | 'removeItem'> | null
+  /** Poll period of the key bindings file in ms (default 1000, 0 = no polling; tests). */
+  keybindingsPollMs?: number
+  /** Test seam for opening the update download. */
+  openUrl?: (url: string) => Promise<void>
   /** Test seams for the native pieces (folder dialog, URL opener, clipboard). */
   native?: Partial<Omit<NativeDeps, 'ctx'>>
   /** Poll period of the file watcher in ms (default 1000; 0 = only on demand, for tests). */
@@ -33,25 +42,29 @@ export interface DaemonTransport extends Transport {
   dispose(): void
 }
 
-const GUI_CONFIG_KEY = 'agent-studio.gui-config'
+/** Before G2b the three terminal rendering settings lived here (webview localStorage); they are daemon config keys now. */
+const LEGACY_GUI_CONFIG_KEY = 'agent-studio.gui-config'
+const MIGRATED_KEYS = ['terminalFontFamily', 'terminalFontSize', 'terminalEnableWebgl'] as const
 
 /** The Hydra methods this layer answers itself (everything else goes to the fallback). Used by tests and the README check. */
 export const WIRED_METHODS = [
   'preflight', 'createAgent', 'killAgent', 'removeAgent', 'restartAgent', 'listAgents', 'toggleYolo', 'renameAgent',
   'setAgentModel', 'getAgentBuffer', 'sendInput', 'sendRawInput', 'resizeAgent', 'broadcast', 'getOverview',
   'getOverviewAgentDetails', 'getOverviewHistory', 'getOverviewWaits', 'getUsageState', 'getUsageSummary', 'getUsageReport',
-  'refreshUsage', 'setUsageVisible', 'getConfig', 'setConfig', 'getKeybindings', 'getKeybindingsPath', 'getConfigPath',
+  'refreshUsage', 'setUsageVisible', 'getConfig', 'setConfig', 'getKeybindingsPath', 'getConfigPath',
   'toggleGlobalYolo', 'listClaudeProfiles', 'listClaudeSessions', 'listProviderModels', 'getMcpServerStatus',
-  'dismissNotification', 'getDaemonStatus', ...GIT_METHODS, ...FILE_METHODS, ...TERMINAL_METHODS, ...NATIVE_METHODS
+  'dismissNotification', 'getDaemonStatus', ...GIT_METHODS, ...FILE_METHODS, ...TERMINAL_METHODS, ...NATIVE_METHODS,
+  ...HEADLESS_METHODS, ...SKILL_METHODS, ...UPDATE_METHODS, ...DIAGNOSTICS_METHODS, ...KEYBINDING_METHODS, ...QUIT_METHODS
 ] as const
 
-/** The `on*` channels this layer emits from daemon events (the other `on*` channels are G2b/P11 and never fire yet). */
+/** The `on*` channels this layer emits from daemon events (the remaining `on*` channels are the P11 remote-control ones and never fire). */
 export const WIRED_CHANNELS = [
   'onAgentOutput', 'onAgentStatus', 'onOverviewEvents', 'onOverviewSnapshot', 'onUsageChanged', 'onConfigChange', 'onNotification',
-  'onFsWatchEvent', 'onFreeTerminalOutput', 'onFreeTerminalExit', 'onFreeTerminalLayoutChanged', 'onTestTerminalOutput', 'onTestTerminalExit'
+  'onFsWatchEvent', 'onFreeTerminalOutput', 'onFreeTerminalExit', 'onFreeTerminalLayoutChanged', 'onTestTerminalOutput', 'onTestTerminalExit',
+  ...HEADLESS_CHANNELS, ...UPDATE_CHANNELS, ...KEYBINDING_CHANNELS, ...QUIT_CHANNELS
 ] as const
 
-function defaultStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
+function defaultStorage(): Pick<Storage, 'getItem' | 'removeItem'> | null {
   try {
     return typeof window !== 'undefined' ? window.localStorage : null
   } catch {
@@ -92,12 +105,27 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
     for (const a of agents) projectDirs.set(a.id, a.projectDir)
   }
 
-  const ctx: BridgeContext = { call, send, emit, appInfo: () => appInfo }
+  const ctx: BridgeContext = { call, send, emit, appInfo: () => appInfo, shell: raw.shell }
+  const keybindings = createKeybindingMethods({ ctx, pollMs: options.keybindingsPollMs })
+  const native = createNativeMethods({
+    ctx,
+    ...options.native,
+    // The keybindings file is created from the defaults the first time the user opens it.
+    beforeOpenPath: async (path) => {
+      if (path === dataPath(KEYBINDINGS_FILE)) await keybindings.ensureFile()
+    }
+  })
   const groups: MethodGroup[] = [
     createGitMethods(ctx),
     createFileMethods({ ctx, projectOf, watcher: options.fsPollMs === undefined ? undefined : { pollMs: options.fsPollMs } }),
     createTerminalMethods(ctx),
-    createNativeMethods({ ctx, ...options.native })
+    native,
+    createHeadlessMethods(ctx),
+    createSkillMethods(ctx),
+    createUpdateMethods({ ctx, openUrl: options.openUrl }),
+    createDiagnosticsMethods({ ctx, reveal: (path) => Promise.resolve(native.methods.openPath(path as never)) }),
+    keybindings,
+    createQuitMethods(ctx)
   ]
 
   const streams = createAgentStreams({
@@ -105,26 +133,34 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
     emit: (agentId, data) => emit('onAgentOutput', { agentId, data })
   })
 
-  // ── GUI-only settings overlay ────────────────────────────────────────────
-  let overlayMemory: Record<string, unknown> = {}
-  const readOverlay = (): Record<string, unknown> => {
+  // ── terminal rendering settings: moved from localStorage into the daemon's config in G2b ─────────────────
+  /** Once per page: copy values the old overlay stored in localStorage into the config (when the config still has the default), then forget them. */
+  let migrated = false
+  const migrateLegacySettings = async (): Promise<void> => {
+    if (migrated || !storage) return
+    migrated = true
+    let legacy: Record<string, unknown>
     try {
-      const text = storage?.getItem(GUI_CONFIG_KEY)
-      const parsed: unknown = text ? JSON.parse(text) : {}
-      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+      const text = storage.getItem(LEGACY_GUI_CONFIG_KEY)
+      if (!text) return
+      const parsed: unknown = JSON.parse(text)
+      legacy = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
     } catch {
-      return {}
+      return
+    }
+    try {
+      const current = await call<Partial<AppConfig>>('get_config', undefined, 'config')
+      const patch: Record<string, unknown> = {}
+      for (const key of MIGRATED_KEYS) {
+        if (legacy[key] !== undefined && legacy[key] !== DEFAULT_CONFIG[key] && current[key] === DEFAULT_CONFIG[key]) patch[key] = legacy[key]
+      }
+      if (Object.keys(patch).length > 0) await call('update_config', patch, 'config')
+      storage.removeItem(LEGACY_GUI_CONFIG_KEY)
+    } catch (err) {
+      migrated = false // the daemon was not ready: try again at the next connection
+      console.warn('[bridge] migrating the old terminal settings failed', err)
     }
   }
-  const writeOverlay = (patch: Record<string, unknown>): void => {
-    try {
-      storage?.setItem(GUI_CONFIG_KEY, JSON.stringify({ ...readOverlay(), ...patch }))
-    } catch {
-      // Storage unavailable (private window): the setting lasts for this session only.
-      overlayMemory = { ...overlayMemory, ...patch }
-    }
-  }
-  const overlay = (): Record<string, unknown> => ({ ...readOverlay(), ...overlayMemory })
 
   // ── agents ───────────────────────────────────────────────────────────────
   const isLive = (a: AgentState): boolean => a.status !== 'idle'
@@ -243,20 +279,11 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
     }) as never,
 
     // Config
-    getConfig: (async () => toHydraConfig(await call<Partial<AppConfig>>('get_config', undefined, 'config'), overlay())) as never,
-    setConfig: (async (patch: Partial<AppConfig>) => {
-      const { daemon, gui } = splitConfigPatch(patch)
-      if (Object.keys(gui).length > 0) writeOverlay(gui)
-      if (Object.keys(daemon).length === 0) {
-        const current = toHydraConfig(await call<Partial<AppConfig>>('get_config', undefined, 'config'), overlay())
-        emit('onConfigChange', current)
-        return current
-      }
-      // The daemon answers with the new config and also pushes `config_changed` (-> onConfigChange).
-      return toHydraConfig(await call<Partial<AppConfig>>('update_config', daemon, 'config'), overlay())
-    }) as never,
-    getKeybindings: (() => DEFAULT_KEYBINDINGS.map((r) => ({ ...r }))) as never,
-    getKeybindingsPath: (() => dataPath('gui-keybindings.json')) as never,
+    getConfig: (async () => toHydraConfig(await call<Partial<AppConfig>>('get_config', undefined, 'config'))) as never,
+    // The daemon answers with the new config and also pushes `config_changed` (-> onConfigChange).
+    setConfig: (async (patch: Partial<AppConfig>) =>
+      toHydraConfig(await call<Partial<AppConfig>>('update_config', compact({ ...patch }), 'config'))) as never,
+    getKeybindingsPath: (() => dataPath(KEYBINDINGS_FILE)) as never,
     getConfigPath: (() => dataPath('config.json')) as never,
 
     // Sessions, profiles, models, MCP
@@ -301,7 +328,7 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
           .catch((err) => console.warn('[bridge] agents refresh failed', err))
         break
       case 'config_changed':
-        emit('onConfigChange', toHydraConfig(event.payload as Partial<AppConfig>, overlay()))
+        emit('onConfigChange', toHydraConfig(event.payload as Partial<AppConfig>))
         break
       case 'notification':
         emit('onNotification', mapNotification(event.payload as Parameters<typeof mapNotification>[0]))
@@ -315,9 +342,17 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
       case 'usage_changed':
         emit('onUsageChanged', event.payload)
         break
+      case 'agent_restarted': {
+        // A new process replaced the old one (any client's restart, YOLO or model switch): the daemon cleared its buffer, so the
+        // renderer must drop its copy of the screen. Agent Studio extension `onAgentRestarted`.
+        const agentId = String(p.agent_id)
+        streams.resetDecoder(agentId)
+        emit('onAgentRestarted', { agentId })
+        break
+      }
       default:
-        // Free terminals (and the test terminal) are the terminal group's; agent_waiting is covered by overview + notifications;
-        // headless and update events are G2b.
+        // Free terminals (and the test terminal) are the terminal group's, headless/update events belong to their groups;
+        // agent_waiting is covered by overview + notifications.
         for (const group of groups) if (group.onEvent?.(event.type, p)) break
         break
     }
@@ -332,6 +367,7 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
     streams.reset()
     knownIds = new Set()
     for (const group of groups) group.onConnect?.()
+    void migrateLegacySettings()
     if (typeof document !== 'undefined') reportFocus(document.hasFocus())
     void call<AgentState[]>('list_agents', undefined, 'agents')
       .then(syncAgents)

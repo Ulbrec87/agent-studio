@@ -40,15 +40,19 @@
     `GetUsageState`, `GetUsageSummary { period, project_key }`, `GetUsageReport { provider, days }` (7-90), `RefreshUsage`,
     `UsageVisible(bool)` (P7, see *Usage* below), `GetUpdateState`, `CheckForUpdates` (P10, see *Updates* below),
     `GetMcpStatus`, `StartHeadlessRun`, `ListHeadlessRuns`, `GetHeadlessRun`, `CancelHeadlessRun`, `GetHeadlessRunLog` (P8, see
-    *MCP server* and *Headless runs* below).
+    *MCP server* and *Headless runs* below), `GetGuiKeybindings`, `CreateGuiKeybindingsFile { content }` (G2b, the desktop app's
+    `gui-keybindings.json`, see *GUI client* below).
   * `Response`: `Ok`, `Pong`, `Flag(bool)`, `Hello(HelloInfo)`, `Agents`, `Agent(Option)`, `Ids`, `Buffer { data }`,
     `Config`, `Preflight`, `Status`, `Sessions`, `Profiles`, `Models` (P4), `Overview`, `OverviewHistory`,
     `OverviewWaits`, `OverviewEvents`, `AgentDetails(Option)` (P6), `UsageState`, `UsageSummary`, `UsageReport` (P7), `UpdateState` (P10), `McpStatus { running, port, error, manager_workspace }`,
-    `HeadlessRun`, `HeadlessRuns`, `HeadlessRunLog` (P8).
+    `HeadlessRun`, `HeadlessRuns`, `HeadlessRunLog` (P8), `GuiKeybindings { path, exists, rules, error, stamp }` (G2b).
   * `Event`: `AgentOutput { agent_id, data }`, `AgentStatus { agent_id, status, session_id, model }`, `AgentWaiting`,
     `AgentsChanged`, `ConfigChanged`, `DaemonShuttingDown`, `Notification(StudioNotification)` (P3),
     `OverviewSnapshot`, `OverviewEvents` (P6), `UsageChanged(UsageState)` (P7), `UpdateAvailable(UpdateState)` (P10), `HeadlessRunEvent { run_id, data }`
-    (one output line), `HeadlessRunChanged(HeadlessRun)` (started / session id captured / finished) (P8). New phases add variants only. A client that talks to an older daemon
+    (one output line), `HeadlessRunChanged(HeadlessRun)` (started / session id captured / finished) (P8),
+    `AgentRestarted { agent_id }` (G2b: a new process replaced the agent's old one; sent by `AgentManager::restart` right after the output buffer was
+    cleared and before the new process writes. The GUI drops its copy of the screen, the TUI blanks the agent's emulator. It is not part of the buffer and
+    not repeated to a new subscriber). New phases add variants only. A client that talks to an older daemon
     gets an error for the Overview and Usage requests; the TUI then shows "The overview is not available" and keeps working.
 * **Sessions (P4)**: `ListSessions` returns `SessionSummary`s (camelCase like Hydra's `ClaudeSessionSummary`, plus
   `provider` and `hidden`) newest first; the daemon scans off the async runtime (`spawn_blocking`) and adds the config's
@@ -260,11 +264,26 @@ renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`
   are fetched again, which respawns the shells of a restarted daemon, and announced), and native pieces (`OpenIn`/`ListOpenTargets`, `FsListDirs`,
   Tauri dialog + opener plugins, web clipboard). The shell stays generic: its only additions are the two plugins and
   `capabilities/default.json` (`dialog:allow-open`, `opener:allow-open-url` for `http(s)`/`mailto`).
+* **G2b shell additions** (`as_gui::{native, quit, gui_log}`, glue in `shell.rs`; Tauri commands `log_event`, `open_in`, `list_open_targets`,
+  `quit_app`, window event `confirm-quit`; all reached from TypeScript through `RawTransport.shell`):
+  * *Quit flow.* The main window's `CloseRequested` is held (`prevent_close`), the shell asks the daemon for `Status` (2 s timeout) and `quit::decide_close`
+    decides: no agents running or no answer -> exit at once; otherwise emit `confirm-quit` (running count) and keep the window. The renderer's dialog calls
+    `quit_app { stopAgents }`: `true` sends `Shutdown { stop_agents: true }` (the daemon stops its agents and exits) and exits the app, `false` exits the app
+    only (the daemon is a separate detached process and keeps the agents alive). Cancel is renderer-only. Closing the window never stops the daemon otherwise.
+    Not covered yet: Cmd+Q / app menu / tray (G3).
+  * *Open-in* runs in this process (`as_core::open_in`), not in the daemon: a daemon started by systemd/launchd has no display. The dev bridge keeps the daemon route.
+  * *Renderer log.* `window.hydra.logEvent` -> `log_event` -> `gui_log::record` -> `tracing` target `renderer` -> `<root>/logs/agent-studio-gui.<date>`
+    (JSON lines, same daily rotation as the daemon's `daemon.<date>`; the dev bridge writes the same file). Credentials are redacted and sizes capped before writing.
+    `ExportDiagnostics` takes the newest logs of that folder, so the bundle contains the GUI log.
+  * *`gui-keybindings.json`.* The desktop app's `mod+x` rules (Hydra syntax, `gui/shared/keybindings.ts`); **separate from the TUI's `keybindings.json`**. The daemon
+    reads the raw file (`as_core::gui_keybindings::read`, tolerant) and creates a template on request (atomic, never replaces); TypeScript merges and validates; changes are
+    found by polling `GetGuiKeybindings`' `stamp` once a second.
 * **Dev bridge** (`agent-studio-gui --dev-bridge [--home DIR]`, dev/test tool): no window, the same plumbing behind a WebSocket on
   `127.0.0.1:<random port>`; connections need `?token=<random token>`; one line `DEV_BRIDGE ws://127.0.0.1:<port> token=<token>` goes
   to stdout. Frames: `{id, request}` -> `{id, result|error}`, pushes `{event}` / `{status}`. It lets the Vite UI run in a normal browser
   (`?bridge=...&token=...`) against a real daemon in a temp home, for browser automation and screenshots. Several tabs share the shell's
-  one daemon connection (and its subscriptions).
+  one daemon connection (and its subscriptions). Besides protocol requests it answers `{"kind":"shell","command":"log_event","args":{"event":{..}}}` (the renderer log); no
+  other shell command exists there.
 * The library part of the crate holds everything unit-testable and does not link Tauri (test binaries linking Tauri do not start on
   Windows); the Tauri glue is `src/shell.rs`. `tests/bridge.rs` runs the link and the dev bridge against an in-process daemon with the fake PTY backend.
 
@@ -276,12 +295,13 @@ renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`
 | File | Content |
 |------|---------|
 | `config.json` | `AppConfig` (Hydra `shared/types.ts` `AppConfig`, camelCase keys, defaults filled in) |
+| `gui-keybindings.json` | the **desktop app's** key overrides `[{ "command": "...", "keys": "mod+x" }]` (Hydra syntax, merged with the defaults by the front end; created when the user opens it from Settings > Shortcuts) |
 | `keybindings.json` | user overrides `[{ "command": "...", "keys": "..." }]`, keys in TUI syntax (see `docs/tui-keys.md`); polled by the TUI every second |
 | `tui-state.json` | UI state of the TUI: last view, selected agent, sidebar width/sort/status chip, grid tab, expanded tile, tile order, running-only toggle (written by the TUI only, tolerant load) |
 | `workspace.json` | persisted agents, restored at daemon start |
 | `terminals.json` | free-terminal layout per project (tabs, split trees, pane labels and folders); shells are respawned lazily after a restart |
 | `daemon.lock`, `daemon.sock` | daemon single instance + socket |
-| `logs/` | `tracing` JSONL logs, daily rotation |
+| `logs/` | `tracing` JSONL logs, daily rotation: `daemon.<date>` (daemon), `agent-studio.<date>` (CLI/TUI), `agent-studio-gui.<date>` (desktop app + renderer events; also the dev bridge) |
 | `headless-runs/` | `<id>.jsonl` log + `<id>.meta.json` index entry per headless run |
 | `overview-history/` | overview events and samples (8 days, ≤ 20 MB) |
 | `usage-cache.json` | usage store: file offsets, hourly buckets, dedupe keys, newest Codex limits (mode 600) |
@@ -319,4 +339,4 @@ the agent's output: folder trust, project MCP server approval, custom API key. T
 | `as-daemon` | socket server, client registry, event fan-out, lock/lifecycle, MCP server, OS notifications |
 | `as-tui` | daemon client, app state, views, widgets, keymap, theme |
 | bin `agent-studio` | clap entry point, logging init, dispatch |
-| `as-gui` (separate workspace) | Tauri shell: argv dispatch (`daemon` or window), `app_info`, `daemon_request` seam; front end in `gui/` |
+| `as-gui` (separate workspace) | Tauri shell: argv dispatch (`daemon` or window), `app_info`, `daemon_request` seam, quit flow, open-in, renderer log; front end in `gui/` |

@@ -7,6 +7,7 @@ pub mod agents;
 pub mod config;
 pub mod fs;
 pub mod git;
+pub mod gui_keybindings;
 pub mod headless;
 pub mod hydra_import;
 pub mod keybindings;

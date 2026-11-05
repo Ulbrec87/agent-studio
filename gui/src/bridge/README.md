@@ -6,8 +6,8 @@ unchanged. Layers:
 | File | Role |
 |------|------|
 | `transport.ts` | `Transport { request, onEvent }` (Hydra level) and `RawTransport` (protocol level + `onStatus`/`status`), `selectRawTransport()` / `selectTransport()` |
-| `tauriTransport.ts` | desktop raw transport: `invoke('app_info')`, `invoke('daemon_request', { request })`, `daemon-event`, `daemon-status`, `daemon_status` |
-| `wsTransport.ts` | browser dev raw transport: `?bridge=ws://127.0.0.1:PORT&token=T` -> the `agent-studio-gui --dev-bridge` WebSocket |
+| `tauriTransport.ts` | desktop raw transport: `invoke('app_info')`, `invoke('daemon_request', { request })`, `daemon-event`, `daemon-status`, `daemon_status`, plus `shell` (below) |
+| `wsTransport.ts` | browser dev raw transport: `?bridge=ws://127.0.0.1:PORT&token=T` -> the `agent-studio-gui --dev-bridge` WebSocket; its `shell` only offers `log_event` |
 | `daemonApi.ts` | **the mapping layer**: Hydra method -> `as-proto` request, daemon event -> Hydra `on*` channel; unwired methods fall through to the mock |
 | `mappers.ts` | pure shape adapters (preflight, notification, MCP status, config defaults + GUI-only keys) |
 | `streams.ts` | per-agent (and per-free-terminal) output streams: `Subscribe`/`SubscribeTerminal`, held live chunks, de-duplication, streaming `TextDecoder` |
@@ -15,7 +15,9 @@ unchanged. Layers:
 | `gitApi.ts` | G2a: git methods + shape mappers |
 | `filesApi.ts` | G2a: files/editor methods, shape mappers and the polling file watcher |
 | `terminalsApi.ts` | G2a: free terminals and the preflight "test terminal" |
-| `nativeApi.ts` | G2a: open-in, folder suggestions, folder dialog, URL opener, clipboard image |
+| `nativeApi.ts` | G2a: open-in (G2b: through the shell), folder suggestions, folder dialog, URL opener, clipboard image |
+| `headlessApi.ts`, `skillsApi.ts`, `updatesApi.ts` | G2b: headless runs, skills scan/toggle, update state (see "G2b" below) |
+| `diagnosticsApi.ts`, `keybindingsApi.ts`, `quitApi.ts` | G2b: diagnostics export + renderer log, `gui-keybindings.json`, the quit flow |
 | `testKit.ts` | test helper: scripted raw transport (`FakeRaw`) and `makeBridge()` |
 | `protocol.ts` | protocol envelope types, base64 helpers, `toError` |
 | `mockTransport.ts` + `fixtures.ts` | in-memory answers for plain browsers, tests and every method that is not wired yet; `emit()` for tests |
@@ -46,11 +48,11 @@ Two wire formats:
   chained (the next is sent when the previous was answered).
 * **Resize.** Hydra's grid tiles call `resizeAgent` too, so (like Hydra, unlike the TUI) a tile resizes the PTY to the tile size. Keeping the
   PTY at the chat pane size needs the renderer to stop resizing from tiles; not done in G1 (limitation).
-* **Config.** The daemon's config lacks three Hydra keys (`terminalFontFamily`, `terminalFontSize`, `terminalEnableWebgl`): they are
-  filled from Hydra's defaults and a patch of them is kept in the webview's `localStorage` (`agent-studio.gui-config`). Everything else is
-  `GetConfig` / `UpdateConfig`; `config_changed` events become `onConfigChange`.
-* **Keybindings** are Hydra's `mod+` defaults (`getKeybindings`); the path getters return `<data dir>/gui-keybindings.json` and
-  `<data dir>/config.json`. Real editing is G2b.
+* **Config.** `GetConfig` / `UpdateConfig` for every key (since G2b that includes `terminalFontFamily`, `terminalFontSize`,
+  `terminalEnableWebgl`; a daemon that predates a key gets Hydra's default filled in). `config_changed` events become `onConfigChange`. The
+  pre-G2b `localStorage` overlay (`agent-studio.gui-config`) is migrated once per page on the first connection: values that differ from the
+  default are sent to the daemon when its config still has the default, then the entry is removed.
+* **Keybindings**: see "G2b" below. The path getters return `<data dir>/gui-keybindings.json` and `<data dir>/config.json`.
 * **Window focus** is reported with `ClientFocus`, so the daemon only shows OS notifications while the GUI is not focused.
 * **Errors**: a rejected request becomes an `Error` with the daemon's message; a response of an unexpected variant is an error.
 * **Shape fixes** (everything else already matches `gui/shared/types.ts`): `Preflight` (list per provider, `path`) -> one result with
@@ -106,12 +108,69 @@ takes a typed path). `openExternal` = Tauri opener plugin (`opener:allow-open-ur
 check runs first), `window.open` in a browser. `writeClipboardImage` = `navigator.clipboard.write` with a PNG blob (no plugin: supported by WebView2,
 WKWebView and current WebKitGTK; returns `false` when the webview refuses).
 
+### G2b: headless, skills, updates, diagnostics, keybindings, quit flow, open-in through the shell
+
+**The shell** (`RawTransport.shell`, `ShellBridge` in `transport.ts`). Besides `daemon_request` the Tauri shell has a few commands of its own,
+reached through `ctx.shell` (`supports(cmd)` / `invoke(cmd, args)` / `on(event, cb)`): `log_event`, `open_in`, `list_open_targets`, `quit_app`,
+and the window event `confirm-quit`. They exist only in the desktop app; the dev bridge's `shell` supports `log_event` only; groups fall back
+to the daemon (`open_in`, `list_open_targets`) or to a documented no-op (`quit_app`) where a command is missing.
+
+**Headless runs** (`headlessApi.ts`). The five calls map 1:1 to `StartHeadlessRun`, `ListHeadlessRuns`, `GetHeadlessRun`, `CancelHeadlessRun`,
+`GetHeadlessRunLog` (the run and log structs are Hydra's, camelCase). Hydra only announces output lines (`onHeadlessRunEvent { runId, data }`);
+the bridge also turns `HeadlessRunChanged` (started, session id captured, finished) into an event with empty `data`, so the panel refreshes at
+once instead of at its 4 s poll. A daemon error (bad folder, empty prompt, preflight failed) rejects with its message.
+
+**Skills** (`skillsApi.ts`). `scanSkills` = `ScanSkills` + `scannedAt`. `toggleSkill({ provider, id, enabled })` looks the skill up in a fresh scan
+because the daemon needs the profile (`configDir`) or the file: a Claude plugin (`id` = plugin key) is toggled in every profile that has it, a Codex
+skill (`id` = directory name, first match) by its `SKILL.md`. Claude's own user skills have no switch in Claude Code (Hydra wrote a meaningless
+`enabledPlugins` entry), so the answer is `{ success: false }` and the panel rescans (the toggle snaps back). Errors are `{ success: false }`, never exceptions.
+
+**Updates** (`updatesApi.ts`). `GetUpdateState` / `CheckForUpdates` / event `UpdateAvailable` -> Hydra's `AppUpdateState`: `supported: true`,
+`available` = status `available`, `latestVersion`, `releaseNotes` (markdown), `error` for offline / rate limit / failed (not for "no release yet"),
+`canAutoInstall: false`, `downloaded`/`downloading: false`, `releaseDate: null`, `downloadUrl` = the archive for this OS and CPU (else the release page),
+`releaseUrl` = the release page, `installMethod` = `brew` for Homebrew, `direct` for a plain binary, `unknown` for cargo/winget/scoop/choco, and the
+extension field `upgradeHint` (the daemon's sentence: "Run `brew upgrade agent-studio`", "Run `cargo install ...`", "Download <url>") that the banner and
+the panel show. `checkForUpdates` also announces `checking: true` and then the result through `onUpdateStateChange`. The app never replaces itself:
+`downloadUpdate` answers the state with an `error` saying so (plus the hint), `installUpdateAndRestart` answers `false`, `runBrewUpgrade` answers
+`{ ok: false, error: <hint> }`; the UI never offers them (`canAutoInstall` is false) except "Upgrade via brew" for a Homebrew install, which then shows the
+hint. `openUpdateDownload` opens the asset (or release page) with the opener plugin (`window.open` in a browser) after the http(s) check.
+Tauri's own updater is out of scope.
+
+**Diagnostics and logging** (`diagnosticsApi.ts`). `exportDiagnostics` = `ExportDiagnostics` -> `{ path, error }` (the folder holds the newest logs, including the
+GUI log, and a redacted snapshot); the desktop app then shows the folder in the file manager (`open_in` files); a browser tab never does. `logEvent`
+(fire and forget) goes to the shell's `log_event` -> `<data>/logs/agent-studio-gui.<date>` (JSON lines, `tracing` target `renderer`, fields `event`,
+`message`, `trace_id`, `agent_id`, `session_id`, `project_id`, `service`, `meta`); through the dev bridge it reaches the same file; with no shell at all
+(plain browser, tests) it is a console line. `as_gui::gui_log` redacts values under credential-looking keys (`token`, `secret`, `password`, `authorization`,
+`cookie`, ...), scrubs `token=...` / `Bearer ...` / `sk-ant-...` in free text and caps field sizes; it never fails.
+
+**Keybindings** (`keybindingsApi.ts`). Hydra's `mod+x` rules with the user's overrides in **`<data>/gui-keybindings.json`** (the daemon's `keybindings.json` is the TUI's
+prefix-key file and is never read here). The daemon only reads the raw file (`GetGuiKeybindings` -> `{ path, exists, rules, error, stamp }`, tolerant: a
+missing, empty, corrupt or too big file is reported, not an error) and creates a template on request (`CreateGuiKeybindingsFile`, atomic: temporary file linked
+into place, never replaces an existing file). Merging with the defaults and the validation of command ids is TypeScript (`parseRules`, `mergeKeybindingsWithDefaults`,
+as in Hydra's `KeybindingStore`). `onKeybindingsChange` polls the stamp once a second after (re)connecting (works through Tauri and the dev bridge) and fires only when the
+merged result changes; a broken file means the defaults. Differences from Hydra: the file is not created at start and not rewritten to append missing defaults;
+it is created from the defaults when the user opens it (`openPath` of that path, i.e. Settings > Shortcuts > Open File or the "Open Keybindings File" command).
+
+**Quit flow** (`quitApi.ts`, shell `src/quit.rs` + `shell.rs`). Closing the main window asks the daemon for its status. Nothing running (or no daemon answer within 2 s): the app exits at
+once. Agents running: the window stays open and the shell emits `confirm-quit` with the count; the renderer's dialog (Hydra's) answers with `confirmQuit()` ("Quit All": `quit_app
+{ stopAgents: true }` = `Shutdown { stop_agents: true }`, then exit; the daemon stops too), `quitBackground()` ("Close": `quit_app { stopAgents: false }`, the window exits, daemon and agents
+keep running) or Cancel (the renderer closes its dialog, nothing else happens). Browser dev bridge: no window, `onConfirmQuit` never fires and both methods answer `false`.
+Not handled yet (G3): Cmd+Q / the app menu / the tray, which exit without asking.
+
+**Open-in** (`nativeApi.ts`). In the desktop app `openInEditor` / `openInApp` / `openPath` / `getInstalledEditors` run in the shell process (`open_in`, `list_open_targets` through
+`as_core::open_in`), because a daemon started by systemd/launchd outside the graphical session has no display. Without a shell (dev bridge) they stay `OpenIn` / `ListOpenTargets` requests.
+
+**Agent restarts** (extension `onAgentRestarted`, from the new event `AgentRestarted`). The daemon announces every restart (restart button, CLI/TUI/MCP, YOLO or model switch, global YOLO)
+before the new process writes; `useAgents` drops its copy of the screen, so the old session no longer stays under the new one.
+
 ### Agent Studio extensions of `window.hydra`
 
 | Method | Meaning |
 |--------|---------|
 | `getDaemonStatus()` / `onDaemonStatus(cb)` | `{ connected, error? }`; drives the "Connecting to the daemon..." / "Daemon not reachable" banner (`components/Daemon`) |
 | `onAgentsChanged(cb)` | the agent list changed elsewhere (CLI/TUI/MCP) or the connection came back: `useAgents` reloads the list |
+| `onAgentRestarted(cb)` | `{ agentId }`: a new process replaced the agent's old one; `useAgents` clears the agent's output (G2b) |
+| `AppUpdateState.upgradeHint` | field, not a method: the daemon's "how to upgrade" sentence (G2b) |
 
 ### Running the front end against a real daemon in a browser
 
@@ -125,7 +184,7 @@ The dev bridge is a dev/test tool (browser automation, screenshots): loopback on
 ## Methods
 
 Status: `stub` = answered by the mock (fixtures / empty states / documented no-op), `wired` = real daemon or native call.
-Tick them off here as G1/G2a/G2b land (`wired.test.ts` keeps this table in step with `WIRED_METHODS` / `WIRED_CHANNELS` in `daemonApi.ts`). `send` = fire-and-forget (`ipcRenderer.send`), `on` = subscription returning an unsubscribe.
+Tick them off here as G1/G2a/G2b landed (`wired.test.ts` keeps this table in step with `WIRED_METHODS` / `WIRED_CHANNELS` in `daemonApi.ts`). `send` = fire-and-forget (`ipcRenderer.send`), `on` = subscription returning an unsubscribe.
 
 | Method | Kind | Phase | Status |
 |--------|------|-------|--------|
@@ -163,7 +222,7 @@ Tick them off here as G1/G2a/G2b land (`wired.test.ts` keeps this table in step 
 | `getKeybindings` | invoke | G1 | wired |
 | `getKeybindingsPath` | invoke | G1 | wired |
 | `getConfigPath` | invoke | G1 | wired |
-| `onKeybindingsChange` | on | G1 | stub |
+| `onKeybindingsChange` | on | G1 | wired |
 | `toggleGlobalYolo` | invoke | G1 | wired |
 | `writeClipboardImage` | invoke | G2 | wired |
 | `selectDirectory` | invoke | G2 | wired |
@@ -176,24 +235,24 @@ Tick them off here as G1/G2a/G2b land (`wired.test.ts` keeps this table in step 
 | `getInstalledEditors` | invoke | G2 | wired |
 | `listClaudeSessions` | invoke | G1 | wired |
 | `listProviderModels` | invoke | G1 | wired |
-| `onConfirmQuit` | on | G1 | stub |
-| `confirmQuit` | invoke | G1 | stub |
-| `quitBackground` | invoke | G1 | stub |
-| `startHeadlessRun` | invoke | G2 | stub |
-| `listHeadlessRuns` | invoke | G2 | stub |
-| `getHeadlessRun` | invoke | G2 | stub |
-| `cancelHeadlessRun` | invoke | G2 | stub |
-| `getHeadlessRunLog` | invoke | G2 | stub |
-| `onHeadlessRunEvent` | on | G2 | stub |
-| `logEvent` | send | G1 | stub |
-| `exportDiagnostics` | invoke | G2 | stub |
-| `getUpdateState` | invoke | G2 | stub |
-| `checkForUpdates` | invoke | G2 | stub |
-| `downloadUpdate` | invoke | G2 | stub |
-| `installUpdateAndRestart` | invoke | G2 | stub |
-| `runBrewUpgrade` | invoke | G2 | stub |
-| `openUpdateDownload` | invoke | G2 | stub |
-| `onUpdateStateChange` | on | G2 | stub |
+| `onConfirmQuit` | on | G1 | wired |
+| `confirmQuit` | invoke | G1 | wired |
+| `quitBackground` | invoke | G1 | wired |
+| `startHeadlessRun` | invoke | G2 | wired |
+| `listHeadlessRuns` | invoke | G2 | wired |
+| `getHeadlessRun` | invoke | G2 | wired |
+| `cancelHeadlessRun` | invoke | G2 | wired |
+| `getHeadlessRunLog` | invoke | G2 | wired |
+| `onHeadlessRunEvent` | on | G2 | wired |
+| `logEvent` | send | G1 | wired |
+| `exportDiagnostics` | invoke | G2 | wired |
+| `getUpdateState` | invoke | G2 | wired |
+| `checkForUpdates` | invoke | G2 | wired |
+| `downloadUpdate` | invoke | G2 | wired |
+| `installUpdateAndRestart` | invoke | G2 | wired |
+| `runBrewUpgrade` | invoke | G2 | wired |
+| `openUpdateDownload` | invoke | G2 | wired |
+| `onUpdateStateChange` | on | G2 | wired |
 | `getMcpServerStatus` | invoke | G1 | wired |
 | `onNotification` | on | G1 | wired |
 | `dismissNotification` | send | G1 | wired |
@@ -222,8 +281,8 @@ Tick them off here as G1/G2a/G2b land (`wired.test.ts` keeps this table in step 
 | `disableRemoteControl` | invoke | G2 | stub |
 | `getRemoteControlState` | invoke | G2 | stub |
 | `onRemoteStateChange` | on | G2 | stub |
-| `scanSkills` | invoke | G2 | stub |
-| `toggleSkill` | invoke | G2 | stub |
+| `scanSkills` | invoke | G2 | wired |
+| `toggleSkill` | invoke | G2 | wired |
 | `spawnTestTerminal` | invoke | G2 | wired |
 | `sendTestTerminalInput` | send | G2 | wired |
 | `resizeTestTerminal` | send | G2 | wired |
@@ -241,10 +300,9 @@ Tick them off here as G1/G2a/G2b land (`wired.test.ts` keeps this table in step 
 | `onFreeTerminalOutput` | on | G2 | wired |
 | `onFreeTerminalExit` | on | G2 | wired |
 | `onFreeTerminalLayoutChanged` | on | G2 | wired |
-After G2a the rows still `stub` are G2b (headless, skills, updates, diagnostics), the P11 remote-control methods and the G1 rows below.
-G1 rows still `stub` on purpose: `logEvent` (no daemon request for renderer logs yet), `onKeybindingsChange` (no keybinding editing before G2b),
-`confirmQuit` / `quitBackground` / `onConfirmQuit` (Tauri quit flow, G3).
+After G2b only the four P11 remote-control rows are `stub` (108 of 112 methods are wired). `dismissNotification` is wired as a documented no-op (toasts are
+renderer state; the daemon dismisses nothing).
 
 Notes: `enableRemoteControl`, `disableRemoteControl`, `getRemoteControlState`, `onRemoteStateChange` are deferred to P11 (kept
-so the API shape matches; the UI is removed). `confirmQuit`, `quitBackground`, `onConfirmQuit` are the Electron quit flow: no-ops
-until the Tauri quit flow (G3). Hydra's preload has no window-control methods, so there is nothing else Electron-only to stub.
+so the API shape matches; the UI is removed: no component calls them, and the only remote-flavoured setting left in the UI is Hydra's
+"remote error reporting" checkbox, a config flag nothing reads). Hydra's preload has no window-control methods, so there is nothing else Electron-only to stub.

@@ -44,6 +44,7 @@ document.addEventListener('drop', (e) => e.preventDefault())
 
 // `window.hydra` must exist before anything renders (components call it from effects and event handlers).
 void installHydra().then(() => {
+  logEvent({ level: 'info', event: 'renderer.app.start', traceId: createTraceId('app-start') })
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <AppErrorBoundary>

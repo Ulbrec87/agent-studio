@@ -16,8 +16,22 @@ export interface Transport {
   onEvent(cb: (e: unknown) => void): () => void
 }
 
+/**
+ * What the desktop shell does itself instead of the daemon (Tauri commands and window events): "open in" (the daemon may have no
+ * display), the quit flow, the renderer log. A transport without a shell (browser dev bridge, tests) leaves it out; the dev bridge
+ * only offers the renderer log (`log_event`).
+ */
+export interface ShellBridge {
+  /** Whether the shell can run this command here (callers fall back to the daemon or a no-op when not). */
+  supports(command: string): boolean
+  invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T>
+  /** Subscribe to a window event of the shell (`confirm-quit`); returns the unsubscribe. */
+  on(event: string, callback: (payload: unknown) => void): () => void
+}
+
 /** A transport that speaks the daemon protocol: requests are `as-proto` `Request` JSON, events are `Event` JSON. */
 export interface RawTransport extends Transport {
+  shell?: ShellBridge
   onEvent(cb: (e: ProtoEvent) => void): () => void
   /** Connection state changes (`connected: true` again after a reconnect means: re-subscribe). */
   onStatus(cb: (s: DaemonStatus) => void): () => void

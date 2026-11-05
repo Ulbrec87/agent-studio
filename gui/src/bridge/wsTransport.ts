@@ -1,5 +1,5 @@
 import { toError, type DaemonStatus, type ProtoEvent } from './protocol'
-import type { RawTransport } from './transport'
+import type { RawTransport, ShellBridge } from './transport'
 
 /**
  * Browser dev mode: `?bridge=ws://127.0.0.1:PORT&token=T` selects this transport. The WebSocket is served by
@@ -89,20 +89,30 @@ export function createWsTransport(url: string, token: string, WS: typeof WebSock
     })
   }
 
+  const request = async (req: unknown): Promise<unknown> => {
+    const ws = await ready()
+    return new Promise((resolve, reject) => {
+      const id = nextId++
+      pending.set(id, { resolve, reject: (e) => reject(toError(e)) })
+      try {
+        ws.send(JSON.stringify({ id, request: req }))
+      } catch (err) {
+        pending.delete(id)
+        reject(toError(err))
+      }
+    })
+  }
+
+  // The dev bridge has no window: the only shell command a browser may use is the renderer log.
+  const shell: ShellBridge = {
+    supports: (command) => command === 'log_event',
+    invoke: (command, args) => request({ kind: 'shell', command, args }) as Promise<never>,
+    on: () => () => undefined
+  }
+
   return {
-    async request(req) {
-      const ws = await ready()
-      return new Promise((resolve, reject) => {
-        const id = nextId++
-        pending.set(id, { resolve, reject: (e) => reject(toError(e)) })
-        try {
-          ws.send(JSON.stringify({ id, request: req }))
-        } catch (err) {
-          pending.delete(id)
-          reject(toError(err))
-        }
-      })
-    },
+    shell,
+    request,
     onEvent(cb) {
       eventListeners.add(cb)
       return () => eventListeners.delete(cb)

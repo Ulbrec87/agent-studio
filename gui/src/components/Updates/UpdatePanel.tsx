@@ -82,6 +82,8 @@ export function UpdatePanel({
 
             {state.error && <div className={styles.error}>{state.error}</div>}
 
+            {state.available && state.upgradeHint && <div className={styles.message}>{state.upgradeHint}</div>}
+
             {state.releaseNotes && (
               <div className={styles.notes}>
                 <h3>Release Notes</h3>

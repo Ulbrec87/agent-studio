@@ -6,6 +6,7 @@ use as_core::fs::{DirSuggestion, FileContent, FsEntry, SearchHit};
 use as_core::git::{
     GitBranch, GitCommit, GitDiffStats, GitFileContents, GitPrDiff, GitStatus, GitWorktree,
 };
+use as_core::gui_keybindings::GuiKeybindingsFile;
 use as_core::headless::{
     HeadlessRun, HeadlessRunLog, HeadlessRunLogOptions, ListHeadlessRunsOptions,
     StartHeadlessRunPayload,
@@ -432,6 +433,15 @@ pub enum Request {
     GetUpdateState,
     /// Ask GitHub Releases now (even with `checkForUpdates` off); answers `UpdateState`.
     CheckForUpdates,
+
+    // ── G2b: desktop app key bindings (`gui-keybindings.json`, not the TUI's `keybindings.json`) ──
+    /// The raw rules of `gui-keybindings.json` and its path; tolerant of a missing or corrupt file; answers `GuiKeybindings`.
+    /// Clients poll it (the `stamp` tells whether anything changed).
+    GetGuiKeybindings,
+    /// Create `gui-keybindings.json` from `content` (a JSON array) unless it exists, atomically; answers `Flag` (true = created).
+    CreateGuiKeybindingsFile {
+        content: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -489,6 +499,7 @@ pub enum Response {
     HydraReport(Box<ImportReport>),
     Path(String),
     UpdateState(Box<UpdateState>),
+    GuiKeybindings(GuiKeybindingsFile),
 }
 
 /// The MCP server of the daemon (Hydra `McpServerStatus`).
@@ -547,6 +558,11 @@ pub enum Event {
     },
     /// Agent list changed (created, removed, renamed): re-run `ListAgents`.
     AgentsChanged,
+    /// A new process replaced the agent's old one (restart, YOLO/model switch): its output buffer was cleared. Sent before the
+    /// new process's first `AgentOutput`; a client that keeps its own copy of the screen must drop it.
+    AgentRestarted {
+        agent_id: String,
+    },
     ConfigChanged(Box<AppConfig>),
     DaemonShuttingDown,
     /// Something the user should know about (toast in the TUI, OS notification when unfocused).

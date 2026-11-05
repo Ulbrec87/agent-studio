@@ -342,8 +342,19 @@ async fn dev_bridge_rejects_a_missing_or_wrong_token_and_serves_requests_and_pus
     ))
     .await
     .unwrap();
+    // The only shell command of the dev bridge is the renderer log; everything else is refused.
+    ws.send(Message::text(
+        json!({"id": 4, "request": {"kind": "shell", "command": "log_event", "args": {"event": {"level": "info", "event": "test.event"}}}}).to_string(),
+    ))
+    .await
+    .unwrap();
+    ws.send(Message::text(
+        json!({"id": 5, "request": {"kind": "shell", "command": "quit_app", "args": {"stopAgents": true}}}).to_string(),
+    ))
+    .await
+    .unwrap();
     let mut seen = std::collections::HashMap::new();
-    while seen.len() < 3 {
+    while seen.len() < 5 {
         let frame = next(&mut ws).await;
         if let Some(id) = frame.get("id").and_then(Value::as_u64) {
             seen.insert(id, frame);
@@ -356,6 +367,15 @@ async fn dev_bridge_rejects_a_missing_or_wrong_token_and_serves_requests_and_pus
             .as_str()
             .unwrap()
             .starts_with("invalid request")
+    );
+    assert_eq!(seen[&4]["result"], Value::Null);
+    assert!(
+        seen[&5]["error"]
+            .as_str()
+            .unwrap()
+            .contains("not available in the dev bridge"),
+        "{}",
+        seen[&5]
     );
 
     // Pushed events: create an agent, subscribe, emit output.

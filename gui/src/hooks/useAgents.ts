@@ -121,6 +121,24 @@ export function useAgents(initialSelectedAgentId: string | null = null) {
     }
   }, [])
 
+  // A new process replaced an agent's old one (restart by the CLI/TUI/MCP, YOLO or model switch, global YOLO): the daemon cleared its
+  // buffer, so drop our copy of the screen too. The event comes before any output of the new process; what is still queued for
+  // this agent is the old process's tail. Without this the old session stays on screen under the new one.
+  useEffect(() => {
+    const onRestarted = window.hydra.onAgentRestarted
+    if (!onRestarted) return
+    return onRestarted(({ agentId }) => {
+      pendingOutputRef.current.delete(agentId)
+      setAgents((prev) => {
+        const data = prev.get(agentId)
+        if (!data || data.rawOutput === '') return prev
+        const next = new Map(prev)
+        next.set(agentId, { ...data, rawOutput: '' })
+        return next
+      })
+    })
+  }, [])
+
   // Listen for agent status changes
   useEffect(() => {
     const unsub = window.hydra.onAgentStatus((payload: AgentStatusPayload) => {

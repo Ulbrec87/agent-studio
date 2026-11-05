@@ -8,8 +8,11 @@
 //! side-by-side manifest), so everything unit-testable lives here and the Tauri glue lives in `shell.rs` (bin only).
 
 pub mod devbridge;
+pub mod gui_log;
 pub mod link;
 pub mod logging;
+pub mod native;
+pub mod quit;
 
 use std::path::PathBuf;
 
@@ -112,7 +115,7 @@ pub fn run_daemon(home: Option<PathBuf>, foreground: bool) -> Result<()> {
 pub fn run_dev_bridge(home: Option<PathBuf>) -> Result<()> {
     use std::io::Write;
     let paths = resolve_paths(home)?;
-    let _guard = logging::init(&paths, "gui-dev-bridge", true);
+    let _guard = logging::init(&paths, logging::GUI_LOG_PREFIX, true);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;

@@ -693,6 +693,49 @@ async fn diagnostics_bundle_has_a_snapshot_without_secrets() {
     h.finish(client).await;
 }
 
+#[tokio::test]
+async fn gui_keybindings_are_read_tolerantly_and_the_template_is_created_once() {
+    let h = start().await;
+    let client = DaemonClient::connect(&h.paths).await.unwrap();
+    let file = h.paths.gui_keybindings_file();
+    assert!(file.ends_with("gui-keybindings.json"));
+    let get = || ask(&client, Request::GetGuiKeybindings);
+
+    let Ok(Response::GuiKeybindings(missing)) = get().await else {
+        panic!("keybindings")
+    };
+    assert!(!missing.exists && missing.rules.is_empty() && missing.error.is_none());
+    assert_eq!(PathBuf::from(&missing.path), file);
+
+    let create = |content: &str| {
+        ask(
+            &client,
+            Request::CreateGuiKeybindingsFile {
+                content: content.into(),
+            },
+        )
+    };
+    assert!(matches!(
+        create("[{\"command\":\"new-agent\",\"keys\":\"mod+t\"}]").await,
+        Ok(Response::Flag(true))
+    ));
+    // The second call never replaces what is there.
+    assert!(matches!(create("[]").await, Ok(Response::Flag(false))));
+    assert!(create("{}").await.is_err());
+    let Ok(Response::GuiKeybindings(made)) = get().await else {
+        panic!("keybindings")
+    };
+    assert_eq!(made.rules.len(), 1);
+    assert_ne!(made.stamp, missing.stamp);
+
+    write(&file, "{ broken");
+    let Ok(Response::GuiKeybindings(broken)) = get().await else {
+        panic!("keybindings")
+    };
+    assert!(broken.exists && broken.rules.is_empty() && broken.error.is_some());
+    h.finish(client).await;
+}
+
 fn git_available() -> bool {
     std::process::Command::new("git")
         .arg("--version")

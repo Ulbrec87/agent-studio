@@ -99,6 +99,11 @@ pub enum AgentEvent {
     },
     /// The agent list changed: created, removed, renamed or hydrated.
     Changed,
+    /// A new process replaces the old one (restart, YOLO/model switch, global YOLO): the output buffer was just cleared, so a
+    /// client that keeps its own copy of the screen must drop it. Sent before any output of the new process.
+    Restarted {
+        agent_id: String,
+    },
 }
 
 /// Output/exit facts for the Overview (`getActivity`).
@@ -1250,6 +1255,9 @@ impl AgentManager {
         m.state.restart_count += 1;
         m.state.status = AgentStatus::Starting;
         m.output.clear();
+        shared.emit(AgentEvent::Restarted {
+            agent_id: id.to_string(),
+        });
         m.input_lock = Arc::default();
         m.stop_requested = false;
         m.notified_idle = false;
@@ -2335,6 +2343,43 @@ mod tests {
         assert!(
             manager.get_buffer(&created.id).is_empty(),
             "restart clears the buffer"
+        );
+    }
+
+    #[tokio::test]
+    async fn restart_announces_itself_before_the_new_process_writes() {
+        let backend = FakePtyBackend::new();
+        let manager = manager_with(&backend);
+        let created = manager.create(payload()).await.unwrap();
+        backend.ptys()[0].emit_data(b"old screen");
+        wait_for("old output", || {
+            manager.get_buffer(&created.id) == b"old screen"
+        })
+        .await;
+        let mut rx = manager.subscribe();
+        drain(&mut rx);
+        manager.restart(&created.id);
+        wait_for("new pty", || backend.ptys().len() == 2).await;
+        backend.ptys()[1].emit_data(b"fresh");
+        wait_for("new output", || manager.get_buffer(&created.id) == b"fresh").await;
+        let events = drain(&mut rx);
+        let restarted = events
+            .iter()
+            .position(
+                |e| matches!(e, AgentEvent::Restarted { agent_id } if *agent_id == created.id),
+            )
+            .expect("a Restarted event");
+        let first_output = events
+            .iter()
+            .position(|e| matches!(e, AgentEvent::Output { .. }))
+            .expect("the new output");
+        assert!(restarted < first_output, "{events:?}");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, AgentEvent::Restarted { .. }))
+                .count(),
+            1
         );
     }
 

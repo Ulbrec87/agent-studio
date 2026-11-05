@@ -440,9 +440,14 @@ pub const MAX_CONCURRENT_AGENTS_HARD_LIMIT: usize = 10;
 
 pub const DEFAULT_PREFIX_KEY: &str = "ctrl+a";
 
-/// Application config (`config.json`). Hydra `AppConfig` minus Electron-only
-/// terminal rendering keys (`terminalFontFamily`, `terminalFontSize`,
-/// `terminalEnableWebgl`), plus `prefixKey`.
+/// Hydra's default for `terminalFontFamily`.
+pub const DEFAULT_TERMINAL_FONT_FAMILY: &str = "\"SF Mono\", \"Menlo\", \"Monaco\", monospace";
+/// The Settings panel of the desktop app clamps the font size to this range (Hydra: 8-32).
+pub const TERMINAL_FONT_SIZE_RANGE: std::ops::RangeInclusive<u32> = 8..=32;
+
+/// Application config (`config.json`). Hydra `AppConfig` plus `prefixKey`, `checkForUpdates` and `mouse`.
+/// The terminal rendering keys (`terminalFontFamily`, `terminalFontSize`, `terminalEnableWebgl`) are used by the desktop
+/// app only; the TUI ignores them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
@@ -485,6 +490,12 @@ pub struct AppConfig {
     pub terminal_shell_args: String,
     pub terminal_cursor_style: TerminalCursorStyle,
     pub terminal_cursor_blink: bool,
+    /// Desktop app only (xterm.js): CSS font-family list.
+    pub terminal_font_family: String,
+    /// Desktop app only: font size in px, kept within [`TERMINAL_FONT_SIZE_RANGE`].
+    pub terminal_font_size: u32,
+    /// Desktop app only: use the WebGL renderer of xterm.js.
+    pub terminal_enable_webgl: bool,
     // Free terminals
     pub free_terminal_lifecycle_policy: FreeTerminalLifecyclePolicy,
     pub free_terminal_max_count: u32,
@@ -540,6 +551,9 @@ impl Default for AppConfig {
             terminal_shell_args: String::new(),
             terminal_cursor_style: TerminalCursorStyle::Bar,
             terminal_cursor_blink: false,
+            terminal_font_family: DEFAULT_TERMINAL_FONT_FAMILY.into(),
+            terminal_font_size: 12,
+            terminal_enable_webgl: false,
             free_terminal_lifecycle_policy: FreeTerminalLifecyclePolicy::Explicit,
             free_terminal_max_count: 6,
             free_terminal_idle_timeout_minutes: 60,

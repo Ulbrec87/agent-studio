@@ -1,6 +1,6 @@
 // Shared by the bridge tests: a scripted raw transport (records requests, answers by request type) and small helpers.
 import { bytesToBase64, type DaemonStatus, type ProtoEvent, type ProtoRequest, type ProtoResponse } from './protocol'
-import type { RawTransport } from './transport'
+import type { RawTransport, ShellBridge } from './transport'
 
 export type Handler = (payload: unknown) => ProtoResponse | Promise<ProtoResponse>
 
@@ -12,7 +12,36 @@ export const AGENT = {
 }
 export const IDLE = { ...AGENT, id: 'idle0001', status: 'idle', pid: null }
 
+/** A scripted desktop shell: records `invoke`s, answers by command and lets a test fire window events. */
+export class FakeShell implements ShellBridge {
+  calls: Array<{ command: string; args?: Record<string, unknown> }> = []
+  answers = new Map<string, (args?: Record<string, unknown>) => unknown>()
+  private listeners = new Map<string, Set<(payload: unknown) => void>>()
+  constructor(public commands: string[] = ['log_event', 'open_in', 'list_open_targets', 'quit_app']) {}
+  supports(command: string): boolean {
+    return this.commands.includes(command)
+  }
+  async invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+    this.calls.push({ command, args })
+    const answer = this.answers.get(command)
+    return (answer ? await answer(args) : undefined) as T
+  }
+  on(event: string, callback: (payload: unknown) => void): () => void {
+    const set = this.listeners.get(event) ?? new Set()
+    set.add(callback)
+    this.listeners.set(event, set)
+    return () => set.delete(callback)
+  }
+  fire(event: string, payload: unknown): void {
+    for (const cb of [...(this.listeners.get(event) ?? [])]) cb(payload)
+  }
+  of(command: string): Array<Record<string, unknown> | undefined> {
+    return this.calls.filter((c) => c.command === command).map((c) => c.args)
+  }
+}
+
 export class FakeRaw implements RawTransport {
+  shell?: ShellBridge
   requests: ProtoRequest[] = []
   handlers = new Map<string, Handler>()
   private events = new Set<(e: ProtoEvent) => void>()
@@ -76,6 +105,7 @@ export async function makeBridge(
     appInfo: { name: 'Agent Studio', version: '1', dataDir: '/data', platform: 'linux' },
     storage: null,
     fsPollMs: 0,
+    keybindingsPollMs: 0,
     ...options
   })
   const api = createHydraApi(createBridge(transport))

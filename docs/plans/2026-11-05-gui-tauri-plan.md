@@ -95,6 +95,6 @@ argument so it can host the daemon itself; editing files in the GUI is allowed (
 - [x] G0 Scaffold
 - [x] G1 Core bridge
 - [x] G2a Git, files, terminals, native
-- [ ] G2b Everything else
+- [x] G2b Everything else
 - [ ] G3 Parity + polish
 - [ ] G4 Packaging + CI

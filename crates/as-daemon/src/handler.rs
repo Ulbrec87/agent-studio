@@ -372,7 +372,9 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
         | Request::OpenIn { .. }
         | Request::PreviewHydraImport { .. }
         | Request::ApplyHydraImport { .. }
-        | Request::ExportDiagnostics) => p9::handle(daemon, client, req).await,
+        | Request::ExportDiagnostics
+        | Request::GetGuiKeybindings
+        | Request::CreateGuiKeybindingsFile { .. }) => p9::handle(daemon, client, req).await,
         Request::GetUpdateState => Ok(Response::UpdateState(Box::new(daemon.update_state()))),
         Request::CheckForUpdates => Ok(Response::UpdateState(Box::new(
             daemon.check_updates().await,

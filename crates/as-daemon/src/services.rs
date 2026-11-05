@@ -774,6 +774,9 @@ impl Daemon {
                 }
                 self.registry.broadcast(&Event::AgentWaiting { agent_id });
             }
+            AgentEvent::Restarted { agent_id } => {
+                self.registry.broadcast(&Event::AgentRestarted { agent_id });
+            }
             AgentEvent::Changed => {
                 self.registry.broadcast(&Event::AgentsChanged);
                 self.request_save();

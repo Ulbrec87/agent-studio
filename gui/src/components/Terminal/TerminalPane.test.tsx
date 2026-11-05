@@ -102,6 +102,20 @@ describe('TerminalPane', () => {
     expect(term.write).toHaveBeenLastCalledWith('x', expect.any(Function))
   })
 
+  it('replays the output into the new xterm when a setting recreates it (it used to stay blank until the next chunk)', () => {
+    const { rerender } = render(<TerminalPane rawOutput="hello world" fontSize={12} />)
+    const first = terminalState.instances[0]
+    first.writeCallbacks.shift()?.()
+    expect(first.write).toHaveBeenCalledWith('hello world', expect.any(Function))
+
+    rerender(<TerminalPane rawOutput="hello world" fontSize={16} />)
+    expect(first.dispose).toHaveBeenCalled()
+    const second = terminalState.instances[1]
+    expect(second).toBeDefined()
+    expect(second.options.fontSize).toBe(16)
+    expect(second.write).toHaveBeenCalledWith('hello world', expect.any(Function))
+  })
+
   it('queues later output until the active xterm write finishes', () => {
     const { rerender } = render(<TerminalPane rawOutput="hello" />)
     const term = terminalState.instances[0]

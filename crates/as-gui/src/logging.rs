@@ -5,6 +5,10 @@ use as_core::paths::Paths;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
+/// Log file prefix of the desktop app (and of the browser dev bridge): `<data>/logs/agent-studio-gui.<date>`. The renderer's
+/// structured events (`log_event`) go there too, see [`crate::gui_log`].
+pub const GUI_LOG_PREFIX: &str = "agent-studio-gui";
+
 /// Env var overriding the default `info` filter.
 pub const LOG_ENV: &str = "AGENT_STUDIO_LOG";
 

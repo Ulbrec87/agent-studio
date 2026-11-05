@@ -426,3 +426,34 @@ included, so a test reading "the next frame" can get an event instead of its res
 - **Hydra `gitCommit` without files means `git add -A`**; the daemon's `GitCommit { files: [] }` commits only what is staged. The bridge stages everything not fully staged first.
 - **E2E setup**: a fake `claude` script (`--version` + `exec cat`) first in `PATH` of the dev bridge and `{"terminalShellMode":"direct"}` in the temp home's
   `config.json` give a running agent without a real Claude session; `agent-studio --home H new -p <repo>` creates it, and the editor/git panels need one.
+
+## GUI (Tauri) G2b gotchas
+
+- **Oddity (a), "garbled terminal after a restart": a restart that does not start in the UI left the old session on screen.** The daemon clears the agent's
+  buffer on `restart`, but the renderer only cleared its own copy in `useAgents.restartAgent` (the restart button). Restarts from the CLI/TUI/MCP, YOLO and
+  model switches and global YOLO produced no event at all (only `agent_status: running`, no `starting`), so the xterm kept the old screen and the new
+  process drew below it (inline TUIs such as Claude use relative cursor moves, so the result looked garbled). Reproduced before the fix with a fake `claude`
+  that draws text without clearing the screen: after `agent-studio restart <id>` and after `toggleYolo` the UI showed `RUN 10 / RUN 11 / RUN 12` stacked while a fresh page
+  (daemon buffer replay) showed only the last run; after the fix both are identical (3 restarts x CLI/YOLO). Not the cause: replay at another size (the manager respawns with the
+  last known PTY size) and the buffer (cleared). **Fix**: `AgentEvent::Restarted` -> `Event::AgentRestarted { agent_id }` sent before the new process writes; the bridge turns it
+  into `onAgentRestarted`, `useAgents` clears the output (and the queued old tail), the TUI blanks its emulator. A marker in the output stream (e.g. a reset sequence) was rejected:
+  the daemon's documented "Subscribe may repeat the last chunk" window could replay it over a freshly loaded buffer; a separate event is not replayed.
+- **TerminalPane stayed blank after a setting recreated its xterm** (font size/family, cursor, WebGL): the output effect only runs when `rawOutput` changes, so the new empty terminal
+  waited for the next chunk (forever for an idle agent). The recreation now flushes the output it already has (`flushOutputRef`).
+- **Oddity (b), "another agent's `/rename ...` line in a terminal": not reproducible on the current tree.** Checked: the daemon (two agents created and renamed concurrently, same and different
+  project folders: each buffer holds only its own `/rename`), 150 rounds of concurrent `Subscribe` of two agents through the dev bridge (0 mixed buffers, compared by pid), the bridge's
+  per-agent streams (regression test with crossing answers), `useAgents` (regression test), and the UI (4 rounds of creating two agents and switching between them while they start, renaming the
+  other agent while one is selected: no foreign line). The most likely explanation of the G1 observation is oddity (a): output of an earlier session stays on screen under the next one,
+  which looks like a foreign line when the same fake `cat` agent is restarted. If it shows up again: compare `getAgentBuffer(id)` of both agents first (bridge/daemon) and the
+  xterm's text second (`.xterm-rows`); `TerminalPane` is keyed by agent id in `ChatView`, but not in every caller.
+- **The browser dev bridge has no shell**: `RawTransport.shell` of the WebSocket transport only knows `log_event`. `open_in` / `list_open_targets` therefore stay daemon requests there, and in e2e runs
+  the daemon (not the browser) starts the opener: put a fake `xdg-open` first in the daemon's `PATH`, otherwise a test run opens a real file manager/editor.
+- **`CloseRequested` is async here**: the decision needs the daemon, so the handler calls `prevent_close()` and finishes with `app.exit(0)` itself (`as_gui::quit::decide_close` is the pure part).
+  Under Xvfb there is no window manager and no `xdotool`/`wmctrl`: a close is a `WM_DELETE_WINDOW` ClientMessage sent with Xlib (ctypes works) and clicks go through XTest.
+- **`agent-studio <cmd>` auto-starts a daemon**: after `Quit All` a later `agent-studio status` in the same shell started a *new* daemon, with the shell's real `HOME` (it imported the real Claude
+  sessions as idle agents into the temp home). In e2e scripts run every CLI call with the same fixture environment as the app, and stop the daemon last.
+- **`gui-keybindings.json` is not created at start** (Hydra writes its file at startup and rewrites it to append new defaults, which also rewrites a user's edits): it is created from the defaults when the
+  user opens it. Hard links (the atomic create) fail on some file systems (FAT/exFAT, some network shares): `create_template` then falls back to an exclusive create.
+- **Claude user skills cannot be toggled** (`group: "user"`): Claude Code has no per-skill switch, the daemon's `toggle` refuses it and the panel snaps the checkbox back (Hydra wrote a meaningless entry into `enabledPlugins`).
+- **Update hint vs Hydra's install methods**: Hydra's `UpdateInstallMethod` is `brew | direct | unknown`; cargo/winget/scoop/chocolatey map to `unknown` (the "Download" button) and the real instruction travels in the
+  extension field `upgradeHint`, which `UpdateBanner`/`UpdatePanel` show. Mock server check: `AGENT_STUDIO_UPDATE_URL=http://127.0.0.1:PORT/latest` (the daemon reads it at start).

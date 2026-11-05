@@ -116,6 +116,7 @@ replaced by the defaults.
 | `enableSoundEffects` | `true` | terminal bell when an agent needs you |
 | `terminalShellMode`, `terminalShellPath`, `terminalShellArgs` | `"auto"`, `""`, `""` | how agent CLIs are launched (`auto`, `direct`, `login`, `custom`) |
 | `terminalCursorStyle`, `terminalCursorBlink` | `"bar"`, `false` | cursor of the terminals |
+| `terminalFontFamily`, `terminalFontSize`, `terminalEnableWebgl` | `"SF Mono", "Menlo", "Monaco", monospace`, `12`, `false` | terminal font and WebGL renderer of the **desktop app** (the TUI ignores them); the size is kept within 8-32 |
 | `freeTerminalLifecyclePolicy` | `"explicit"` | `explicit`, `lru` or `idle` (when shells are closed) |
 | `freeTerminalMaxCount`, `freeTerminalIdleTimeoutMinutes`, `freeTerminalScrollbackLines` | `6`, `60`, `5000` | free terminal limits |
 | `gitPanelDisplayMode`, `editorPanelDisplayMode` | `"overlay"` | `overlay` (centered) or `split` (side column) |
