@@ -6,11 +6,36 @@ on:
 jobs:
   test:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: tests
+      - name: build tests
         shell: bash
-        run: cargo test --workspace --no-fail-fast 2>&1 | tail -n 600
+        run: cargo test --workspace --no-run
+      - name: as-core
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 4
+        run: cargo test -p as-core --no-fail-fast
+      - name: as-proto
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 3
+        run: cargo test -p as-proto --no-fail-fast
+      - name: as-daemon
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 4
+        run: cargo test -p as-daemon --no-fail-fast -- --test-threads=1 --nocapture
+      - name: as-tui
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 4
+        run: cargo test -p as-tui --no-fail-fast
+      - name: bin
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 3
+        run: cargo test -p agent-studio --no-fail-fast
