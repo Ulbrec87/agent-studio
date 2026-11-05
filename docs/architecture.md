@@ -142,8 +142,11 @@
     `GitCreateBranch`, `GitFileContents`, `GitWorktreeCreate`/`GitWorktreeRemove`, `GitPrFetch`/`GitPrFileDiff` (read-only `gh`).
     `GIT_TERMINAL_PROMPT=0`, timeouts (30 s, 60 s for push/gh), mutations serialized per repository root. A folder that is not a
     repository answers an empty `GitStatus { is_repo: false }`; a missing `git`/`gh` is an error text the panel shows.
-  * *files*: `FsReadDir`, `FsReadFile` (1 MiB cap, binary and too-large placeholders), `FsMtime` (the viewer polls it every second;
-    there is no watcher), `FsSearch` (gitignore-aware walk of at most 20 000 files, `nucleo-matcher` ranking). Relative paths use `/`;
+  * *files*: `FsReadDir`, `FsReadFile` (1 MiB cap, binary and too-large placeholders), `FsMtime` (the viewers poll it every second;
+    there is no watcher; the GUI's `watchDir` is a poller over it), `FsWriteFile` (GUI editor save: same escape checks as the reads plus
+    a dangling or escaping symlink is refused, parent must exist, a directory is an error, 5 MiB cap, `util::write_atomic` and the old
+    permissions kept; answers `Ok`), `FsListDirs` (folders matching a typed absolute path or `~`, for the New Agent dialog; not confined to a
+    project; answers `DirSuggestions`), `FsSearch` (gitignore-aware walk of at most 20 000 files, `nucleo-matcher` ranking). Relative paths use `/`;
     absolute paths, `..` and symlinks that leave the project are refused (`OutsideProject`).
   * *free terminals* (`as_core::terminals::TerminalManager`, shells per project, `agents::pty::pump` shared reader/waiter threads,
     the same `PtyBackend` as agents so the Windows DSR reply applies; the agent manager uses `pump_with_eof` of the same module): `SpawnTerminal` (new tab, or a pane of `group_id`: with `split_pane` / `split_dir` `horizontal` = to the right, `vertical` = below; both optional, an old client that sends neither splits the active pane to the right),
@@ -249,6 +252,14 @@ renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`
 * **Subscriptions** live in the TypeScript layer (`daemonApi.ts` / `streams.ts`): the GUI subscribes every non-idle agent (the daemon
   pushes output only to subscribed connections), serves `getAgentBuffer` from `Subscribe`'s buffer, forgets removed agents and resubscribes
   after a reconnect. It reports window focus with `ClientFocus`, so OS notifications appear only while the GUI is unfocused.
+* **G2a method groups** (`gitApi.ts`, `filesApi.ts`, `terminalsApi.ts`, `nativeApi.ts`, each a `MethodGroup` over `BridgeContext`): git panel
+  (status as three path lists, "commit all" = status + `GitStage` + `GitCommit`, diff = HEAD vs work tree from two `GitFileContents`), editor
+  (agent id -> project dir, `FsWriteFile`, a **polling watcher**: `watchDir` polls `FsMtime` every second for the root, the directories listed and
+  the files opened, at most 64 paths per agent, and emits Hydra's `onFsWatchEvent`), free terminals (the daemon's layout passes through with its
+  split `tree`; `SubscribeTerminal` per pane gives a streaming decoder per terminal; after a reconnect the layouts of projects that had terminals
+  are fetched again, which respawns the shells of a restarted daemon, and announced), and native pieces (`OpenIn`/`ListOpenTargets`, `FsListDirs`,
+  Tauri dialog + opener plugins, web clipboard). The shell stays generic: its only additions are the two plugins and
+  `capabilities/default.json` (`dialog:allow-open`, `opener:allow-open-url` for `http(s)`/`mailto`).
 * **Dev bridge** (`agent-studio-gui --dev-bridge [--home DIR]`, dev/test tool): no window, the same plumbing behind a WebSocket on
   `127.0.0.1:<random port>`; connections need `?token=<random token>`; one line `DEV_BRIDGE ws://127.0.0.1:<port> token=<token>` goes
   to stdout. Frames: `{id, request}` -> `{id, result|error}`, pushes `{event}` / `{status}`. It lets the Vite UI run in a normal browser

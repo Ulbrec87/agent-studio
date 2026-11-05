@@ -62,7 +62,8 @@ gui/                  Vite + React + TypeScript front end
 |-------|---------|-----------|
 | **G0 Scaffold** | `gui/` (Vite, React 18, TS), copy Hydra renderer + styles, `crates/as-gui` Tauri 2 shell, workspace + `.gitignore`, `npm`/`cargo tauri dev` working, CI job that builds the front end and the Tauri crate (no bundle), docs | window opens with the real Hydra UI against a stub bridge |
 | **G1 Core bridge** | commands/events, `ensure_daemon`, `window.hydra` for agents (create/kill/remove/restart/rename/model/yolo/input/resize/output), config, sessions + profiles, notifications, view mode, overview, usage | create an agent in the GUI, type in the terminal, see overview/usage |
-| **G2 Everything else** | git panel, fs + editor (+`FsWriteFile`), free terminals, headless, skills, keybindings, MCP status, open-in, folder dialogs, clipboard, diagnostics, updates, Hydra import | every `window.hydra` method implemented or intentionally stubbed (documented) |
+| **G2a Git, files, terminals, native** | git panel, fs + editor (+`FsWriteFile`, polling watcher), free terminals (+ test terminal), open-in, folder dialog + suggestions, URL opener, clipboard | those `window.hydra` methods wired and checked in a browser against a real daemon |
+| **G2b Everything else** | headless, skills, keybindings, MCP status, updates, diagnostics, quit dialog, Hydra import | every `window.hydra` method implemented or intentionally stubbed (documented) |
 | **G3 Parity + polish** | visual pass against Hydra, theme tokens, light/dark/midnight, window state, tray, native menus, quit dialog, a11y checks, error boundaries | side-by-side with Hydra looks the same |
 | **G4 Packaging + CI** | Tauri bundles: AppImage + deb (Linux), dmg (macOS), msi/nsis (Windows); extend `release.yml`; icons; docs/README; `CLAUDE.md` | tag run publishes CLI archives and desktop bundles |
 
@@ -93,6 +94,7 @@ argument so it can host the daemon itself; editing files in the GUI is allowed (
 
 - [x] G0 Scaffold
 - [x] G1 Core bridge
-- [ ] G2 Everything else
+- [x] G2a Git, files, terminals, native
+- [ ] G2b Everything else
 - [ ] G3 Parity + polish
 - [ ] G4 Packaging + CI

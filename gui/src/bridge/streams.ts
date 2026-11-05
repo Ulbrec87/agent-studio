@@ -7,7 +7,12 @@ interface StreamDeps {
   send(req: ProtoRequest): Promise<ProtoResponse>
   /** Deliver decoded output to the renderer (`onAgentOutput`). */
   emit(agentId: string, text: string): void
+  /** The request that subscribes an id (default: an agent's `subscribe`; free terminals use `subscribe_terminal`). */
+  subscribeRequest?(id: string): ProtoRequest
 }
+
+/** Free terminals stream exactly like agents, only the subscribe request differs. */
+export const terminalSubscribeRequest = (id: string): ProtoRequest => ({ type: 'subscribe_terminal', payload: { terminal_id: id } })
 
 function endsWith(haystack: Uint8Array, needle: Uint8Array): boolean {
   if (needle.length === 0 || needle.length > haystack.length) return false
@@ -17,7 +22,7 @@ function endsWith(haystack: Uint8Array, needle: Uint8Array): boolean {
 }
 
 /**
- * Per-agent output streams. The daemon pushes `AgentOutput` bytes only to connections that `Subscribe`d, and PTY chunks can
+ * Per-agent (or per-free-terminal, see `subscribeRequest`) output streams. The daemon pushes `AgentOutput` bytes only to connections that `Subscribe`d, and PTY chunks can
  * end inside a UTF-8 sequence, so each agent has its own streaming `TextDecoder`.
  *
  * `Subscribe` answers with the buffered output; the first subscription of an agent holds live chunks that arrive before that
@@ -48,7 +53,7 @@ export function createAgentStreams(deps: StreamDeps) {
     }
     let buffer: Uint8Array
     try {
-      const response = await deps.send({ type: 'subscribe', payload: { agent_id: agentId } })
+      const response = await deps.send(deps.subscribeRequest?.(agentId) ?? { type: 'subscribe', payload: { agent_id: agentId } })
       buffer = base64ToBytes(String((response.payload as { data?: string } | undefined)?.data ?? ''))
     } catch (err) {
       if (first) {

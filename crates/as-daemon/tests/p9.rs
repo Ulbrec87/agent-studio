@@ -213,6 +213,44 @@ async fn files_requests_list_read_search_and_refuse_traversal() {
 }
 
 #[tokio::test]
+async fn write_file_request_saves_and_refuses_escapes() {
+    let h = start().await;
+    let client = DaemonClient::connect(&h.paths).await.unwrap();
+    let root = project(&h);
+    let dir = root.to_string_lossy().into_owned();
+    let write_req = |path: &str, content: &str| Request::FsWriteFile {
+        project_dir: dir.clone(),
+        path: path.into(),
+        content: content.into(),
+    };
+    assert!(matches!(
+        ask(&client, write_req("README.md", "saved\n")).await,
+        Ok(Response::Ok)
+    ));
+    let on_disk = std::fs::read_to_string(root.join("README.md")).unwrap();
+    assert_eq!(on_disk, "saved\n");
+    let err = ask(&client, write_req("../evil.txt", "x"))
+        .await
+        .unwrap_err();
+    assert!(err.contains("outside the project"), "{err}");
+    assert!(!h.dir.path().join("evil.txt").exists());
+    let err = ask(&client, write_req("src", "x")).await.unwrap_err();
+    assert!(err.contains("is a directory"), "{err}");
+    let Ok(Response::DirSuggestions(found)) = ask(
+        &client,
+        Request::FsListDirs {
+            query: format!("{}{}", h.dir.path().display(), std::path::MAIN_SEPARATOR),
+        },
+    )
+    .await
+    else {
+        panic!("suggestions")
+    };
+    assert!(found.iter().any(|d| d.name == "proj"), "{found:?}");
+    h.finish(client).await;
+}
+
+#[tokio::test]
 async fn the_free_terminal_layout_survives_a_daemon_restart() {
     use as_core::terminal_tree::SplitDir;
     let h = start().await;

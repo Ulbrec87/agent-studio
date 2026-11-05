@@ -403,3 +403,26 @@ included, so a test reading "the next frame" can get an event instead of its res
 - **tokio-tungstenite 0.28**: `Message::text(String)`, `Message::Text(Utf8Bytes)` (`.as_str()`); the handshake callback's `Err(ErrorResponse)` trips
   clippy `result_large_err` (allow it on the closure).
 
+
+## GUI (Tauri) G2a gotchas
+
+- **`DaemonBanner` reloaded the whole page on *every* reconnect** (it set its "rendered without daemon" flag on any disconnect, contradicting its own comment),
+  so a daemon restart threw away open panels and terminals. Only a page that *started* without a daemon reloads now (`everConnected`); after a drop the bridge
+  resubscribes and announces fresh terminal layouts. Check reconnect behaviour with `window.__x` markers in the page: they vanish on a reload.
+- **Monaco keeps the command registered at mount.** `CodeEditor` registered `onSave` once, so Ctrl+S in the editor saved the *old* content of the first file
+  (Hydra has the same bug; the App-level Ctrl+S handler is swallowed by Monaco). Call the latest handler through a ref (`onSaveRef`).
+- **Double-tapping Ctrl opens the shortcuts dialog** (Hydra feature, 350 ms). Browser automation that presses `Control+End` then `Control+s` quickly triggers it:
+  wait ~600 ms between Ctrl combos.
+- **The editor tree (Pierre) lives in a shadow DOM**: Playwright `getByText` does not find its rows; click by coordinates or use the bridge from `page.evaluate`.
+- **`Path` drops a trailing `.`** (`/x/.` -> `/x`), so `list_dirs` splits the typed text at the last separator instead; the typed prefix `.` (dot folders) works.
+- **A dangling symlink pointing outside the project passes `resolve_safe`** (nothing to canonicalize, it falls back to an existing ancestor). `fs::write_file`
+  therefore resolves symlinks itself and refuses anything that does not end inside the project; writes follow inner symlinks (the link stays) and keep the file mode.
+- **`write_atomic` touches the directory** (temporary file + rename): the polling watcher reports a `rename` for the folder after every save. Harmless
+  (the tree reloads once); do not "fix" it by ignoring directory events.
+- **Terminal output has no project in its event**: the bridge remembers terminal id -> project from the layouts it sees (`onFreeTerminalOutput(id, projectDir, data)`).
+  A scratch project (the data dir) hosts the preflight test terminal; its layout events are dropped so it never shows up in a panel.
+- **Tauri plugin versions**: `tauri-plugin-opener` resolves to `2.x` only when pinned (`cargo add tauri-plugin-opener@2`; the newest on crates.io is a 3.0 alpha).
+  Plugin permissions are checked when the shell is built: a typo in `capabilities/default.json` fails `cargo build`, but whether a dialog really opens is only visible in a real session.
+- **Hydra `gitCommit` without files means `git add -A`**; the daemon's `GitCommit { files: [] }` commits only what is staged. The bridge stages everything not fully staged first.
+- **E2E setup**: a fake `claude` script (`--version` + `exec cat`) first in `PATH` of the dev bridge and `{"terminalShellMode":"direct"}` in the temp home's
+  `config.json` give a running agent without a real Claude session; `agent-studio --home H new -p <repo>` creates it, and the editor/git panels need one.

@@ -352,6 +352,8 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
         | Request::FsReadDir { .. }
         | Request::FsReadFile { .. }
         | Request::FsMtime { .. }
+        | Request::FsWriteFile { .. }
+        | Request::FsListDirs { .. }
         | Request::FsSearch { .. }
         | Request::SpawnTerminal { .. }
         | Request::TerminalInput { .. }

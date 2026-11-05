@@ -15,14 +15,21 @@ interface DaemonStatus {
 export function DaemonBanner() {
   const [status, setStatus] = useState<DaemonStatus | null>(null)
   const renderedWithoutDaemon = useRef(false)
+  const everConnected = useRef(false)
 
   useEffect(() => {
     let cancelled = false
     const apply = (next: DaemonStatus): void => {
       if (cancelled) return
       setStatus(next)
-      if (!next.connected) renderedWithoutDaemon.current = true
-      else if (renderedWithoutDaemon.current) window.location.reload()
+      // Only a page that *started* without a daemon reloads; a drop after it was connected must keep the UI (open panels,
+      // terminals): the bridge re-subscribes and the views refresh by themselves.
+      if (!next.connected) {
+        if (!everConnected.current) renderedWithoutDaemon.current = true
+      } else {
+        everConnected.current = true
+        if (renderedWithoutDaemon.current) window.location.reload()
+      }
     }
     // Both are Agent Studio extensions of the Hydra API: absent in partial `window.hydra` test doubles.
     const api = window.hydra

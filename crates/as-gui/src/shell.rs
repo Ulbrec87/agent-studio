@@ -40,6 +40,10 @@ pub fn run_gui(home: Option<PathBuf>) -> Result<()> {
     tracing::info!("starting desktop app");
     let link = DaemonLink::new();
     tauri::Builder::default()
+        // Native pieces of the Hydra API: the folder dialog (`selectDirectory`) and opening links (`openExternal`).
+        // Capabilities in `capabilities/default.json` allow only `dialog:allow-open` and web/mail links.
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(paths.clone())
         .manage(link.clone())
         .invoke_handler(tauri::generate_handler![

@@ -5,17 +5,9 @@ import { createBridge } from './bridge'
 import { createDaemonTransport, type DaemonTransport } from './daemonApi'
 import { createHydraApi, type HydraAPI } from './hydraApi'
 import { createMockTransport } from './mockTransport'
-import { base64ToBytes, bytesToBase64, type DaemonStatus, type ProtoEvent, type ProtoRequest, type ProtoResponse } from './protocol'
-import type { RawTransport } from './transport'
+import { base64ToBytes, type ProtoResponse } from './protocol'
 
 // JSON recorded from a real daemon (agent-studio-gui --dev-bridge, 2026-11-05).
-const AGENT = {
-  createdAt: '2026-11-05T17:54:11.095Z', endedAt: null, id: 'ddbc7683', initialPrompt: '', isManager: false,
-  lastActivityAt: '2026-11-05T17:54:11.095Z', model: 'sonnet', name: 'shape', pid: 14269, projectDir: '/tmp/asg1-proj',
-  provider: 'claude', restartCount: 0, sessionId: null, startedAt: '2026-11-05T17:54:11.098Z', status: 'running',
-  workMode: 'local', worktreeBranch: null, worktreePath: null, yolo: false
-}
-const IDLE = { ...AGENT, id: 'idle0001', status: 'idle', pid: null }
 const PREFLIGHT = [
   { provider: 'claude', result: { error: null, ok: true, path: '/home/u/.local/bin/claude', version: '2.1.318 (Claude Code)' } },
   { provider: 'codex', result: { error: 'Codex CLI not found.', ok: false, path: null, version: null } }
@@ -25,52 +17,7 @@ const NOTIFICATION = {
   timestamp: '2026-11-05T17:54:11.098996089+00:00', title: 'Agent Started'
 }
 
-type Handler = (payload: unknown) => ProtoResponse | Promise<ProtoResponse>
-
-class FakeRaw implements RawTransport {
-  requests: ProtoRequest[] = []
-  handlers = new Map<string, Handler>()
-  private events = new Set<(e: ProtoEvent) => void>()
-  private statuses = new Set<(s: DaemonStatus) => void>()
-  current: DaemonStatus = { connected: true }
-
-  constructor() {
-    this.handlers.set('list_agents', () => ({ type: 'agents', payload: [AGENT, IDLE] }))
-    this.handlers.set('subscribe', () => ({ type: 'buffer', payload: { data: '' } }))
-    this.handlers.set('client_focus', () => ({ type: 'ok' }))
-  }
-  async request(req: unknown): Promise<unknown> {
-    const r = req as ProtoRequest
-    this.requests.push(r)
-    const handler = this.handlers.get(r.type)
-    if (!handler) throw new Error(`no fake handler for ${r.type}`)
-    return handler(r.payload)
-  }
-  onEvent(cb: (e: ProtoEvent) => void): () => void {
-    this.events.add(cb)
-    return () => this.events.delete(cb)
-  }
-  onStatus(cb: (s: DaemonStatus) => void): () => void {
-    this.statuses.add(cb)
-    return () => this.statuses.delete(cb)
-  }
-  async status(): Promise<DaemonStatus> {
-    return this.current
-  }
-  push(type: string, payload?: unknown): void {
-    for (const cb of [...this.events]) cb({ type, payload })
-  }
-  setStatus(s: DaemonStatus): void {
-    this.current = s
-    for (const cb of [...this.statuses]) cb(s)
-  }
-  of(type: string): ProtoRequest[] {
-    return this.requests.filter((r) => r.type === type)
-  }
-}
-
-const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms))
-const b64 = (text: string | number[]) => bytesToBase64(typeof text === 'string' ? new TextEncoder().encode(text) : Uint8Array.from(text))
+import { AGENT, FakeRaw, IDLE, b64, tick } from './testKit'
 
 let transport: DaemonTransport | null = null
 afterEach(() => {
@@ -396,10 +343,10 @@ describe('errors and fallback', () => {
     await expect(api.killAgent('x')).rejects.toThrow(/unexpected daemon response "pong"/)
   })
 
-  it('G2 methods fall through to the mock instead of failing', async () => {
+  it('G2b methods (headless, skills, updates) still fall through to the mock instead of failing', async () => {
     const { raw, api } = await setup()
-    expect(await api.listFreeTerminals()).toEqual([])
-    expect(await api.getInstalledEditors()).toEqual([])
+    expect(await api.listHeadlessRuns()).toEqual([])
+    expect(await api.getUpdateState()).toBeTruthy()
     expect(raw.requests).toHaveLength(0)
   })
 })

@@ -2,7 +2,7 @@
 //! names, so adding a variant never changes the encoding of the others. Binary data is base64.
 
 use as_core::agents::providers::PreflightResult;
-use as_core::fs::{FileContent, FsEntry, SearchHit};
+use as_core::fs::{DirSuggestion, FileContent, FsEntry, SearchHit};
 use as_core::git::{
     GitBranch, GitCommit, GitDiffStats, GitFileContents, GitPrDiff, GitStatus, GitWorktree,
 };
@@ -236,6 +236,18 @@ pub enum Request {
         project_dir: String,
         path: String,
     },
+    /// Replace a project text file (the editor's save): same path protections as the reads, size
+    /// cap, atomic, a directory is an error; answers `Ok`.
+    FsWriteFile {
+        project_dir: String,
+        path: String,
+        content: String,
+    },
+    /// Folders matching a typed absolute path (`~` allowed), for the new-agent dialog; answers
+    /// `DirSuggestions`. Not confined to a project.
+    FsListDirs {
+        query: String,
+    },
     /// Fuzzy file search (gitignore aware); answers `SearchHits`.
     FsSearch {
         project_dir: String,
@@ -467,6 +479,7 @@ pub enum Response {
     FileContent(FileContent),
     Number(u64),
     SearchHits(Vec<SearchHit>),
+    DirSuggestions(Vec<DirSuggestion>),
     TerminalSpawned(SpawnedTerminal),
     TerminalLayout(FreeTerminalLayout),
     Terminals(Vec<TerminalInfo>),

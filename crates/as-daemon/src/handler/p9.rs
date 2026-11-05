@@ -160,6 +160,19 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
             let m = blocking(move || fs::file_mtime_ms(Path::new(&project_dir), &path)).await?;
             m.map(Response::Number).map_err(|e| e.to_string())
         }
+        Request::FsWriteFile {
+            project_dir,
+            path,
+            content,
+        } => {
+            let done =
+                blocking(move || fs::write_file(Path::new(&project_dir), &path, &content)).await?;
+            done.map(|()| Response::Ok).map_err(|e| e.to_string())
+        }
+        Request::FsListDirs { query } => {
+            let dirs = blocking(move || fs::list_dirs(&query, &as_core::paths::home_dir())).await?;
+            Ok(Response::DirSuggestions(dirs))
+        }
         Request::FsSearch {
             project_dir,
             query,

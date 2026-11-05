@@ -52,6 +52,12 @@ function getLanguage(path: string | null): string {
 export function CodeEditor({ filePath, content, theme, onChange, onSave }: CodeEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null)
+  // Monaco keeps the command registered at mount: it must call the *latest* `onSave` (current file and content),
+  // not the one of the first render (that used to save the old content of a file, found while wiring G2a).
+  const onSaveRef = useRef(onSave)
+  useEffect(() => {
+    onSaveRef.current = onSave
+  }, [onSave])
 
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
@@ -71,7 +77,7 @@ export function CodeEditor({ filePath, content, theme, onChange, onSave }: CodeE
 
       // Cmd+S to save
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-        onSave()
+        onSaveRef.current()
       })
 
       // Cmd+E: route to the app-level toggle instead of Monaco's "Add selection
@@ -83,7 +89,7 @@ export function CodeEditor({ filePath, content, theme, onChange, onSave }: CodeE
 
       editor.focus()
     },
-    [theme, onSave]
+    [theme]
   )
 
   // Sync theme changes

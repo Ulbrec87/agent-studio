@@ -1,6 +1,6 @@
 // The mapping layer: Hydra's `window.hydra` methods -> `as-proto` requests, and daemon events -> Hydra's `on*` channels.
 // `createDaemonTransport` is a Hydra-level `Transport` (`{ method, args }` in, `{ channel, args }` events out) on top of a
-// raw protocol transport (Tauri commands or the dev-bridge WebSocket). Methods that are not wired yet (G2) fall through to
+// raw protocol transport (Tauri commands or the dev-bridge WebSocket). Methods that are not wired yet (G2b) fall through to
 // the fallback (the in-memory mock), so the UI never hits a missing method.
 import { DEFAULT_KEYBINDINGS } from '@shared/keybindings'
 import type { AgentState, AppConfig, CreateAgentPayload, ListClaudeSessionsOptions, ProviderId } from '@shared/types'
@@ -10,6 +10,11 @@ import { APP_INFO_REQUEST, type AppInfo, type HydraEvent, type HydraRequest, typ
 import { bytesToBase64, toError, utf8Bytes, type DaemonStatus, type ProtoEvent, type ProtoRequest, type ProtoResponse } from './protocol'
 import { compact, expectPayload, mapMcpStatus, mapNotification, mapPreflight, splitConfigPatch, toHydraConfig } from './mappers'
 import { createAgentStreams } from './streams'
+import type { BridgeContext, MethodGroup } from './context'
+import { GIT_METHODS, createGitMethods } from './gitApi'
+import { FILE_METHODS, createFileMethods } from './filesApi'
+import { TERMINAL_METHODS, createTerminalMethods } from './terminalsApi'
+import { NATIVE_METHODS, createNativeMethods, type NativeDeps } from './nativeApi'
 
 export interface DaemonTransportOptions {
   raw: RawTransport
@@ -18,6 +23,10 @@ export interface DaemonTransportOptions {
   appInfo?: AppInfo
   /** Where GUI-only settings live (default: `window.localStorage`, guarded). */
   storage?: Pick<Storage, 'getItem' | 'setItem'> | null
+  /** Test seams for the native pieces (folder dialog, URL opener, clipboard). */
+  native?: Partial<Omit<NativeDeps, 'ctx'>>
+  /** Poll period of the file watcher in ms (default 1000; 0 = only on demand, for tests). */
+  fsPollMs?: number
 }
 
 export interface DaemonTransport extends Transport {
@@ -33,12 +42,13 @@ export const WIRED_METHODS = [
   'getOverviewAgentDetails', 'getOverviewHistory', 'getOverviewWaits', 'getUsageState', 'getUsageSummary', 'getUsageReport',
   'refreshUsage', 'setUsageVisible', 'getConfig', 'setConfig', 'getKeybindings', 'getKeybindingsPath', 'getConfigPath',
   'toggleGlobalYolo', 'listClaudeProfiles', 'listClaudeSessions', 'listProviderModels', 'getMcpServerStatus',
-  'dismissNotification', 'getDaemonStatus'
+  'dismissNotification', 'getDaemonStatus', ...GIT_METHODS, ...FILE_METHODS, ...TERMINAL_METHODS, ...NATIVE_METHODS
 ] as const
 
-/** The `on*` channels this layer emits from daemon events (the other `on*` channels are G2 and never fire yet). */
+/** The `on*` channels this layer emits from daemon events (the other `on*` channels are G2b/P11 and never fire yet). */
 export const WIRED_CHANNELS = [
-  'onAgentOutput', 'onAgentStatus', 'onOverviewEvents', 'onOverviewSnapshot', 'onUsageChanged', 'onConfigChange', 'onNotification'
+  'onAgentOutput', 'onAgentStatus', 'onOverviewEvents', 'onOverviewSnapshot', 'onUsageChanged', 'onConfigChange', 'onNotification',
+  'onFsWatchEvent', 'onFreeTerminalOutput', 'onFreeTerminalExit', 'onFreeTerminalLayoutChanged', 'onTestTerminalOutput', 'onTestTerminalExit'
 ] as const
 
 function defaultStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
@@ -67,6 +77,28 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
 
   const call = async <T>(type: string, payload: unknown, ...expected: string[]): Promise<T> =>
     expectPayload<T>(await send(type, payload), ...expected)
+
+  // ── agent -> project (the editor methods take an agent id, the daemon wants the project folder) ──
+  const projectDirs = new Map<string, string>()
+  const projectOf = async (agentId: string): Promise<string> => {
+    const known = projectDirs.get(agentId)
+    if (known) return known
+    const agent = await call<AgentState | null>('get_agent', { agent_id: agentId }, 'agent')
+    if (!agent) throw new Error(`Agent ${agentId} not found`)
+    projectDirs.set(agent.id, agent.projectDir)
+    return agent.projectDir
+  }
+  const remember = (agents: AgentState[]): void => {
+    for (const a of agents) projectDirs.set(a.id, a.projectDir)
+  }
+
+  const ctx: BridgeContext = { call, send, emit, appInfo: () => appInfo }
+  const groups: MethodGroup[] = [
+    createGitMethods(ctx),
+    createFileMethods({ ctx, projectOf, watcher: options.fsPollMs === undefined ? undefined : { pollMs: options.fsPollMs } }),
+    createTerminalMethods(ctx),
+    createNativeMethods({ ctx, ...options.native })
+  ]
 
   const streams = createAgentStreams({
     send: (req: ProtoRequest) => raw.request(req) as Promise<ProtoResponse>,
@@ -99,6 +131,7 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
 
   /** Start streaming every live agent; stop streaming (and forget) the ones that disappeared. */
   const syncAgents = async (agents: AgentState[]): Promise<void> => {
+    remember(agents)
     const ids = new Set(agents.map((a) => a.id))
     for (const id of knownIds) if (!ids.has(id)) streams.drop(id)
     knownIds = ids
@@ -111,6 +144,7 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
 
   const listAgents = async (): Promise<AgentState[]> => {
     const agents = await call<AgentState[]>('list_agents', undefined, 'agents')
+    remember(agents)
     void syncAgents(agents)
     return agents
   }
@@ -118,6 +152,7 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
   const withAgent = async (type: string, payload: unknown): Promise<AgentState | null> => {
     const agent = await call<AgentState | null>(type, payload, 'agent')
     if (agent) {
+      projectDirs.set(agent.id, agent.projectDir)
       knownIds.add(agent.id)
       if (isLive(agent)) void streams.ensure(agent.id).catch(() => undefined)
     }
@@ -151,6 +186,7 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
       }
       const agent = await call<AgentState>('create_agent', compact(body as unknown as Record<string, unknown>), 'agent')
       knownIds.add(agent.id)
+      projectDirs.set(agent.id, agent.projectDir)
       await streams.ensure(agent.id).catch((err) => console.warn('[bridge] subscribe failed', err))
       return agent
     }) as never,
@@ -236,6 +272,7 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
     // Agent Studio extensions
     getDaemonStatus: (() => ({ ...status })) as never
   }
+  for (const group of groups) Object.assign(methods, group.methods)
 
   function dataPath(file: string): string {
     const root = appInfo?.dataDir ?? ''
@@ -279,7 +316,9 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
         emit('onUsageChanged', event.payload)
         break
       default:
-        // agent_waiting (covered by overview + notifications), headless/terminal/update events: G2.
+        // Free terminals (and the test terminal) are the terminal group's; agent_waiting is covered by overview + notifications;
+        // headless and update events are G2b.
+        for (const group of groups) if (group.onEvent?.(event.type, p)) break
         break
     }
   }
@@ -292,6 +331,7 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
   const resync = (): void => {
     streams.reset()
     knownIds = new Set()
+    for (const group of groups) group.onConnect?.()
     if (typeof document !== 'undefined') reportFocus(document.hasFocus())
     void call<AgentState[]>('list_agents', undefined, 'agents')
       .then(syncAgents)
@@ -302,7 +342,10 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
   const onStatus = (next: DaemonStatus): void => {
     const was = status.connected
     status = next
-    if (!next.connected) streams.reset()
+    if (!next.connected) {
+      streams.reset()
+      for (const group of groups) group.onDisconnect?.()
+    }
     emit('onDaemonStatus', { ...next })
     if (next.connected && !was) resync()
   }
@@ -349,6 +392,7 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
       offEvent()
       offStatus()
       offFallback()
+      for (const group of groups) group.dispose?.()
       if (typeof window !== 'undefined') {
         window.removeEventListener('focus', onFocus)
         window.removeEventListener('blur', onBlur)

@@ -10,7 +10,13 @@ unchanged. Layers:
 | `wsTransport.ts` | browser dev raw transport: `?bridge=ws://127.0.0.1:PORT&token=T` -> the `agent-studio-gui --dev-bridge` WebSocket |
 | `daemonApi.ts` | **the mapping layer**: Hydra method -> `as-proto` request, daemon event -> Hydra `on*` channel; unwired methods fall through to the mock |
 | `mappers.ts` | pure shape adapters (preflight, notification, MCP status, config defaults + GUI-only keys) |
-| `streams.ts` | per-agent output streams: `Subscribe`, held live chunks, de-duplication, streaming `TextDecoder` |
+| `streams.ts` | per-agent (and per-free-terminal) output streams: `Subscribe`/`SubscribeTerminal`, held live chunks, de-duplication, streaming `TextDecoder` |
+| `context.ts` | `BridgeContext` (typed `call`/`send`/`emit`) and `MethodGroup`, what the groups below get from `daemonApi.ts` |
+| `gitApi.ts` | G2a: git methods + shape mappers |
+| `filesApi.ts` | G2a: files/editor methods, shape mappers and the polling file watcher |
+| `terminalsApi.ts` | G2a: free terminals and the preflight "test terminal" |
+| `nativeApi.ts` | G2a: open-in, folder suggestions, folder dialog, URL opener, clipboard image |
+| `testKit.ts` | test helper: scripted raw transport (`FakeRaw`) and `makeBridge()` |
 | `protocol.ts` | protocol envelope types, base64 helpers, `toError` |
 | `mockTransport.ts` + `fixtures.ts` | in-memory answers for plain browsers, tests and every method that is not wired yet; `emit()` for tests |
 | `bridge.ts` | `call` / `send` / `subscribe` over a Hydra-level transport; fans events out by channel |
@@ -44,12 +50,61 @@ Two wire formats:
   filled from Hydra's defaults and a patch of them is kept in the webview's `localStorage` (`agent-studio.gui-config`). Everything else is
   `GetConfig` / `UpdateConfig`; `config_changed` events become `onConfigChange`.
 * **Keybindings** are Hydra's `mod+` defaults (`getKeybindings`); the path getters return `<data dir>/gui-keybindings.json` and
-  `<data dir>/config.json`. Real editing is G2.
+  `<data dir>/config.json`. Real editing is G2b.
 * **Window focus** is reported with `ClientFocus`, so the daemon only shows OS notifications while the GUI is not focused.
 * **Errors**: a rejected request becomes an `Error` with the daemon's message; a response of an unexpected variant is an error.
 * **Shape fixes** (everything else already matches `gui/shared/types.ts`): `Preflight` (list per provider, `path`) -> one result with
   `claudePath`; `StudioNotification` (`kind`, `agent_id`) -> `HydraNotification` (`type`, `agentId`); MCP status `manager_workspace` ->
   `managerWorkspace`; the wait ledger is wrapped as `{ ledger }`; global YOLO also writes `globalYolo` into the config (Hydra does).
+
+### G2a: git, files/editor, free terminals, open-in and native
+
+**Git** (`gitApi.ts`). Shapes: the daemon's `GitStatus` (file list with flags) becomes Hydra's `{ branch, ahead, behind, modified, staged, untracked }`
+(a folder that is not a repository is the same empty status Hydra returns; a detached HEAD is branch `HEAD`); the log's `hash` is the 8 character
+`shortHash`; branches are **local only** (the panel has no notion of remote ones); `gitWorktreeCreate` answers `{ worktreePath, branch }`;
+`gitWorktreeRemove` passes `force: true` and deletes the branch (Hydra uses `--force` and `branch -D`); `gitPush` answers `void`. Semantics:
+* `gitCommit(dir, msg, files?)`: with files it is `GitCommit { files }` (stages and commits only those; Hydra staged them but committed everything
+  staged). Without files Hydra does `git add -A`: the bridge reads the status, `GitStage`s every path that is not fully staged, then `GitCommit { files: [] }`.
+* `gitFileContents` is HEAD versus the **work tree** (what the diff viewer shows): the bridge asks the daemon twice (`staged: true` gives HEAD/index,
+  `staged: false` gives index/work tree) and combines `original` of the first with `modified` of the second.
+* `getGitDiff` is the unstaged diff (Hydra's `git diff`); `gitFetchPr` passes the identifier (`123`, `#123`, URL) as text, `gitPrFileDiff` the number.
+  `gh` errors (no GitHub remote, not logged in) reach the PR tab as the error text.
+
+**Files / editor** (`filesApi.ts`). Hydra's methods take an **agent id**: the project directory comes from the agent list (cached; `GetAgent` on a
+miss). Paths are project-relative with `/` and `'.'` for the root (the bridge sends `''`). `readDir` hides Hydra's ignored names (`node_modules`,
+`dist`, `build`, ...) and dot entries except `.env.example`, folders first. `readFile` returns `{ content, path }`; a binary file or one above the
+daemon's 1 MiB preview cap is an error (Hydra: 5 MB). `writeFile` is the new `FsWriteFile` (5 MiB cap, atomic, path-safe, answers `true`).
+`searchFiles` is the daemon's fuzzy, `.gitignore`-aware search, over-fetched and filtered with Hydra's ignore list; a blank query gives `[]`.
+
+*Polling watcher* (replaces Hydra's recursive `fs.watch`; the daemon has no watcher, only `FsMtime`): `watchDir(agentId)` starts polling every
+**1 s**, `unwatchDir` stops it (the editor panel does both). It follows what the renderer is actually showing, at most 64 paths per agent: the
+project root, every directory it listed with `readDir` (a directory's mtime moves when an entry is created, deleted or renamed -> `{ eventType:
+'rename', path: <dir> }`) and every file it opened with `readFile` (-> `{ eventType: 'change', path }`; a file that vanishes or comes back is a
+`rename`). Baselines are taken at registration (before the listing, so a change in between is reported at the next poll); our own `writeFile`
+is acknowledged silently, but the atomic write touches its directory, so the tree refreshes once after a save (Hydra's watcher also fires on saves).
+A change in a directory the tree never listed is not seen. The renderer only reloads its tree on these events; an open tab is not reloaded.
+
+**Free terminals** (`terminalsApi.ts`). The daemon's `FreeTerminalLayout` is Hydra's layout plus an optional split `tree` per group; groups carry
+`paneIds` in reading order, which is what the renderer shows (side by side), so layouts pass through unchanged and keep the split info for later.
+`SpawnedTerminal` is already `{ terminalId, groupId, layout }`; `listFreeTerminals` adds `exited: false` (the daemon drops exited terminals).
+Output is bytes: every pane of every layout the bridge sees (`getFreeTerminalLayout`, `spawnFreeTerminal`, layout events) is subscribed
+(`SubscribeTerminal`) so `onFreeTerminalOutput(id, projectDir, text)` has a streaming `TextDecoder` per terminal; `getFreeTerminalBuffer` re-sends
+`SubscribeTerminal` and returns the whole scrollback (`{ exists: false }` when the daemon does not know the terminal). Input and resizes of a
+terminal are chained (`serial`). `terminal_exit` -> `onFreeTerminalExit`, `terminal_layout_changed` -> `onFreeTerminalLayoutChanged`.
+*Reconnect*: subscriptions are per connection and a restarted daemon respawns a project's saved shells (new ids) on the first `GetTerminalLayout`,
+so after `connected: true` the bridge asks the layout of every project that had terminals and emits `onFreeTerminalLayoutChanged` (the panel only
+reads layouts when it mounts). The window does **not** reload on a reconnect (see AGENTLOG).
+*Test terminal* (preflight modal, "try `claude` in a shell"): a free terminal of a scratch project (the data dir) whose output/exit go to
+`onTestTerminalOutput/Exit`; its layout events are not forwarded and `killTestTerminal` (modal closed) removes it, so it never shows in a layout.
+
+**Open-in and native** (`nativeApi.ts`). `getInstalledEditors` = `ListOpenTargets` mapped to Hydra's `EditorId`s (`files` = `finder`; the daemon's
+`$EDITOR` target has no counterpart); `openInEditor`/`openInApp`/`openPath` = `OpenIn` (editor, falling back to the default application like Hydra;
+`openPath` = default application via the `files` target), answering `false` when nothing could open the path. The daemon starts the program, so a
+daemon without a display (systemd service started outside the session) cannot open GUI editors. `listDirectories` = new `FsListDirs`.
+`selectDirectory` = Tauri dialog plugin (`dialog:allow-open`), `null` in a browser (no native dialog in the dev bridge; the New Agent dialog still
+takes a typed path). `openExternal` = Tauri opener plugin (`opener:allow-open-url`, scope `http(s)://*` and `mailto:*`; Hydra's own http/https/mailto
+check runs first), `window.open` in a browser. `writeClipboardImage` = `navigator.clipboard.write` with a PNG blob (no plugin: supported by WebView2,
+WKWebView and current WebKitGTK; returns `false` when the webview refuses).
 
 ### Agent Studio extensions of `window.hydra`
 
@@ -70,7 +125,7 @@ The dev bridge is a dev/test tool (browser automation, screenshots): loopback on
 ## Methods
 
 Status: `stub` = answered by the mock (fixtures / empty states / documented no-op), `wired` = real daemon or native call.
-Tick them off here as G1/G2 land (`wired.test.ts` keeps this table in step with `WIRED_METHODS` / `WIRED_CHANNELS` in `daemonApi.ts`). `send` = fire-and-forget (`ipcRenderer.send`), `on` = subscription returning an unsubscribe.
+Tick them off here as G1/G2a/G2b land (`wired.test.ts` keeps this table in step with `WIRED_METHODS` / `WIRED_CHANNELS` in `daemonApi.ts`). `send` = fire-and-forget (`ipcRenderer.send`), `on` = subscription returning an unsubscribe.
 
 | Method | Kind | Phase | Status |
 |--------|------|-------|--------|
@@ -110,15 +165,15 @@ Tick them off here as G1/G2 land (`wired.test.ts` keeps this table in step with 
 | `getConfigPath` | invoke | G1 | wired |
 | `onKeybindingsChange` | on | G1 | stub |
 | `toggleGlobalYolo` | invoke | G1 | wired |
-| `writeClipboardImage` | invoke | G2 | stub |
-| `selectDirectory` | invoke | G2 | stub |
-| `listDirectories` | invoke | G2 | stub |
+| `writeClipboardImage` | invoke | G2 | wired |
+| `selectDirectory` | invoke | G2 | wired |
+| `listDirectories` | invoke | G2 | wired |
 | `listClaudeProfiles` | invoke | G1 | wired |
-| `openInEditor` | invoke | G2 | stub |
-| `openInApp` | invoke | G2 | stub |
-| `openPath` | invoke | G2 | stub |
-| `openExternal` | invoke | G2 | stub |
-| `getInstalledEditors` | invoke | G2 | stub |
+| `openInEditor` | invoke | G2 | wired |
+| `openInApp` | invoke | G2 | wired |
+| `openPath` | invoke | G2 | wired |
+| `openExternal` | invoke | G2 | wired |
+| `getInstalledEditors` | invoke | G2 | wired |
 | `listClaudeSessions` | invoke | G1 | wired |
 | `listProviderModels` | invoke | G1 | wired |
 | `onConfirmQuit` | on | G1 | stub |
@@ -142,51 +197,52 @@ Tick them off here as G1/G2 land (`wired.test.ts` keeps this table in step with 
 | `getMcpServerStatus` | invoke | G1 | wired |
 | `onNotification` | on | G1 | wired |
 | `dismissNotification` | send | G1 | wired |
-| `readDir` | invoke | G2 | stub |
-| `readFile` | invoke | G2 | stub |
-| `writeFile` | invoke | G2 | stub |
-| `watchDir` | send | G2 | stub |
-| `unwatchDir` | send | G2 | stub |
-| `searchFiles` | invoke | G2 | stub |
-| `onFsWatchEvent` | on | G2 | stub |
-| `getGitStatus` | invoke | G2 | stub |
-| `getGitLog` | invoke | G2 | stub |
-| `getGitDiff` | invoke | G2 | stub |
-| `getGitDiffStats` | invoke | G2 | stub |
-| `gitCommit` | invoke | G2 | stub |
-| `gitPush` | invoke | G2 | stub |
-| `gitListBranches` | invoke | G2 | stub |
-| `gitCheckout` | invoke | G2 | stub |
-| `gitCreateBranch` | invoke | G2 | stub |
-| `gitWorktreeCreate` | invoke | G2 | stub |
-| `gitWorktreeRemove` | invoke | G2 | stub |
-| `gitFileContents` | invoke | G2 | stub |
-| `gitFetchPr` | invoke | G2 | stub |
-| `gitPrFileDiff` | invoke | G2 | stub |
+| `readDir` | invoke | G2 | wired |
+| `readFile` | invoke | G2 | wired |
+| `writeFile` | invoke | G2 | wired |
+| `watchDir` | send | G2 | wired |
+| `unwatchDir` | send | G2 | wired |
+| `searchFiles` | invoke | G2 | wired |
+| `onFsWatchEvent` | on | G2 | wired |
+| `getGitStatus` | invoke | G2 | wired |
+| `getGitLog` | invoke | G2 | wired |
+| `getGitDiff` | invoke | G2 | wired |
+| `getGitDiffStats` | invoke | G2 | wired |
+| `gitCommit` | invoke | G2 | wired |
+| `gitPush` | invoke | G2 | wired |
+| `gitListBranches` | invoke | G2 | wired |
+| `gitCheckout` | invoke | G2 | wired |
+| `gitCreateBranch` | invoke | G2 | wired |
+| `gitWorktreeCreate` | invoke | G2 | wired |
+| `gitWorktreeRemove` | invoke | G2 | wired |
+| `gitFileContents` | invoke | G2 | wired |
+| `gitFetchPr` | invoke | G2 | wired |
+| `gitPrFileDiff` | invoke | G2 | wired |
 | `enableRemoteControl` | invoke | G2 | stub |
 | `disableRemoteControl` | invoke | G2 | stub |
 | `getRemoteControlState` | invoke | G2 | stub |
 | `onRemoteStateChange` | on | G2 | stub |
 | `scanSkills` | invoke | G2 | stub |
 | `toggleSkill` | invoke | G2 | stub |
-| `spawnTestTerminal` | invoke | G2 | stub |
-| `sendTestTerminalInput` | send | G2 | stub |
-| `resizeTestTerminal` | send | G2 | stub |
-| `killTestTerminal` | send | G2 | stub |
-| `onTestTerminalOutput` | on | G2 | stub |
-| `onTestTerminalExit` | on | G2 | stub |
-| `spawnFreeTerminal` | invoke | G2 | stub |
-| `sendFreeTerminalInput` | send | G2 | stub |
-| `resizeFreeTerminal` | send | G2 | stub |
-| `killFreeTerminal` | send | G2 | stub |
-| `activateFreeTerminal` | send | G2 | stub |
-| `getFreeTerminalBuffer` | invoke | G2 | stub |
-| `getFreeTerminalLayout` | invoke | G2 | stub |
-| `listFreeTerminals` | invoke | G2 | stub |
-| `onFreeTerminalOutput` | on | G2 | stub |
-| `onFreeTerminalExit` | on | G2 | stub |
-| `onFreeTerminalLayoutChanged` | on | G2 | stub |
-G1 rows still `stub` on purpose: `logEvent` (no daemon request for renderer logs yet), `onKeybindingsChange` (no keybinding editing before G2),
+| `spawnTestTerminal` | invoke | G2 | wired |
+| `sendTestTerminalInput` | send | G2 | wired |
+| `resizeTestTerminal` | send | G2 | wired |
+| `killTestTerminal` | send | G2 | wired |
+| `onTestTerminalOutput` | on | G2 | wired |
+| `onTestTerminalExit` | on | G2 | wired |
+| `spawnFreeTerminal` | invoke | G2 | wired |
+| `sendFreeTerminalInput` | send | G2 | wired |
+| `resizeFreeTerminal` | send | G2 | wired |
+| `killFreeTerminal` | send | G2 | wired |
+| `activateFreeTerminal` | send | G2 | wired |
+| `getFreeTerminalBuffer` | invoke | G2 | wired |
+| `getFreeTerminalLayout` | invoke | G2 | wired |
+| `listFreeTerminals` | invoke | G2 | wired |
+| `onFreeTerminalOutput` | on | G2 | wired |
+| `onFreeTerminalExit` | on | G2 | wired |
+| `onFreeTerminalLayoutChanged` | on | G2 | wired |
+After G2a the rows still `stub` are G2b (headless, skills, updates, diagnostics), the P11 remote-control methods and the G1 rows below.
+G1 rows still `stub` on purpose: `logEvent` (no daemon request for renderer logs yet), `onKeybindingsChange` (no keybinding editing before G2b),
 `confirmQuit` / `quitBackground` / `onConfirmQuit` (Tauri quit flow, G3).
 
 Notes: `enableRemoteControl`, `disableRemoteControl`, `getRemoteControlState`, `onRemoteStateChange` are deferred to P11 (kept
