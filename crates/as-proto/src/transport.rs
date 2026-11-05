@@ -10,7 +10,18 @@ use interprocess::local_socket::traits::tokio::Listener as _;
 use interprocess::local_socket::traits::tokio::Stream as _;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 
+/// Client side of a connection.
+///
+/// Windows: tokio's own named-pipe client. interprocess' tokio connect waits on a blocking thread
+/// with NO timeout while the pipe is busy (no listening instance, e.g. while the last server-side
+/// instances of a stopped daemon still linger) and ignores `ConnectWaitMode`; that thread outlives
+/// every `tokio::time::timeout` around it and blocks the runtime's shutdown forever.
+#[cfg(windows)]
+pub type Conn = tokio::net::windows::named_pipe::NamedPipeClient;
+#[cfg(not(windows))]
 pub type Conn = Stream;
+/// Server side of a connection, as returned by [`accept`].
+pub type Accepted = Stream;
 pub type Server = Listener;
 
 fn name(socket: &str) -> io::Result<interprocess::local_socket::Name<'static>> {
@@ -21,15 +32,21 @@ fn name(socket: &str) -> io::Result<interprocess::local_socket::Name<'static>> {
 pub async fn connect_name(socket: &str) -> io::Result<Conn> {
     #[cfg(windows)]
     {
-        // A busy named pipe (no listening instance) makes interprocess wait on a blocking thread
-        // with NO timeout by default; that thread outlives our `tokio::time::timeout` callers and
-        // blocks runtime shutdown forever. Bound it.
-        use interprocess::ConnectWaitMode;
-        use interprocess::local_socket::ConnectOptions;
-        let options = ConnectOptions::new()
-            .name(name(socket)?)
-            .wait_mode(ConnectWaitMode::Timeout(std::time::Duration::from_secs(2)));
-        options.connect_tokio().await
+        use tokio::net::windows::named_pipe::ClientOptions;
+        /// ERROR_PIPE_BUSY: every instance is connected right now; retry shortly.
+        const ERROR_PIPE_BUSY: i32 = 231;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            match ClientOptions::new().open(socket) {
+                Err(e)
+                    if e.raw_os_error() == Some(ERROR_PIPE_BUSY)
+                        && std::time::Instant::now() < deadline =>
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                other => return other,
+            }
+        }
     }
     #[cfg(not(windows))]
     {
@@ -57,6 +74,6 @@ pub fn remove_socket_file(paths: &Paths) {
     }
 }
 
-pub async fn accept(server: &Server) -> io::Result<Conn> {
+pub async fn accept(server: &Server) -> io::Result<Accepted> {
     server.accept().await
 }
