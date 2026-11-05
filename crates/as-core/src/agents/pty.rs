@@ -145,3 +145,59 @@ impl PtyBackend for NativePtyBackend {
         })
     }
 }
+
+#[cfg(all(test, windows))]
+mod diag {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn pty_diag() {
+        let t0 = Instant::now();
+        let mut env = HashMap::new();
+        for (k, v) in std::env::vars() {
+            env.insert(k, v);
+        }
+        let req = PtySpawnRequest {
+            cmd: "cmd".into(),
+            args: vec!["/c".into(), "echo hello".into()],
+            cwd: std::env::temp_dir().to_string_lossy().into_owned(),
+            env,
+            cols: 80,
+            rows: 24,
+        };
+        let p = NativePtyBackend.spawn(&req).unwrap();
+        eprintln!("spawned pid={:?}", p.pid);
+        let mut reader = p.reader;
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => {
+                        eprintln!("reader EOF");
+                        break;
+                    }
+                    Ok(n) => eprintln!("read {n}: {:?}", String::from_utf8_lossy(&buf[..n])),
+                    Err(e) => {
+                        eprintln!("reader err {e}");
+                        break;
+                    }
+                }
+            }
+        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut w = p.waiter;
+        std::thread::spawn(move || {
+            let c = w.wait();
+            let _ = tx.send(c);
+        });
+        match rx.recv_timeout(Duration::from_secs(8)) {
+            Ok(c) => eprintln!("waited code {c} after {:?}", t0.elapsed()),
+            Err(_) => eprintln!("wait TIMED OUT"),
+        }
+        std::thread::sleep(Duration::from_secs(1));
+        drop(p.control);
+        std::thread::sleep(Duration::from_secs(1));
+        eprintln!("done");
+    }
+}
