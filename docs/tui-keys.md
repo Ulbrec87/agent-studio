@@ -156,6 +156,28 @@ limits poll), `Esc`/`q`/`u` close. Palette: *Usage Report*, *Refresh Usage*, *Sh
 `usage.showCost=false` hides every dollar amount (chip, card, overlay, notifications). While the overlay or the Overview is shown
 the TUI tells the daemon (`UsageVisible`), which then polls the plan limits every 60 s instead of every 5 min.
 
+## Headless runs (`prefix H`) and manager agents
+
+`prefix H` (command `headless`, palette *Headless Runs*) opens the panel: one row per run, newest first: status glyph
+(`◐` running, `✔` completed, `✖` errored, `⊘` canceled), age, `provider/model`, project folder, prompt excerpt.
+List keys: `j/k`, `PgUp/PgDn`, `g/G` move, `/` search (id, prompt, project, model, provider, status, session id, error; `Enter` keeps,
+`Esc` clears), `s`/`Tab` cycle the status chip (all / running / completed / errored / canceled), `n` new run, `Enter` log, `x` cancel
+the run (running ones only), `r` refresh, `Esc`/`q` close.
+`n` opens the *New headless run* dialog (the New agent dialog without name, YOLO and manager rows): directory (Tab completes),
+provider, model, reasoning effort (Codex), *Resume* (the session picker of the New agent dialog; fills directory and provider) and a
+required multi-line prompt (`Alt+Enter` newline, `Enter` starts, `Esc` goes back to the list). Starting opens the log.
+Log viewer: Claude's `stream-json` is rendered as assistant text, one line per tool call (`⚙ Bash cargo test`), one line per tool
+result (`↳ first line (+N lines)`), stderr lines and a summary (`✔ done · 3 turns · 8.2s · $0.0421`); other CLIs print plain text.
+`r` toggles the raw lines, `j/k`/`PgUp/PgDn`/`g` scroll, `G`/`End`/`f` follow the end again (the viewer follows while the run
+writes; scrolling up keeps your place), `R` reloads, `x` cancels, `Esc`/`Backspace` back to the list. The daemon notifies when a run
+completes or fails (toast + OS notification when unfocused).
+
+*New Manager Agent* (palette) opens the New agent dialog with the **Manager** row on; the row is also reachable in the normal
+dialog (`Space`). A manager runs Claude in the daemon's manager workspace (no directory, provider or resume to choose) with the
+`studio_*` MCP tools, is pinned at the top of the sidebar under `★ manager`, and gets *"What can you do as the Agent Studio Manager
+agent? ..."* as first message unless you type another. The toggle is off (with the reason) when the MCP server is not running.
+*MCP Server Status* (palette) shows the port and workspace as a toast; the help overlay (`prefix ?`) ends with the same line.
+
 ## Help overlay (`prefix ?`)
 
 Generated from the keymap, grouped by category (Navigation, Agents, Grid, Sidebar, Chat, Scroll, Panels, Actions,

@@ -220,3 +220,25 @@ included, so a test reading "the next frame" can get an event instead of its res
   daemon's startup scan can fire the alert before the client connects (flaky `usage_limit` test). Start with the feature
   off, subscribe, then enable it (the hot-reloaded config re-evaluates).
 - CI jobs have `timeout-minutes: 25` so a hung test fails fast.
+
+## P8 (MCP manager + headless) gotchas
+
+- **rmcp 3.8 API.** `#[tool_router]` on the impl and `#[tool_handler]` on `impl ServerHandler` (no `tool_router` field needed any more);
+  `StreamableHttpService::new(factory, Arc::default(), StreamableHttpServerConfig::default().with_cancellation_token(..))` is a tower
+  service you mount with `axum::Router::nest_service("/mcp", ..)` (axum is not pulled in by rmcp: add `axum` with `tokio` + `http1`).
+  The config is `#[non_exhaustive]`: use the `with_*` builders. Server info is `ServerConfig::new(caps).with_server_info(..)`. Clients:
+  `ClientConfig::default().serve_with_lifecycle(StreamableHttpClientTransport::from_config(cfg.auth_header(token)), ClientLifecycleMode::Auto{..})`
+  (dev-dependency features `client` + `transport-streamable-http-client-reqwest`). Hosts other than loopback get 403 by default.
+- **Claude asks to approve a project `.mcp.json` server at start**, and the daemon-typed first prompt (+ Enter) answered that dialog
+  ("continue without") so the manager never saw the tools. The manager workspace therefore gets `.claude/settings.local.json` with
+  `enabledMcpjsonServers: ["studio"]`. Verified by hand: Claude calls `studio_list_agents` ("Called studio") with the bearer header.
+- **`claude -p --output-format stream-json` needs `--verbose`** (Claude Code 2.1.x: "When using --print, --output-format=stream-json
+  requires --verbose", exit 1). Hydra's argument list is outdated; `build_headless_args` adds it. The stderr of a failing run is kept
+  in the log and in the run's `error`, which is how this was found.
+- **Cancel must reach the tree.** The headless child is its own process group (`process_group(0)`) so `killpg` stops the login-shell
+  wrapper and `claude` with its children; Windows uses `taskkill /PID <pid> /T /F`. Pipes held open by a grandchild would block the
+  reader tasks forever: after the exit the readers get 2 s.
+- **A UI test that scrolls needs content taller than the window.** `LogView::up` is clamped to what does not fit, so scroll tests use
+  a short terminal. Snapshot tests of the panel use `overview_tests::NOW` (UTC clock) like the Overview ones.
+- **Manual checks create real Claude files**: the manager/headless runs trusted `/tmp/as8*-manager-workspace` and `/tmp/as8w` in
+  `<profile>/.claude.json`, added lines to `history.jsonl` and `projects/-tmp-as8*` session folders; only the project folders are safe to delete.

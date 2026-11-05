@@ -10,6 +10,7 @@ use as_core::AgentStatus;
 use as_core::agents::env::{EnvOverrides, process_env};
 use as_core::agents::shell::{Os, ShellConfig, fixed_path};
 use as_core::agents::{ProviderModelCatalog, SessionLocator};
+use as_core::headless::{HeadlessEvent, HeadlessOrchestrator, HeadlessRunStatus};
 use as_core::overview::history_store::{HistoryStore, HistoryStoreOptions};
 use as_core::overview::tracker::{OverviewTracker, PollResult, TrackerDeps};
 use as_core::overview::{EventKind, OverviewStatus};
@@ -28,13 +29,14 @@ use as_core::usage::service::{UsageService, UsageServiceOptions};
 use as_core::usage::store::{UsageStore, UsageStoreOptions, default_usage_sources_from_env};
 use as_core::usage::{UsagePeriod, UsageProvider};
 use as_core::{
-    AgentEvent, AgentManager, ConfigStore, ProviderId, WorkspaceStore,
-    get_default_model_for_provider,
+    AgentEvent, AgentManager, ConfigStore, MAX_CONCURRENT_AGENTS_HARD_LIMIT, ProviderId,
+    WorkspaceStore, get_default_model_for_provider,
 };
 use as_proto::Event;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 
+use crate::mcp::McpServer;
 use crate::notifications::{self, NotificationService};
 use crate::registry::Registry;
 use crate::{DaemonOptions, SessionCatalogs};
@@ -74,6 +76,11 @@ pub struct Daemon {
     /// Overview tracker + its history; one writer (this daemon is single-instance).
     pub overview: Arc<Mutex<OverviewTracker>>,
     pub history: Arc<Mutex<HistoryStore>>,
+    /// Headless runs (P8).
+    pub headless: HeadlessOrchestrator,
+    /// The MCP server (P8) once started, or why it did not.
+    pub mcp: Mutex<Option<McpServer>>,
+    pub mcp_error: Mutex<Option<String>>,
     overview_kick: Notify,
     /// Usage: log scanner, Claude plan limits, scheduling (see `as_core::usage::service`).
     pub usage: Arc<UsageService>,
@@ -116,6 +123,18 @@ impl Daemon {
                 config.get().claude_profile_by_project
             }));
         }
+        let headless =
+            HeadlessOrchestrator::with_override(paths.headless_dir(), options.headless_override);
+        {
+            let config = config.clone();
+            headless.set_shell_config_provider(move || ShellConfig::from_config(&config.get()));
+        }
+        {
+            let config = config.clone();
+            headless.set_claude_profile_resolver(make_resolver(move || {
+                config.get().claude_profile_by_project
+            }));
+        }
         let models = ProviderModelCatalog::new();
         if options.apply_fixed_path {
             // Runs the login shell (bounded by its own timeout): keep it off the async threads.
@@ -127,6 +146,7 @@ impl Daemon {
                 let mut overrides = EnvOverrides::new();
                 overrides.insert("PATH".into(), Some(path));
                 models.set_env_overrides(overrides.clone());
+                headless.set_env_overrides(overrides.clone());
                 manager.set_env_overrides(overrides);
             }
         }
@@ -158,6 +178,9 @@ impl Daemon {
             notifications: NotificationService::default(),
             overview,
             history,
+            headless,
+            mcp: Mutex::new(None),
+            mcp_error: Mutex::new(None),
             overview_kick: Notify::new(),
             usage,
             usage_alerts: OnceLock::new(),
@@ -174,6 +197,10 @@ impl Daemon {
         });
         daemon.spawn_tasks(control_rx);
         daemon.install_usage_hooks();
+        daemon.spawn_headless_events();
+        if options.mcp {
+            daemon.start_mcp().await;
+        }
         if options.overview {
             tokio::spawn(overview_loop(daemon.clone()));
         }
@@ -184,6 +211,79 @@ impl Daemon {
             daemon.spawn_session_import();
         }
         daemon
+    }
+
+    /// Start the MCP server and write the manager workspace; a failure is kept for `GetMcpStatus`.
+    async fn start_mcp(self: &Arc<Self>) {
+        let config = self.config.clone();
+        let started = McpServer::start(
+            self.manager.clone(),
+            self.paths.manager_workspace_dir(),
+            move || {
+                config
+                    .get()
+                    .max_agents
+                    .min(MAX_CONCURRENT_AGENTS_HARD_LIMIT)
+            },
+        )
+        .await;
+        match started {
+            Ok(server) => *self.mcp.lock() = Some(server),
+            Err(err) => {
+                tracing::warn!(err = %format!("{err:#}"), "MCP server failed to start");
+                *self.mcp_error.lock() = Some(format!("{err:#}"));
+            }
+        }
+    }
+
+    /// `GetMcpStatus`.
+    pub fn mcp_status(&self) -> as_proto::McpStatus {
+        match &*self.mcp.lock() {
+            Some(server) => as_proto::McpStatus {
+                running: true,
+                port: Some(server.port),
+                error: None,
+                manager_workspace: Some(server.workspace.to_string_lossy().into_owned()),
+            },
+            None => as_proto::McpStatus {
+                running: false,
+                port: None,
+                error: self.mcp_error.lock().clone(),
+                manager_workspace: None,
+            },
+        }
+    }
+
+    /// Headless output and state changes -> clients (+ notifications when a run ends).
+    fn spawn_headless_events(self: &Arc<Self>) {
+        let this = self.clone();
+        let mut rx = self.headless.subscribe();
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(HeadlessEvent::Output { run_id, data }) => this
+                        .registry
+                        .broadcast(&Event::HeadlessRunEvent { run_id, data }),
+                    Ok(HeadlessEvent::Changed(run)) => {
+                        match run.status {
+                            HeadlessRunStatus::Completed => {
+                                this.notify(this.notifications.headless_completed(&run.id))
+                            }
+                            HeadlessRunStatus::Errored => this.notify(
+                                this.notifications
+                                    .headless_errored(&run.id, run.error.as_deref()),
+                            ),
+                            _ => {}
+                        }
+                        this.registry.broadcast(&Event::HeadlessRunChanged(run));
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "headless event dispatcher lagged");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
     }
 
     /// Sessions of a provider's catalog (blocking: scans files; call from `spawn_blocking`).
@@ -334,6 +434,10 @@ impl Daemon {
         self.persist(true);
         self.history.lock().stop();
         self.usage.stop(); // flushes the usage cache
+        if let Some(mcp) = &*self.mcp.lock() {
+            mcp.stop();
+        }
+        self.headless.cancel_all(Duration::from_secs(5)).await;
         if stop_agents {
             self.manager.kill_all();
             if !self.manager.wait_all_stopped(STOP_AGENTS_TIMEOUT).await {

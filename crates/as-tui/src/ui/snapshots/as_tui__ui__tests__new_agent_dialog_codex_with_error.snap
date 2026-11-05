@@ -13,7 +13,6 @@ expression: text(&t)
                            │
                            │
                            │
-                           │
              ╭ New agent ─────────────────────────────────────────────────────────────╮
              │ Name                                                                   │
              │ Directory  /tmp                                                        │
@@ -22,6 +21,7 @@ expression: text(&t)
              │ Model     ‹ gpt-5.3-codex ›  type for a custom id                      │
              │ Reasoning ‹ low ›                                                      │
              │ YOLO      [x]  skip permission prompts (Space)                         │
+             │ Manager   [ ]  orchestrates other agents via MCP (Space)               │
              │ Resume    [ ] resume a previous session (Space to pick)                │
              │ Prompt     first message (optional)                                    │
              │                                                                        │

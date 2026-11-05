@@ -9,6 +9,7 @@
 
 mod connection;
 mod handler;
+pub mod mcp;
 mod notifications;
 mod registry;
 mod services;
@@ -76,6 +77,10 @@ pub struct DaemonOptions {
     pub overview_config_dirs: Option<Vec<std::path::PathBuf>>,
     /// Run the usage service (log scanner, plan limits, alerts).
     pub usage: bool,
+    /// Start the MCP server (binds a loopback port, writes the manager workspace).
+    pub mcp: bool,
+    /// Replaces the provider CLI of headless runs (tests).
+    pub headless_override: Option<as_core::headless::HeadlessCommandOverride>,
     pub usage_options: UsageOptions,
 }
 
@@ -92,6 +97,8 @@ impl Default for DaemonOptions {
             overview: true,
             overview_config_dirs: None,
             usage: true,
+            mcp: true,
+            headless_override: None,
             usage_options: UsageOptions::default(),
         }
     }

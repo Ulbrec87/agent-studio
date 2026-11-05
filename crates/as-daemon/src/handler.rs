@@ -27,6 +27,22 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
         Request::ListAgents => Ok(Response::Agents(m.list())),
         Request::GetAgent { agent_id } => Ok(Response::Agent(m.get(&agent_id))),
         Request::CreateAgent(mut payload) => {
+            if payload.is_manager {
+                // The manager lives in its workspace (`.mcp.json` + `CLAUDE.md`) and is a Claude
+                // agent (Hydra: the folder comes from the MCP status, the dialog hides resume).
+                let status = daemon.mcp_status();
+                let Some(workspace) = status.manager_workspace.filter(|_| status.running) else {
+                    return Err(match status.error {
+                        Some(e) => format!(
+                            "MCP server is not running ({e}): cannot create a manager agent"
+                        ),
+                        None => "MCP server is not running: cannot create a manager agent".into(),
+                    });
+                };
+                payload.project_dir = workspace;
+                payload.provider = ProviderId::Claude;
+                payload.resume_session_id = None;
+            }
             if payload.name.trim().is_empty() {
                 payload.name =
                     AgentManager::generate_name(&payload.initial_prompt, &payload.project_dir);
@@ -270,6 +286,50 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
             daemon.registry.set_usage_visible(client, visible);
             daemon.sync_usage_visible();
             Ok(Response::Ok)
+        }
+        Request::GetMcpStatus => Ok(Response::McpStatus(daemon.mcp_status())),
+        Request::StartHeadlessRun(mut payload) => {
+            payload.prompt = payload.prompt.trim().to_string();
+            payload.project_dir = payload.project_dir.trim().to_string();
+            payload.model = payload.model.trim().to_string();
+            if payload.prompt.is_empty() {
+                return Err("prompt is empty".into());
+            }
+            if payload.model.is_empty() {
+                return Err("model is empty".into());
+            }
+            if !std::path::Path::new(&payload.project_dir).is_dir() {
+                return Err(format!(
+                    "project directory does not exist: {}",
+                    payload.project_dir
+                ));
+            }
+            if daemon.preflight_on_create {
+                let check = m.preflight(payload.provider).await;
+                if !check.ok {
+                    return Err(check.error.unwrap_or_else(|| "Preflight failed".into()));
+                }
+            }
+            Ok(Response::HeadlessRun(Some(Box::new(
+                daemon.headless.start(payload),
+            ))))
+        }
+        Request::ListHeadlessRuns(options) => {
+            Ok(Response::HeadlessRuns(daemon.headless.list(&options)))
+        }
+        Request::GetHeadlessRun { run_id } => Ok(Response::HeadlessRun(
+            daemon.headless.get(&run_id).map(Box::new),
+        )),
+        Request::CancelHeadlessRun { run_id } => {
+            Ok(Response::Flag(daemon.headless.cancel(&run_id)))
+        }
+        Request::GetHeadlessRunLog { run_id, options } => {
+            let daemon = daemon.clone();
+            let log =
+                tokio::task::spawn_blocking(move || daemon.headless.get_log(&run_id, &options))
+                    .await
+                    .map_err(|e| format!("reading the log failed: {e}"))?;
+            Ok(Response::HeadlessRunLog(log))
         }
         Request::Shutdown { stop_agents } => {
             if !stop_agents && m.active_count() > 0 {

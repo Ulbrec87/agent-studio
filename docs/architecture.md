@@ -38,13 +38,17 @@
     `GetOverview`, `GetOverviewHistory { since_ms }`, `GetOverviewWaits`, `GetOverviewEvents { since_ms, limit }`,
     `GetAgentDetails { agent_id }` (P6, see *Overview* below),
     `GetUsageState`, `GetUsageSummary { period, project_key }`, `GetUsageReport { provider, days }` (7-90), `RefreshUsage`,
-    `UsageVisible(bool)` (P7, see *Usage* below).
+    `UsageVisible(bool)` (P7, see *Usage* below),
+    `GetMcpStatus`, `StartHeadlessRun`, `ListHeadlessRuns`, `GetHeadlessRun`, `CancelHeadlessRun`, `GetHeadlessRunLog` (P8, see
+    *MCP server* and *Headless runs* below).
   * `Response`: `Ok`, `Pong`, `Flag(bool)`, `Hello(HelloInfo)`, `Agents`, `Agent(Option)`, `Ids`, `Buffer { data }`,
     `Config`, `Preflight`, `Status`, `Sessions`, `Profiles`, `Models` (P4), `Overview`, `OverviewHistory`,
-    `OverviewWaits`, `OverviewEvents`, `AgentDetails(Option)` (P6), `UsageState`, `UsageSummary`, `UsageReport` (P7).
+    `OverviewWaits`, `OverviewEvents`, `AgentDetails(Option)` (P6), `UsageState`, `UsageSummary`, `UsageReport` (P7), `McpStatus { running, port, error, manager_workspace }`,
+    `HeadlessRun`, `HeadlessRuns`, `HeadlessRunLog` (P8).
   * `Event`: `AgentOutput { agent_id, data }`, `AgentStatus { agent_id, status, session_id, model }`, `AgentWaiting`,
     `AgentsChanged`, `ConfigChanged`, `DaemonShuttingDown`, `Notification(StudioNotification)` (P3),
-    `OverviewSnapshot`, `OverviewEvents` (P6), `UsageChanged(UsageState)` (P7). New phases add variants only. A client that talks to an older daemon
+    `OverviewSnapshot`, `OverviewEvents` (P6), `UsageChanged(UsageState)` (P7), `HeadlessRunEvent { run_id, data }`
+    (one output line), `HeadlessRunChanged(HeadlessRun)` (started / session id captured / finished) (P8). New phases add variants only. A client that talks to an older daemon
     gets an error for the Overview and Usage requests; the TUI then shows "The overview is not available" and keeps working.
 * **Sessions (P4)**: `ListSessions` returns `SessionSummary`s (camelCase like Hydra's `ClaudeSessionSummary`, plus
   `provider` and `hidden`) newest first; the daemon scans off the async runtime (`spawn_blocking`) and adds the config's
@@ -107,6 +111,31 @@
     Alerts are re-evaluated on every usage change and when the config changes.
   * *Client*: the TUI holds `state` (pushed by `UsageChanged`), summaries per (period, project) and reports per provider, and asks
     again only when `data_version` moved; old values stay on screen meanwhile.
+* **MCP server (P8, `as-daemon::mcp`)**: started with the daemon (`DaemonOptions::mcp`) on `127.0.0.1:<random port>` with
+  `rmcp` 3.8 (streamable HTTP, sessions, mounted at `/mcp` of an `axum` router). Tools (Hydra's `hydra_*` renamed, same parameters
+  and limits, input validated, errors are tool errors with `isError`): `studio_list_agents`, `studio_create_agent` (never a manager;
+  `projectDir` must be an existing absolute folder; respects `maxAgents`), `studio_send_prompt`, `studio_get_output` (recent output
+  as plain text: escape sequences and control characters removed, `\r` redraws collapsed, last N lines, at most 100 000
+  characters, the end is kept), `studio_broadcast`, `studio_kill_agent`, `studio_restart_agent`. **Auth**: every request needs
+  `Authorization: Bearer <token>`; the token is random per daemon start (two v4 UUIDs), kept in memory and in the workspace's
+  `.mcp.json` (`headers`, mode 0600 on Unix), which Claude Code reads for HTTP servers. rmcp also rejects non-loopback `Host`
+  headers (DNS rebinding). **Manager workspace** (`<root>/manager-workspace/`, rewritten at every start because port and token
+  change): `.mcp.json` (server `studio`), `CLAUDE.md` (Hydra's text with the `studio_*` names) and `.claude/settings.local.json`
+  (`enabledMcpjsonServers: ["studio"]`; without it Claude asks to approve the server at start and the daemon-typed first prompt
+  answers that dialog instead). `CreateAgent { is_manager: true }`: the daemon replaces the folder with the workspace, forces
+  Claude and drops `resume_session_id`; it fails when the server is not running. No limit on the number of managers (Hydra has none).
+* **Headless runs (P8, `as_core::headless`)**: `HeadlessOrchestrator` spawns the provider CLI with `build_headless_args` (Claude:
+  `-p <prompt> --output-format stream-json --verbose --model <m> [--resume <id>]`) through the same shell wrapping, env sanitising and
+  Claude profile env as agents (Windows: retry through `cmd.exe /c`; Unix: own process group), stdin closed. Files in
+  `<root>/headless-runs/`: `<id>.jsonl` (stdout lines as they come; stderr as `{"type":"stderr","text":..}`) and `<id>.meta.json`
+  (`{"schemaVersion":1,"run":{..}}`, written at every state change); legacy logs without meta are backfilled, a run found
+  `running` at start (the daemon died) becomes `errored`. Statuses `running | completed | errored | canceled`; the session id is the
+  first `session_id`/`sessionId` of a stdout line; exit code != 0 is `errored` with `CLI exited with code N: <stderr tail>`. Cancel
+  = SIGTERM to the process group, SIGKILL after 3 s (Windows: `taskkill /T /F`); the daemon cancels every run at shutdown.
+  `ListHeadlessRuns { query, status, limit }` (newest first; the query searches id, prompt, project, model, provider, status, session,
+  error), `GetHeadlessRunLog { tailLines (400), maxChars (120 000) }` -> `{ content, totalLines, returnedLines, truncated }` (streams
+  the file; the oldest characters are cut when over the cap). Finished runs raise `Notification` `HeadlessCompleted` ("Run <id>
+  finished successfully") or `HeadlessErrored` ("Run <id> failed: <error>"). There is no retention (Hydra has none either).
 * **Overview history (`<root>/overview-history/v1-YYYY-MM-DD.jsonl`, mode 600, folder 700)**: one writer (the daemon).
   Lines: `{"start":<ms>}` (each daemon start; time between the last point and the next one is *unmeasured*),
   `{"point":[at,needsYou,working,idle,total,{agentId:status}]}` every 5 s (a trailing `1` marks a delta line: only the
@@ -157,11 +186,11 @@
 | `workspace.json` | persisted agents, restored at daemon start |
 | `daemon.lock`, `daemon.sock` | daemon single instance + socket |
 | `logs/` | `tracing` JSONL logs, daily rotation |
-| `headless-runs/` | one JSONL log per headless run + index |
+| `headless-runs/` | `<id>.jsonl` log + `<id>.meta.json` index entry per headless run |
 | `overview-history/` | overview events and samples (8 days, ≤ 20 MB) |
 | `usage-cache.json` | usage store: file offsets, hourly buckets, dedupe keys, newest Codex limits (mode 600) |
 | `usage-alerts.json` | usage alerts already sent (key + when it stops mattering) |
-| `manager-workspace/` | cwd of the MCP manager agent (`.mcp.json`, `CLAUDE.md`) |
+| `manager-workspace/` | cwd of the MCP manager agent (`.mcp.json` with the bearer token, `CLAUDE.md`, `.claude/settings.local.json`); rewritten at every daemon start |
 
 ## External files read (never written, except skill toggles)
 

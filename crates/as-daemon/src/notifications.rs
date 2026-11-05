@@ -42,6 +42,17 @@ fn make(kind: NotificationKind, title: &str, body: String, agent_id: &str) -> St
     }
 }
 
+fn run_note(kind: NotificationKind, title: &str, body: String) -> StudioNotification {
+    StudioNotification {
+        id: uuid::Uuid::new_v4().simple().to_string()[..12].to_string(),
+        kind,
+        title: title.to_string(),
+        body,
+        agent_id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
 /// Hydra `needsYouBody`.
 pub fn needs_you_body(name: &str, reason: Option<WaitingReason>, text: Option<&str>) -> String {
     let detail = text.map(|t| format!(": {t}")).unwrap_or_default();
@@ -116,6 +127,23 @@ impl NotificationService {
         })
     }
 
+    /// A headless run finished successfully (Hydra: "Headless Run Completed").
+    pub fn headless_completed(&self, run_id: &str) -> StudioNotification {
+        run_note(
+            NotificationKind::HeadlessCompleted,
+            "Headless Run Completed",
+            format!("Run {run_id} finished successfully"),
+        )
+    }
+
+    pub fn headless_errored(&self, run_id: &str, error: Option<&str>) -> StudioNotification {
+        run_note(
+            NotificationKind::HeadlessErrored,
+            "Headless Run Error",
+            format!("Run {run_id} failed: {}", error.unwrap_or("unknown error")),
+        )
+    }
+
     pub fn forget(&self, agent_id: &str) {
         self.last_status.lock().remove(agent_id);
     }
@@ -175,6 +203,21 @@ mod tests {
         // forgotten agents notify again
         s.forget("a");
         assert!(s.status("a", "api", AgentStatus::Errored).is_some());
+    }
+
+    #[test]
+    fn headless_notifications_follow_hydra() {
+        let s = NotificationService::default();
+        let n = s.headless_completed("ab12");
+        assert_eq!(n.kind, NotificationKind::HeadlessCompleted);
+        assert_eq!(n.body, "Run ab12 finished successfully");
+        let n = s.headless_errored("ab12", Some("CLI exited with code 1"));
+        assert_eq!(n.title, "Headless Run Error");
+        assert_eq!(n.body, "Run ab12 failed: CLI exited with code 1");
+        assert_eq!(
+            s.headless_errored("x", None).body,
+            "Run x failed: unknown error"
+        );
     }
 
     #[test]

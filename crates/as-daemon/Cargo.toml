@@ -12,11 +12,15 @@ workspace = true
 anyhow = "1.0.104"
 as-core = { version = "0.1.0", path = "../as-core" }
 as-proto = { version = "0.1.0", path = "../as-proto" }
+axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"] }
 bytes = "1.12.1"
 chrono = "0.4.45"
 futures-util = { version = "0.3.34", features = ["sink"] }
 notify-rust = { version = "4.18.2", optional = true }
 parking_lot = "0.13.0"
+regex = "1.13.1"
+rmcp = { version = "3.8.0", features = ["server", "macros", "transport-streamable-http-server"] }
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-util = "0.7.20"
@@ -28,6 +32,7 @@ nix = { version = "0.28", features = ["process"] }
 
 [dev-dependencies]
 parking_lot = "0.13.0"
+rmcp = { version = "3.8.0", features = ["client", "transport-streamable-http-client-reqwest"] }
 serde_json = "1.0.154"
 tempfile = "3.27.0"
 

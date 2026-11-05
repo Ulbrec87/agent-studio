@@ -10,6 +10,7 @@ pub mod app;
 pub mod bindings_file;
 pub mod client;
 pub mod grid;
+pub mod headless;
 pub mod keymap;
 pub mod new_agent;
 pub mod overview;

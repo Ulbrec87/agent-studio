@@ -132,6 +132,8 @@ impl Provider {
                     s(prompt),
                     s("--output-format"),
                     s("stream-json"),
+                    // Claude Code >= 2.1 refuses `--print --output-format stream-json` without it.
+                    s("--verbose"),
                     s("--model"),
                     model.clone(),
                 ];
@@ -321,6 +323,7 @@ mod tests {
                 "do it",
                 "--output-format",
                 "stream-json",
+                "--verbose",
                 "--model",
                 "m",
                 "--resume",

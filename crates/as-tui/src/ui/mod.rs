@@ -5,6 +5,7 @@ pub mod dialogs;
 pub mod footer;
 pub mod grid;
 pub mod header;
+pub mod headless;
 pub mod layout;
 pub mod overview;
 pub mod sidebar;
@@ -57,6 +58,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
 }
 
+#[cfg(test)]
+mod headless_tests;
 #[cfg(test)]
 mod overview_tests;
 #[cfg(test)]

@@ -2,6 +2,10 @@
 //! names, so adding a variant never changes the encoding of the others. Binary data is base64.
 
 use as_core::agents::providers::PreflightResult;
+use as_core::headless::{
+    HeadlessRun, HeadlessRunLog, HeadlessRunLogOptions, ListHeadlessRunsOptions,
+    StartHeadlessRunPayload,
+};
 use as_core::overview::{
     AgentDetails, HistoryResponse, OverviewEvent, OverviewSnapshot, WaitLedgerData,
 };
@@ -184,6 +188,25 @@ pub enum Request {
     /// This client shows (or stopped showing) a usage surface: the daemon polls the plan limits
     /// every 60 s instead of every 5 min while any client does (`USAGE_VISIBILITY`).
     UsageVisible(bool),
+    /// State of the MCP server and the manager workspace (Hydra `MCP_GET_STATUS`); answers `McpStatus`.
+    GetMcpStatus,
+    /// Start a headless run (P8); answers `HeadlessRun`.
+    StartHeadlessRun(StartHeadlessRunPayload),
+    /// Runs newest first (query / status / limit); answers `HeadlessRuns`.
+    ListHeadlessRuns(ListHeadlessRunsOptions),
+    GetHeadlessRun {
+        run_id: String,
+    },
+    /// Stop a running run; answers `Flag` (false when unknown or not running).
+    CancelHeadlessRun {
+        run_id: String,
+    },
+    /// Tail of a run's log; answers `HeadlessRunLog`.
+    GetHeadlessRunLog {
+        run_id: String,
+        #[serde(default)]
+        options: HeadlessRunLogOptions,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -215,6 +238,20 @@ pub enum Response {
     UsageState(Box<UsageState>),
     UsageSummary(Box<UsageSummary>),
     UsageReport(Box<UsageReport>),
+    McpStatus(McpStatus),
+    HeadlessRun(Option<Box<HeadlessRun>>),
+    HeadlessRuns(Vec<HeadlessRun>),
+    HeadlessRunLog(Option<HeadlessRunLog>),
+}
+
+/// The MCP server of the daemon (Hydra `McpServerStatus`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct McpStatus {
+    pub running: bool,
+    pub port: Option<u16>,
+    pub error: Option<String>,
+    /// Folder of the manager agent (`.mcp.json` + `CLAUDE.md`).
+    pub manager_workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -274,6 +311,13 @@ pub enum Event {
     /// The usage state changed (limits, indexing progress, new data); summaries are refetched
     /// when `data_version` moved.
     UsageChanged(Box<UsageState>),
+    /// One output line of a headless run (stdout line, or stderr wrapped as JSON).
+    HeadlessRunEvent {
+        run_id: String,
+        data: String,
+    },
+    /// A headless run started, got its session id, or finished.
+    HeadlessRunChanged(Box<HeadlessRun>),
 }
 
 /// Hydra `NotificationType` (agent part).
@@ -288,6 +332,10 @@ pub enum NotificationKind {
     AgentStarted,
     /// A plan window or a daily budget is near its limit (opt-in, `usage.alertsEnabled`).
     UsageLimit,
+    /// A headless run finished successfully.
+    HeadlessCompleted,
+    /// A headless run failed.
+    HeadlessErrored,
 }
 
 /// Hydra `HydraNotification`.

@@ -44,6 +44,27 @@ fn options(backend: &FakePtyBackend) -> DaemonOptions {
         overview_config_dirs: Some(Vec::new()),
         // Never the developer's real logs, credentials or the network.
         usage: true,
+        mcp: true,
+        // The "CLI" of headless runs prints two stream-json lines.
+        headless_override: Some(Arc::new(|_run| {
+            Some(if cfg!(windows) {
+                as_core::agents::shell::SpawnSpec {
+                    cmd: "cmd.exe".into(),
+                    args: vec![
+                        "/c".into(),
+                        r#"echo {"type":"system","session_id":"sess-9"} & echo {"type":"result","result":"ok"}"#.into(),
+                    ],
+                }
+            } else {
+                as_core::agents::shell::SpawnSpec {
+                    cmd: "sh".into(),
+                    args: vec![
+                        "-c".into(),
+                        r#"echo '{"type":"system","session_id":"sess-9"}'; echo '{"type":"result","result":"ok"}'"#.into(),
+                    ],
+                }
+            })
+        })),
         usage_options: as_daemon::UsageOptions {
             sources: Some(Vec::new()),
             profiles: Some(Vec::new()),
@@ -829,4 +850,88 @@ async fn the_silence_rule_is_kept_for_unmatched_agents_and_skipped_for_matched_c
     );
     let _: &AgentManager = &daemon.manager;
     daemon.shutdown_services(true).await;
+}
+
+#[tokio::test]
+async fn mcp_status_manager_agent_and_headless_runs() {
+    let h = start().await;
+    let client = DaemonClient::connect(&h.paths).await.unwrap();
+    let mut events = client.take_events().unwrap();
+
+    // MCP server + manager workspace.
+    let status = client.get_mcp_status().await.unwrap();
+    assert!(status.running && status.port.is_some() && status.error.is_none());
+    let workspace = status.manager_workspace.unwrap();
+    assert_eq!(
+        std::path::Path::new(&workspace),
+        h.paths.manager_workspace_dir()
+    );
+    assert!(std::path::Path::new(&workspace).join(".mcp.json").exists());
+    assert!(std::path::Path::new(&workspace).join("CLAUDE.md").exists());
+
+    // A manager agent lives in the workspace and is always Claude.
+    let manager = client
+        .create_agent(CreateAgentPayload {
+            name: "boss".into(),
+            project_dir: "/ignored".into(),
+            provider: ProviderId::Codex,
+            model: "opus".into(),
+            is_manager: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(manager.is_manager);
+    assert_eq!(manager.provider, ProviderId::Claude);
+    assert_eq!(manager.project_dir, workspace);
+
+    // Headless runs: start, events, completion notification, log, listing.
+    let work = tempfile::tempdir().unwrap();
+    let run = client
+        .start_headless_run(as_core::headless::StartHeadlessRunPayload {
+            prompt: "say ok".into(),
+            project_dir: work.path().to_string_lossy().into_owned(),
+            model: "sonnet".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    next_event(&mut events, "headless output", |e| {
+        matches!(e, Event::HeadlessRunEvent { run_id, data } if *run_id == run.id && data.contains("sess-9"))
+    })
+    .await;
+    next_event(
+        &mut events,
+        "completion notification",
+        |e| matches!(e, Event::Notification(n) if n.kind == NotificationKind::HeadlessCompleted),
+    )
+    .await;
+    let done = client.get_headless_run(&run.id).await.unwrap().unwrap();
+    assert_eq!(done.session_id.as_deref(), Some("sess-9"));
+    let log = client
+        .get_headless_run_log(&run.id, Default::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(log.total_lines, 2);
+    let listed = client
+        .list_headless_runs(as_core::headless::ListHeadlessRunsOptions {
+            query: Some("say ok".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert!(!client.cancel_headless_run(&run.id).await.unwrap());
+    assert!(
+        client
+            .start_headless_run(as_core::headless::StartHeadlessRunPayload {
+                prompt: "x".into(),
+                project_dir: "/definitely/not/a/dir".into(),
+                model: "sonnet".into(),
+                ..Default::default()
+            })
+            .await
+            .is_err()
+    );
 }

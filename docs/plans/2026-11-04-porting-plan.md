@@ -16,7 +16,7 @@ Tick a phase when it is pushed to `origin/main` with fmt + clippy + tests green.
 - [x] P5 Grid + broadcast + palette
 - [x] P6 Overview
 - [x] P7 Usage & limits
-- [ ] P8 MCP manager + headless
+- [x] P8 MCP manager + headless
 - [ ] P9 Git, files, free terminals, settings, skills, open-in
 - [ ] P10 Polish
 - [ ] P11 Remote control (deferred, see §8)

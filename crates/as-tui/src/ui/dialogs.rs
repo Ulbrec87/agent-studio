@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget};
 
 use crate::app::{App, Modal, ProfileChooser, QuitChoice};
-use crate::new_agent::{Field, NewAgentForm};
+use crate::new_agent::{Field, FormMode, NewAgentForm};
 use crate::sessions::{SessionPicker, format_age, one_line};
 use crate::theme::Theme;
 use crate::ui::sidebar::fit_left;
@@ -107,6 +107,10 @@ pub fn render(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u16, u16
             crate::ui::usage::render_overlay(app, overlay, visible, &mut canvas);
             None
         }
+        Modal::Headless => {
+            crate::ui::headless::render(app, visible, &mut canvas);
+            None
+        }
         Modal::Resume(picker) => session_picker(&theme, picker, visible, &mut canvas),
         Modal::Profile(chooser) => {
             profile_chooser(&theme, chooser, canvas_screen, &mut canvas);
@@ -186,12 +190,28 @@ fn new_agent(
 ) -> Option<(u16, u16)> {
     let prompt_h: u16 = 4;
     let show_profile = form.shows_profile();
-    let h = 11
+    let headless = form.mode == FormMode::Headless;
+    let manager = form.manager;
+    let show_profile = show_profile && !headless;
+    // border 2 + directory with its completions 2 + prompt, gap and status line, plus the rows.
+    let h = 2
+        + 2
         + prompt_h
+        + 2
+        + u16::from(!headless)
+        + u16::from(!manager)
+        + 1
         + u16::from(form.provider == as_core::ProviderId::Codex)
-        + u16::from(show_profile);
+        + u16::from(show_profile)
+        + 2 * u16::from(!headless)
+        + u16::from(!manager);
     let area = centered(screen, 74, h);
-    let inner = frame(theme, "New agent", area, buf);
+    let title = match (headless, manager) {
+        (true, _) => "New headless run",
+        (false, true) => "New manager agent",
+        (false, false) => "New agent",
+    };
+    let inner = frame(theme, title, area, buf);
     let mut cursor = None;
     let mut y = inner.y;
     let x_label = inner.x + 1;
@@ -206,26 +226,28 @@ fn new_agent(
     let active = |f: Field| form.field == f;
 
     // Name
-    buf.set_line(
-        x_label,
-        y,
-        &Line::from(label(theme, "Name", active(Field::Name))),
-        11,
-    );
-    let r = row(y);
-    let c = input_row(theme, &mut form.name, r, buf, active(Field::Name));
-    cursor = cursor.or(c);
-    if form.name.is_empty() && !active(Field::Name) {
-        buf.set_string(
-            r.x,
+    if !headless {
+        buf.set_line(
+            x_label,
             y,
-            "auto-generated",
-            Style::default()
-                .fg(theme.text_muted)
-                .bg(theme.surface_raised),
+            &Line::from(label(theme, "Name", active(Field::Name))),
+            11,
         );
+        let r = row(y);
+        let c = input_row(theme, &mut form.name, r, buf, active(Field::Name));
+        cursor = cursor.or(c);
+        if form.name.is_empty() && !active(Field::Name) {
+            buf.set_string(
+                r.x,
+                y,
+                if manager { "Manager" } else { "auto-generated" },
+                Style::default()
+                    .fg(theme.text_muted)
+                    .bg(theme.surface_raised),
+            );
+        }
+        y += 1;
     }
-    y += 1;
 
     // Project dir
     buf.set_line(
@@ -234,8 +256,18 @@ fn new_agent(
         &Line::from(label(theme, "Directory", active(Field::ProjectDir))),
         11,
     );
-    let c = input_row(theme, &mut form.dir, row(y), buf, active(Field::ProjectDir));
-    cursor = cursor.or(c);
+    if manager {
+        buf.set_stringn(
+            x_field,
+            y,
+            "the manager workspace (set by the daemon)",
+            usize::from(w_field),
+            Style::default().fg(theme.text_muted),
+        );
+    } else {
+        let c = input_row(theme, &mut form.dir, row(y), buf, active(Field::ProjectDir));
+        cursor = cursor.or(c);
+    }
     y += 1;
     if !form.completions.is_empty() {
         let text = format!("  {}", form.completions.join("  "));
@@ -252,19 +284,21 @@ fn new_agent(
     y += 1;
 
     // Provider
-    let mut spans = vec![label(theme, "Provider", active(Field::Provider))];
-    spans.extend(selector(
-        theme,
-        form.provider.label(),
-        active(Field::Provider),
-    ));
-    buf.set_line(
-        x_label,
-        y,
-        &Line::from(spans),
-        inner.width.saturating_sub(1),
-    );
-    y += 1;
+    if !manager {
+        let mut spans = vec![label(theme, "Provider", active(Field::Provider))];
+        spans.extend(selector(
+            theme,
+            form.provider.label(),
+            active(Field::Provider),
+        ));
+        buf.set_line(
+            x_label,
+            y,
+            &Line::from(spans),
+            inner.width.saturating_sub(1),
+        );
+        y += 1;
+    }
 
     // Model
     let mut spans = vec![label(theme, "Model", active(Field::Model))];
@@ -345,80 +379,113 @@ fn new_agent(
         y += 1;
     }
 
-    // YOLO
-    let mark = if form.yolo { "[x]" } else { "[ ]" };
-    let yolo_style = if form.yolo {
-        Style::default().fg(theme.yolo).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text)
-    };
-    let spans = vec![
-        label(theme, "YOLO", active(Field::Yolo)),
-        Span::styled(mark, yolo_style),
-        Span::styled(
-            "  skip permission prompts (Space)",
-            Style::default().fg(theme.text_muted),
-        ),
-    ];
-    buf.set_line(
-        x_label,
-        y,
-        &Line::from(spans),
-        inner.width.saturating_sub(1),
-    );
-    y += 1;
+    if !headless {
+        // YOLO
+        let mark = if form.yolo { "[x]" } else { "[ ]" };
+        let yolo_style = if form.yolo {
+            Style::default().fg(theme.yolo).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text)
+        };
+        let spans = vec![
+            label(theme, "YOLO", active(Field::Yolo)),
+            Span::styled(mark, yolo_style),
+            Span::styled(
+                "  skip permission prompts (Space)",
+                Style::default().fg(theme.text_muted),
+            ),
+        ];
+        buf.set_line(
+            x_label,
+            y,
+            &Line::from(spans),
+            inner.width.saturating_sub(1),
+        );
+        y += 1;
 
-    // Resume a previous session
-    let mut spans = vec![label(theme, "Resume", active(Field::Resume))];
-    match &form.resume {
-        Some(session) => {
-            let age = crate::sessions::format_age(
-                chrono::DateTime::parse_from_rfc3339(&session.modified_at)
-                    .map_or(0, |d| d.timestamp_millis()),
-                chrono::Utc::now().timestamp_millis(),
-            );
-            spans.push(Span::styled(
-                "[x] ",
-                Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ));
-            let room = usize::from(w_field).saturating_sub(age.chars().count() + 8);
-            let prompt = one_line(&session.first_prompt);
-            let prompt = if prompt.chars().count() > room {
-                format!(
-                    "{}\u{2026}",
-                    prompt
-                        .chars()
-                        .take(room.saturating_sub(1))
-                        .collect::<String>()
-                )
-            } else {
-                prompt
-            };
-            spans.push(Span::styled(
-                format!("{age} \u{00B7} {prompt}"),
-                Style::default().fg(theme.text),
-            ));
-            if active(Field::Resume) {
-                spans.push(Span::styled(
-                    "  Space change \u{00B7} Backspace clear",
-                    Style::default().fg(theme.text_muted),
-                ));
-            }
-        }
-        None => spans.push(Span::styled(
-            "[ ] resume a previous session (Space to pick)",
-            Style::default().fg(theme.text_muted),
-        )),
+        // Manager agent
+        let mark = if form.manager { "[x]" } else { "[ ]" };
+        let hint = if form.mcp_available {
+            "  orchestrates other agents via MCP (Space)"
+        } else {
+            "  unavailable: the MCP server is not running"
+        };
+        let spans = vec![
+            label(theme, "Manager", active(Field::Manager)),
+            Span::styled(
+                mark,
+                if form.manager {
+                    Style::default()
+                        .fg(theme.accent)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.text)
+                },
+            ),
+            Span::styled(hint, Style::default().fg(theme.text_muted)),
+        ];
+        buf.set_line(
+            x_label,
+            y,
+            &Line::from(spans),
+            inner.width.saturating_sub(1),
+        );
+        y += 1;
     }
-    buf.set_line(
-        x_label,
-        y,
-        &Line::from(spans),
-        inner.width.saturating_sub(1),
-    );
-    y += 1;
+
+    if !manager {
+        // Resume a previous session
+        let mut spans = vec![label(theme, "Resume", active(Field::Resume))];
+        match &form.resume {
+            Some(session) => {
+                let age = crate::sessions::format_age(
+                    chrono::DateTime::parse_from_rfc3339(&session.modified_at)
+                        .map_or(0, |d| d.timestamp_millis()),
+                    chrono::Utc::now().timestamp_millis(),
+                );
+                spans.push(Span::styled(
+                    "[x] ",
+                    Style::default()
+                        .fg(theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                let room = usize::from(w_field).saturating_sub(age.chars().count() + 8);
+                let prompt = one_line(&session.first_prompt);
+                let prompt = if prompt.chars().count() > room {
+                    format!(
+                        "{}\u{2026}",
+                        prompt
+                            .chars()
+                            .take(room.saturating_sub(1))
+                            .collect::<String>()
+                    )
+                } else {
+                    prompt
+                };
+                spans.push(Span::styled(
+                    format!("{age} \u{00B7} {prompt}"),
+                    Style::default().fg(theme.text),
+                ));
+                if active(Field::Resume) {
+                    spans.push(Span::styled(
+                        "  Space change \u{00B7} Backspace clear",
+                        Style::default().fg(theme.text_muted),
+                    ));
+                }
+            }
+            None => spans.push(Span::styled(
+                "[ ] resume a previous session (Space to pick)",
+                Style::default().fg(theme.text_muted),
+            )),
+        }
+        buf.set_line(
+            x_label,
+            y,
+            &Line::from(spans),
+            inner.width.saturating_sub(1),
+        );
+        y += 1;
+    }
 
     // Prompt
     buf.set_line(
@@ -455,7 +522,11 @@ fn new_agent(
         buf.set_string(
             prompt_area.x,
             y,
-            "first message (optional)",
+            if headless {
+                "what the run should do"
+            } else {
+                "first message (optional)"
+            },
             Style::default().fg(theme.text_muted).bg(bg),
         );
     }
@@ -483,7 +554,11 @@ fn new_agent(
         buf.set_stringn(
             x_label,
             y,
-            "Enter create \u{00B7} Tab completes the directory \u{00B7} Esc cancel",
+            if headless {
+                "Enter start \u{00B7} Tab completes the directory \u{00B7} Esc back"
+            } else {
+                "Enter create \u{00B7} Tab completes the directory \u{00B7} Esc cancel"
+            },
             usize::from(inner.width.saturating_sub(2)),
             Style::default().fg(theme.text_muted),
         );
@@ -678,6 +753,20 @@ pub fn help_lines(app: &App) -> Vec<Line<'static>> {
             ]));
         }
     }
+    lines.push(Line::raw(""));
+    let (kind, summary) = app.mcp_summary();
+    let color = match kind {
+        crate::app::ToastKind::Error => theme.error,
+        crate::app::ToastKind::Success => theme.running,
+        _ => theme.text_secondary,
+    };
+    lines.push(Line::from(vec![
+        Span::styled(
+            "MCP server: ",
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(summary, Style::default().fg(color)),
+    ]));
     lines.push(Line::raw(""));
     lines.push(Line::styled(
         "Edit keys in keybindings.json (palette: Open Keybindings File); changes apply at once.",

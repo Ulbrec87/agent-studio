@@ -21,6 +21,7 @@ expression: text(&t)
              │ Provider  ‹ Claude ›                                                   │
              │ Model     ‹ sonnet ›  type for a custom id                             │
              │ YOLO      [ ]  skip permission prompts (Space)                         │
+             │ Manager   [ ]  orchestrates other agents via MCP (Space)               │
              │ Resume    [ ] resume a previous session (Space to pick)                │
              │ Prompt     first message (optional)                                    │
              │                                                                        │
@@ -29,7 +30,6 @@ expression: text(&t)
              │                                                                        │
              │ Enter create · Tab completes the directory · Esc cancel                │
              ╰────────────────────────────────────────────────────────────────────────╯
-                           │
                            │
                            │
                            │

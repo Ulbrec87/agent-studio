@@ -17,6 +17,18 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crate::sessions::{PickerAction, PickerOrigin, SessionPicker};
 use crate::widgets::TextArea;
 
+/// What the dialog creates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FormMode {
+    #[default]
+    Agent,
+    /// A headless run (`prefix H`, `n`): no name, YOLO, profile or manager rows.
+    Headless,
+}
+
+/// First message of a new manager agent (Hydra `NewAgentDialog.tsx`).
+pub const MANAGER_PROMPT: &str = "What can you do as the Agent Studio Manager agent? List your available MCP tools and capabilities.";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Name,
@@ -27,6 +39,8 @@ pub enum Field {
     /// Claude profile of the project (only with more than one profile).
     Profile,
     Yolo,
+    /// Create a manager agent (orchestrates the others through MCP).
+    Manager,
     /// Resume a previous session (opens the session picker).
     Resume,
     Prompt,
@@ -43,6 +57,11 @@ pub enum FormAction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewAgentForm {
+    pub mode: FormMode,
+    /// Manager agent: lives in the daemon's manager workspace, always Claude.
+    pub manager: bool,
+    /// The MCP server runs (a manager agent needs it).
+    pub mcp_available: bool,
     pub field: Field,
     pub name: TextArea,
     pub dir: TextArea,
@@ -95,6 +114,9 @@ impl NewAgentForm {
         let mut dir = TextArea::single_line(default_dir);
         dir.move_end();
         Self {
+            mode: FormMode::Agent,
+            manager: false,
+            mcp_available: true,
             field: Field::Name,
             name: TextArea::single_line(""),
             dir,
@@ -119,6 +141,36 @@ impl NewAgentForm {
             session_max_age_days: config.session_max_age_days,
             preferred: config.default_model.clone(),
             cwd: cwd.to_path_buf(),
+        }
+    }
+
+    /// The dialog of a headless run: the directory defaults to `default_dir`, the prompt is required.
+    pub fn headless(config: &AppConfig, default_dir: &str, cwd: &Path) -> Self {
+        let mut form = Self::new(config, default_dir, cwd);
+        form.mode = FormMode::Headless;
+        form.field = Field::Prompt;
+        form.yolo = false;
+        form
+    }
+
+    /// Turn the manager toggle on or off (a manager is Claude, never resumes, gets a first prompt).
+    pub fn set_manager(&mut self, on: bool) {
+        if on && !self.mcp_available {
+            self.error = Some("The MCP server is not running: no manager agent possible".into());
+            return;
+        }
+        self.manager = on;
+        if on {
+            self.set_provider(ProviderId::Claude);
+            self.resume = None;
+            if self.prompt.is_empty() {
+                self.prompt.set_text(MANAGER_PROMPT);
+            }
+            if !self.fields().contains(&self.field) {
+                self.field = Field::Manager;
+            }
+        } else if self.prompt.text() == MANAGER_PROMPT {
+            self.prompt.clear();
         }
     }
 
@@ -185,7 +237,7 @@ impl NewAgentForm {
 
     /// Does the dialog offer a profile choice?
     pub fn shows_profile(&self) -> bool {
-        self.provider == ProviderId::Claude && self.profiles.len() > 1
+        self.provider == ProviderId::Claude && self.profiles.len() > 1 && !self.manager
     }
 
     /// The profile of the session being resumed (a resumed session lives in the profile that saved it).
@@ -220,20 +272,29 @@ impl NewAgentForm {
 
     /// Focusable fields in order.
     pub fn fields(&self) -> Vec<Field> {
-        let mut f = vec![
-            Field::Name,
-            Field::ProjectDir,
-            Field::Provider,
-            Field::Model,
-        ];
+        let headless = self.mode == FormMode::Headless;
+        let mut f = Vec::new();
+        if !headless {
+            f.push(Field::Name);
+        }
+        if !self.manager {
+            f.push(Field::ProjectDir);
+            f.push(Field::Provider);
+        }
+        f.push(Field::Model);
         if self.provider == ProviderId::Codex {
             f.push(Field::Effort);
         }
-        if self.shows_profile() && self.resume.is_none() {
+        if self.shows_profile() && self.resume.is_none() && !headless {
             f.push(Field::Profile);
         }
-        f.push(Field::Yolo);
-        f.push(Field::Resume);
+        if !headless {
+            f.push(Field::Yolo);
+            f.push(Field::Manager);
+        }
+        if !self.manager {
+            f.push(Field::Resume);
+        }
         f.push(Field::Prompt);
         f
     }
@@ -405,6 +466,12 @@ impl NewAgentForm {
                 }
                 _ => self.nav(key),
             },
+            Field::Manager => match key.code {
+                KeyCode::Char(' ' | 'm') | KeyCode::Left | KeyCode::Right => {
+                    self.set_manager(!self.manager);
+                }
+                _ => self.nav(key),
+            },
             Field::Resume => match key.code {
                 KeyCode::Char(' ' | 'o') | KeyCode::Right => return self.open_picker(),
                 KeyCode::Backspace | KeyCode::Delete | KeyCode::Left => self.resume = None,
@@ -547,6 +614,24 @@ impl NewAgentForm {
 
     /// Validate and build the creation request.
     pub fn build_payload(&self) -> Result<CreateAgentPayload, String> {
+        if self.manager {
+            // The daemon puts the agent into its manager workspace.
+            let name = self.name.text().trim().to_string();
+            return Ok(CreateAgentPayload {
+                name: if name.is_empty() {
+                    "Manager".into()
+                } else {
+                    name
+                },
+                project_dir: String::new(),
+                provider: ProviderId::Claude,
+                model: self.model(),
+                yolo: self.yolo,
+                initial_prompt: self.prompt.text().trim().to_string(),
+                is_manager: true,
+                ..Default::default()
+            });
+        }
         let dir_text = self.dir.text();
         let dir_text = dir_text.trim();
         if dir_text.is_empty() {
@@ -579,6 +664,25 @@ impl NewAgentForm {
             yolo: self.yolo,
             initial_prompt: self.prompt.text().trim().to_string(),
             ..Default::default()
+        })
+    }
+}
+
+impl NewAgentForm {
+    /// Validate and build the request of a headless run.
+    pub fn build_run(&self) -> Result<as_core::headless::StartHeadlessRunPayload, String> {
+        let prompt = self.prompt.text().trim().to_string();
+        if prompt.is_empty() {
+            return Err("A prompt is required".into());
+        }
+        let create = self.build_payload()?;
+        Ok(as_core::headless::StartHeadlessRunPayload {
+            prompt,
+            project_dir: create.project_dir,
+            provider: create.provider,
+            model: create.model,
+            reasoning_effort: create.reasoning_effort,
+            resume_session_id: create.resume_session_id,
         })
     }
 }

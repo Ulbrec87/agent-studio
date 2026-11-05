@@ -145,6 +145,8 @@ async fn start(alerts: bool) -> (Rig, PathBuf, PathBuf) {
         overview: false,
         overview_config_dirs: Some(Vec::new()),
         usage: true,
+        mcp: false,
+        headless_override: None,
         usage_options: UsageOptions {
             sources: Some(vec![
                 UsageSource {

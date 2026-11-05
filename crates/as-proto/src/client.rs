@@ -12,6 +12,10 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
+use as_core::headless::{
+    HeadlessRun, HeadlessRunLog, HeadlessRunLogOptions, ListHeadlessRunsOptions,
+    StartHeadlessRunPayload,
+};
 use as_core::overview::{
     AgentDetails, HistoryResponse, OverviewEvent, OverviewSnapshot, WaitLedgerData,
 };
@@ -522,6 +526,74 @@ impl DaemonClient {
     /// Tell the daemon this client shows a usage surface (faster limits polling).
     pub async fn set_usage_visible(&self, visible: bool) -> Result<()> {
         self.expect_ok(Request::UsageVisible(visible)).await
+    }
+
+    pub async fn get_mcp_status(&self) -> Result<McpStatus> {
+        match self.request(Request::GetMcpStatus).await? {
+            Response::McpStatus(s) => Ok(s),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn start_headless_run(
+        &self,
+        payload: StartHeadlessRunPayload,
+    ) -> Result<HeadlessRun> {
+        match self.request(Request::StartHeadlessRun(payload)).await? {
+            Response::HeadlessRun(Some(run)) => Ok(*run),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn list_headless_runs(
+        &self,
+        options: ListHeadlessRunsOptions,
+    ) -> Result<Vec<HeadlessRun>> {
+        match self.request(Request::ListHeadlessRuns(options)).await? {
+            Response::HeadlessRuns(runs) => Ok(runs),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn get_headless_run(&self, run_id: &str) -> Result<Option<HeadlessRun>> {
+        match self
+            .request(Request::GetHeadlessRun {
+                run_id: run_id.into(),
+            })
+            .await?
+        {
+            Response::HeadlessRun(run) => Ok(run.map(|r| *r)),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn cancel_headless_run(&self, run_id: &str) -> Result<bool> {
+        match self
+            .request(Request::CancelHeadlessRun {
+                run_id: run_id.into(),
+            })
+            .await?
+        {
+            Response::Flag(f) => Ok(f),
+            other => unexpected(other),
+        }
+    }
+
+    pub async fn get_headless_run_log(
+        &self,
+        run_id: &str,
+        options: HeadlessRunLogOptions,
+    ) -> Result<Option<HeadlessRunLog>> {
+        match self
+            .request(Request::GetHeadlessRunLog {
+                run_id: run_id.into(),
+                options,
+            })
+            .await?
+        {
+            Response::HeadlessRunLog(log) => Ok(log),
+            other => unexpected(other),
+        }
     }
 
     /// Report whether this client's terminal is focused (drives OS notifications).

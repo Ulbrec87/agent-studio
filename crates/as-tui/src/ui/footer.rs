@@ -35,6 +35,9 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
                 "\u{2191}/\u{2193} choose \u{00B7} Enter apply \u{00B7} Esc cancel".into(),
             );
         }
+        Some(Modal::NewAgent(form)) if form.mode == crate::new_agent::FormMode::Headless => {
+            return ("NEW RUN", "Tab/\u{2193} next \u{00B7} \u{2190}/\u{2192} change \u{00B7} Enter start \u{00B7} Esc back".into());
+        }
         Some(Modal::NewAgent(_)) => {
             return ("NEW AGENT", "Tab/\u{2193} next \u{00B7} Shift+Tab prev \u{00B7} \u{2190}/\u{2192} change \u{00B7} Enter create \u{00B7} Esc cancel".into());
         }
@@ -56,6 +59,22 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
                 "USAGE",
                 "j/k scroll \u{00B7} \u{2190}/\u{2192} provider \u{00B7} d 7d/30d \u{00B7} f low/all \u{00B7} r refresh \u{00B7} Esc close".into(),
             );
+        }
+        Some(Modal::Headless) => {
+            return match &app.headless.view {
+                Some(_) => (
+                    "HEADLESS LOG",
+                    "j/k PgUp/PgDn scroll \u{00B7} G follow \u{00B7} r raw/rendered \u{00B7} R reload \u{00B7} x cancel \u{00B7} Esc list".into(),
+                ),
+                None if app.headless.filtering => (
+                    "HEADLESS",
+                    "type to search \u{00B7} Enter keep \u{00B7} Esc clear".into(),
+                ),
+                None => (
+                    "HEADLESS",
+                    "j/k move \u{00B7} Enter log \u{00B7} n new \u{00B7} / search \u{00B7} s status \u{00B7} x cancel \u{00B7} r refresh \u{00B7} Esc close".into(),
+                ),
+            };
         }
         Some(Modal::Palette(_)) => {
             return (

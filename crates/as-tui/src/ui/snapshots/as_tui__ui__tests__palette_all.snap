@@ -16,6 +16,7 @@ expression: text(&t)
              │  Focus Sidebar                                                          Ctrl+A s │
              │  Focus Sidebar Search                                                   Ctrl+A / │
              │  New Agent                                                              Ctrl+A n │
+             │  New Manager Agent                                                               │
              │  Resume Session…                                                        Ctrl+A o │
              │  Claude Profile of the Project                                          Ctrl+A P │
              │  Stop Selected Agent                                                    Ctrl+A x │
@@ -27,8 +28,7 @@ expression: text(&t)
              │  Expand / Collapse Tile                                                 Ctrl+A z │
              │  Broadcast to the Agents of the Tab                                     Ctrl+A b │
              │  Open Focused Tile in Chat                                                grid c │
-             │  Move Tile Earlier                                             Ctrl+A Shift+Left │
-             │ 47 matches · ↑/↓ choose · Enter run · Esc close                                  │
+             │ 50 matches · ↑/↓ choose · Enter run · Esc close                                  │
              ╰──────────────────────────────────────────────────────────────────────────────────╯
                            │
  All Run Wait Idle Err     │

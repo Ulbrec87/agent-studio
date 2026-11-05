@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use as_core::headless::{HeadlessRun, HeadlessRunLog, StartHeadlessRunPayload};
 use as_core::keybindings::KeybindingRule;
 use as_core::overview::{
     AgentDetails, HistoryResponse, OverviewSnapshot, OverviewStatus, WaitLedgerData,
@@ -17,15 +18,16 @@ use as_core::{
     AgentState, AgentStatus, AppConfig, CreateAgentPayload, GridColumns, ProviderId,
     ProviderModelOption, ViewMode, get_default_model_for_provider,
 };
-use as_proto::{Event, NotificationKind, StudioNotification};
+use as_proto::{Event, McpStatus, NotificationKind, StudioNotification};
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::layout::Rect;
 
 use crate::grid::{self, TileOrder};
+use crate::headless::HeadlessUi;
 use crate::keymap::{Command, KeyChord, Keymap};
-use crate::new_agent::{FormAction, NewAgentForm};
+use crate::new_agent::{FormAction, FormMode, NewAgentForm};
 use crate::overview::OverviewState;
 use crate::palette::{Palette, PaletteAction, PaletteOutcome};
 use crate::sessions::{PickerAction, PickerOrigin, SessionPicker};
@@ -145,6 +147,8 @@ pub enum Modal {
     Profile(ProfileChooser),
     /// `prefix u`: usage and limits report (P7).
     Usage(UsageOverlay),
+    /// `prefix H`: headless runs (P8); the state is `App::headless`.
+    Headless,
 }
 
 /// One entry of the profile chooser.
@@ -232,6 +236,14 @@ pub enum Effect {
     UsageVisible(bool),
     /// Merge a JSON patch into the daemon's config.
     PatchConfig(serde_json::Value),
+    /// The MCP server's state (help overlay, manager dialog).
+    LoadMcpStatus,
+    /// Every headless run.
+    LoadHeadlessRuns,
+    StartHeadlessRun(StartHeadlessRunPayload),
+    CancelHeadlessRun(String),
+    /// The log of a run (its tail).
+    LoadHeadlessLog(String),
 }
 
 /// Results of asynchronous work, fed back into [`App::handle_msg`].
@@ -272,6 +284,13 @@ pub enum Msg {
     UsageReport(Box<UsageReport>),
     /// A usage request failed (an older daemon does not know usage).
     UsageFailed(String),
+    McpStatus(Box<McpStatus>),
+    HeadlessRuns(Result<Vec<HeadlessRun>, String>),
+    HeadlessStarted(Result<Box<HeadlessRun>, String>),
+    HeadlessLog {
+        run_id: String,
+        result: Result<Option<HeadlessRunLog>, String>,
+    },
 }
 
 pub enum SubState {
@@ -343,6 +362,10 @@ pub struct App {
     pub overview: OverviewState,
     /// Usage and limits: state, summaries, reports (P7).
     pub usage: UsageUi,
+    /// Headless runs panel (P8).
+    pub headless: HeadlessUi,
+    /// The daemon's MCP server, once known.
+    pub mcp: Option<McpStatus>,
     pub broadcast: TextArea,
     /// First visible line of the help overlay.
     pub help_scroll: usize,
@@ -397,6 +420,8 @@ impl App {
             grid: GridState::default(),
             overview: OverviewState::default(),
             usage: UsageUi::default(),
+            headless: HeadlessUi::default(),
+            mcp: None,
             broadcast: TextArea::multi_line(),
             help_scroll: 0,
             user_bindings: Vec::new(),
@@ -427,6 +452,7 @@ impl App {
             Effect::LoadProfiles,
             Effect::LoadOverview,
             Effect::LoadUsageState,
+            Effect::LoadMcpStatus,
         ];
         if self.view == ViewMode::Overview {
             self.overview.entered(self.wall_ms(), self.now);
@@ -666,6 +692,10 @@ impl App {
                 self.usage.set_state(*state);
                 self.dirty = true;
             }
+            Event::HeadlessRunChanged(run) => fx.extend(self.on_headless_changed(*run)),
+            Event::HeadlessRunEvent { run_id, data } => {
+                self.on_headless_line(&run_id, &data);
+            }
             Event::OverviewEvents(events) => {
                 let moved = self.overview.add_events(&events);
                 if moved && self.view == ViewMode::Overview {
@@ -684,6 +714,8 @@ impl App {
             NotificationKind::AgentErrored => ToastKind::Error,
             NotificationKind::AgentStarted => ToastKind::Info,
             NotificationKind::UsageLimit => ToastKind::Warn,
+            NotificationKind::HeadlessCompleted => ToastKind::Success,
+            NotificationKind::HeadlessErrored => ToastKind::Error,
         };
         self.toasts.push(Toast {
             id: n.id.clone(),
@@ -837,6 +869,16 @@ impl App {
                 self.usage.failed(error);
                 self.dirty = true;
             }
+            Msg::McpStatus(status) => {
+                if let Some(Modal::NewAgent(form)) = &mut self.modal {
+                    form.mcp_available = status.running;
+                }
+                self.mcp = Some(*status);
+                self.dirty = true;
+            }
+            Msg::HeadlessRuns(result) => self.on_headless_runs(result),
+            Msg::HeadlessStarted(result) => fx.extend(self.on_headless_started(result)),
+            Msg::HeadlessLog { run_id, result } => self.on_headless_log(&run_id, result),
             Msg::Sessions { provider, result } => {
                 match &mut self.modal {
                     Some(Modal::Resume(picker)) => picker.set_sessions(provider, result),
@@ -950,7 +992,11 @@ impl App {
             Effect::LoadProfiles,
             Effect::LoadOverview,
             Effect::LoadUsageState,
+            Effect::LoadMcpStatus,
         ];
+        if self.headless.loaded {
+            fx.push(Effect::LoadHeadlessRuns);
+        }
         self.usage.reset_connection();
         for (id, term) in &mut self.terms {
             term.emu = Box::new(Vt100Emulator::new(cols, rows));
@@ -1408,25 +1454,10 @@ impl App {
                 let bytes = keys::encode_key(event, false);
                 self.send_bytes(&id, bytes)
             }
-            Command::NewAgent => {
-                let dir = selected
-                    .as_deref()
-                    .and_then(|id| self.agent(id))
-                    .map(|a| a.project_dir.clone())
-                    .filter(|d| !d.is_empty())
-                    .or_else(|| {
-                        Some(self.config.default_project_dir.clone())
-                            .filter(|d| !d.trim().is_empty())
-                    })
-                    .unwrap_or_else(|| self.cwd.to_string_lossy().into_owned());
-                let shown = as_core::paths::tildify(std::path::Path::new(&dir));
-                let mut form = NewAgentForm::new(&self.config, &shown, &self.cwd);
-                form.set_profiles(self.profiles.clone());
-                let mut fx = vec![Effect::LoadProfiles];
-                fx.extend(self.sync_form_models(&mut form));
-                self.modal = Some(Modal::NewAgent(Box::new(form)));
-                fx
-            }
+            Command::NewAgent => self.open_new_agent(false),
+            Command::NewManagerAgent => self.open_new_agent(true),
+            Command::Headless => self.open_headless(),
+            Command::McpStatus => self.show_mcp_status(),
             Command::ResumeSession => {
                 let agent = self.selected_agent();
                 let project = agent.map(|a| a.project_dir.clone()).unwrap_or_default();
@@ -1699,8 +1730,21 @@ impl App {
                 let mut fx = Vec::new();
                 match form.handle_key(&key) {
                     FormAction::None => {}
+                    FormAction::Cancel if form.mode == FormMode::Headless => {
+                        return self.reopen_headless();
+                    }
                     FormAction::Cancel => return Vec::new(),
                     FormAction::Picker(action) => fx.extend(Self::picker_effects(action)),
+                    FormAction::Submit if form.mode == FormMode::Headless => {
+                        match form.build_run() {
+                            Ok(payload) => {
+                                form.submitting = true;
+                                self.modal = Some(Modal::NewAgent(form));
+                                return vec![Effect::StartHeadlessRun(payload)];
+                            }
+                            Err(error) => form.error = Some(error),
+                        }
+                    }
                     FormAction::Submit => match form.build_payload() {
                         Ok(payload) => {
                             form.submitting = true;
@@ -1841,6 +1885,7 @@ impl App {
                 Vec::new()
             }
             Modal::Usage(overlay) => self.usage_overlay_key(overlay, key),
+            Modal::Headless => self.headless_key(key),
             Modal::Palette(mut palette) => match palette.handle_key(&key, PALETTE_PAGE) {
                 PaletteOutcome::None => {
                     self.modal = Some(Modal::Palette(palette));
@@ -1974,6 +2019,8 @@ impl App {
     }
 }
 
+mod headless_ui;
+pub use headless_ui::headless_log_options;
 mod overview;
 mod usage_ui;
 mod view;

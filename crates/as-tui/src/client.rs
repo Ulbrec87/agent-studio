@@ -412,6 +412,51 @@ impl Io {
                     }
                 });
             }
+            Effect::LoadMcpStatus => {
+                tokio::spawn(async move {
+                    match client.get_mcp_status().await {
+                        Ok(status) => {
+                            let _ = tx.send(Msg::McpStatus(Box::new(status)));
+                        }
+                        Err(err) => tracing::debug!(%err, "MCP status unavailable"),
+                    }
+                });
+            }
+            Effect::LoadHeadlessRuns => {
+                tokio::spawn(async move {
+                    let result = client
+                        .list_headless_runs(Default::default())
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    let _ = tx.send(Msg::HeadlessRuns(result));
+                });
+            }
+            Effect::StartHeadlessRun(payload) => {
+                tokio::spawn(async move {
+                    let result = client
+                        .start_headless_run(payload)
+                        .await
+                        .map(Box::new)
+                        .map_err(|e| format!("{e:#}"));
+                    let _ = tx.send(Msg::HeadlessStarted(result));
+                });
+            }
+            Effect::CancelHeadlessRun(run_id) => {
+                tokio::spawn(async move {
+                    if let Err(err) = client.cancel_headless_run(&run_id).await {
+                        failure(&client, &tx, &err);
+                    }
+                });
+            }
+            Effect::LoadHeadlessLog(run_id) => {
+                tokio::spawn(async move {
+                    let result = client
+                        .get_headless_run_log(&run_id, crate::app::headless_log_options())
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    let _ = tx.send(Msg::HeadlessLog { run_id, result });
+                });
+            }
             // Handled by the runner (needs the terminal).
             Effect::Quit | Effect::Bell | Effect::Suspend(_) => {}
         }

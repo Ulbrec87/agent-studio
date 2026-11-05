@@ -167,6 +167,8 @@ pub enum Command {
     /// Send the prefix key itself to the agent.
     SendPrefix,
     NewAgent,
+    /// New agent dialog with the manager toggle on (P8).
+    NewManagerAgent,
     /// Pick a previous session of the provider and resume it.
     ResumeSession,
     /// Choose the Claude profile of the project under the cursor.
@@ -213,6 +215,9 @@ pub enum Command {
     RefreshUsage,
     ToggleUsageCosts,
     ToggleUsageAlerts,
+    // Headless runs and the MCP server (P8).
+    Headless,
+    McpStatus,
     // Grid.
     ToggleTileExpand,
     Broadcast,
@@ -242,6 +247,7 @@ pub enum Command {
 pub const ALL_COMMANDS: &[Command] = &[
     Command::SendPrefix,
     Command::NewAgent,
+    Command::NewManagerAgent,
     Command::ResumeSession,
     Command::SetProfile,
     Command::KillAgent,
@@ -278,6 +284,8 @@ pub const ALL_COMMANDS: &[Command] = &[
     Command::RefreshUsage,
     Command::ToggleUsageCosts,
     Command::ToggleUsageAlerts,
+    Command::Headless,
+    Command::McpStatus,
     Command::ToggleTileExpand,
     Command::Broadcast,
     Command::GridLeft,
@@ -307,6 +315,7 @@ impl Command {
         match self {
             Command::SendPrefix => "send-prefix",
             Command::NewAgent => "new-agent",
+            Command::NewManagerAgent => "new-manager-agent",
             Command::ResumeSession => "resume-session",
             Command::SetProfile => "set-profile",
             Command::KillAgent => "close-agent",
@@ -343,6 +352,8 @@ impl Command {
             Command::RefreshUsage => "refresh-usage",
             Command::ToggleUsageCosts => "toggle-usage-costs",
             Command::ToggleUsageAlerts => "toggle-usage-alerts",
+            Command::Headless => "headless",
+            Command::McpStatus => "mcp-status",
             Command::ToggleTileExpand => "toggle-tile-expand",
             Command::Broadcast => "broadcast",
             Command::GridLeft => "grid-left",
