@@ -234,16 +234,28 @@
 * Spawning (`spawn_daemon`): `current_exe daemon --home <root>`, stdio null; Unix: own process group; Windows:
   `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW`. Clients retry connecting with backoff for 5 s.
 
-## GUI client (Tauri, in progress)
+## GUI client (Tauri)
 
 `crates/as-gui` (own Cargo workspace, `agent-studio-gui` binary) is a second client next to the TUI. It hosts `gui/` (Hydra's React
-renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`: `Transport { request, onEvent }` with a Tauri
-implementation (`invoke('daemon_request')` + `listen('daemon-event')`) and an in-memory mock (browser, tests, and the whole app in G0).
-`createHydraApi(bridge)` builds `window.hydra` with exactly the shape of Hydra's `preload.ts`; the Hydra-API -> `as-proto` mapping
-will live there (G1). The shell has two commands: `app_info` (works now) and `daemon_request` (G0: returns "not wired (G1)").
-The same binary is the daemon when started as `agent-studio-gui daemon --home <dir> [--foreground]`, so `ensure_daemon` (which spawns
-`current_exe daemon --home <root>`) works from the GUI. The library part of the crate holds everything unit-testable and does not
-link Tauri (test binaries linking Tauri do not start on Windows); the Tauri glue is in `src/shell.rs`.
+renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`; see its README for the method table.
+
+* **Shell (Rust, generic).** `as_gui::link::DaemonLink` owns one shared `DaemonClient`. Commands: `app_info`, `daemon_request`
+  (JSON of `Request` in, JSON of `Response` out, daemon errors as the rejection text, no per-method code) and `daemon_status`. At
+  start, in the background (never blocking the window), it runs `ensure_daemon` (the GUI binary hosts the daemon: `current_exe daemon
+  --home <root>`), forwards every `Event` as `daemon-event` and announces `daemon-status` `{ connected, error? }`. When the connection
+  drops it reconnects with backoff (0.5 s doubling to 5 s) through `ensure_daemon` (so a stopped daemon is started again, like the TUI)
+  and announces `connected: true`, which is the front end's cue to re-subscribe. Data dir: `AGENT_STUDIO_HOME` or `--home <dir>`.
+  Closing the window never stops the daemon or its agents.
+* **Subscriptions** live in the TypeScript layer (`daemonApi.ts` / `streams.ts`): the GUI subscribes every non-idle agent (the daemon
+  pushes output only to subscribed connections), serves `getAgentBuffer` from `Subscribe`'s buffer, forgets removed agents and resubscribes
+  after a reconnect. It reports window focus with `ClientFocus`, so OS notifications appear only while the GUI is unfocused.
+* **Dev bridge** (`agent-studio-gui --dev-bridge [--home DIR]`, dev/test tool): no window, the same plumbing behind a WebSocket on
+  `127.0.0.1:<random port>`; connections need `?token=<random token>`; one line `DEV_BRIDGE ws://127.0.0.1:<port> token=<token>` goes
+  to stdout. Frames: `{id, request}` -> `{id, result|error}`, pushes `{event}` / `{status}`. It lets the Vite UI run in a normal browser
+  (`?bridge=...&token=...`) against a real daemon in a temp home, for browser automation and screenshots. Several tabs share the shell's
+  one daemon connection (and its subscriptions).
+* The library part of the crate holds everything unit-testable and does not link Tauri (test binaries linking Tauri do not start on
+  Windows); the Tauri glue is `src/shell.rs`. `tests/bridge.rs` runs the link and the dev bridge against an in-process daemon with the fake PTY backend.
 
 ## Data root (`as_core::paths::Paths`)
 

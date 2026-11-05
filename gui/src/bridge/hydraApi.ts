@@ -162,6 +162,12 @@ export interface HydraAPI {
   onFreeTerminalOutput: (callback: (terminalId: string, projectDir: string, data: string) => void) => () => void
   onFreeTerminalExit: (callback: (terminalId: string, projectDir: string, exitCode: number) => void) => () => void
   onFreeTerminalLayoutChanged: (callback: (projectDir: string, layout: FreeTerminalLayout) => void) => () => void
+  // ── Agent Studio extensions (not in Hydra's preload) ──────────────────────
+  /** State of the connection to the daemon (`connected: false` until the shell reached it). */
+  getDaemonStatus: () => Promise<{ connected: boolean; error?: string }>
+  onDaemonStatus: (callback: (status: { connected: boolean; error?: string }) => void) => () => void
+  /** The agent list changed (created/removed/renamed by any client, or the connection was re-established): reload it. */
+  onAgentsChanged: (callback: () => void) => () => void
 }
 
 /** Build the complete `window.hydra` object on top of a bridge. */
@@ -279,5 +285,8 @@ export function createHydraApi(bridge: Bridge): HydraAPI {
     onFreeTerminalOutput: (callback: (terminalId: string, projectDir: string, data: string) => void) => bridge.subscribe('onFreeTerminalOutput', callback),
     onFreeTerminalExit: (callback: (terminalId: string, projectDir: string, exitCode: number) => void) => bridge.subscribe('onFreeTerminalExit', callback),
     onFreeTerminalLayoutChanged: (callback: (projectDir: string, layout: FreeTerminalLayout) => void) => bridge.subscribe('onFreeTerminalLayoutChanged', callback),
+    getDaemonStatus: () => bridge.call<{ connected: boolean; error?: string }>('getDaemonStatus'),
+    onDaemonStatus: (callback: (status: { connected: boolean; error?: string }) => void) => bridge.subscribe('onDaemonStatus', callback),
+    onAgentsChanged: (callback: () => void) => bridge.subscribe('onAgentsChanged', callback),
   }
 }

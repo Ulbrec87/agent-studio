@@ -381,3 +381,25 @@ included, so a test reading "the next frame" can get an event instead of its res
 - **Under Xvfb** set `WEBKIT_DISABLE_DMABUF_RENDERER=1`; Pillow's `ImageGrab.grab(xdisplay=None)` takes the screenshot (no xdotool/import needed).
 - **ESLint 9 + react-hooks 7** flags Hydra's Tooltip ref forwarding (`react-hooks/immutability`); the rule is off in `gui/eslint.config.mjs`.
 
+## GUI (Tauri) G1 gotchas
+
+- **Concurrent Tauri `invoke`s are not ordered.** Keystrokes sent as separate `daemon_request` calls can reach the daemon out of order, so the
+  bridge chains `sendInput`/`sendRawInput`/`resizeAgent` per agent (`serial()` in `daemonApi.ts`) instead of firing them in parallel.
+- **Hydra's `useAgents` merges the buffer with live chunks by suffix/prefix** (`mergeBufferedOutput`): `getAgentBuffer` must return the *whole*
+  daemon buffer (we re-`Subscribe` each time), not just what was streamed since; otherwise the history is dropped. The daemon's `Subscribe`
+  is idempotent for a connection.
+- **The daemon's config lacks `terminalFontFamily/FontSize/EnableWebgl`.** `GetConfig` fills Hydra's defaults in the bridge; changes to those three keys
+  go to `localStorage` (G2: move them into `AppConfig`). Global YOLO: the daemon toggles the agents but Hydra also stores `globalYolo` in the config, so the bridge writes it.
+- **Hydra has no "agent list changed" event** (its renderer only sees agents it created). The bridge adds `onAgentsChanged` (from `agents_changed` and
+  from a reconnect) and `useAgents` reloads the list; without it CLI/TUI-created agents never appear.
+- **Initial render vs daemon start.** `installHydra` waits up to 4 s for `daemon-status: connected` before rendering (the shell starts the daemon in the
+  background); if it was down, `DaemonBanner` reloads the page once when it comes up so every hook loads real data.
+- **The GUI reconnect restarts a stopped daemon** (`ensure_daemon`, like the TUI): `agent-studio stop --force` while the GUI is open brings a new daemon up
+  within a second. Close the GUI first when you want it to stay down.
+- **Browser dev bridge**: unix socket paths are short-limited, use `--home /tmp/asXX`; Playwright with system Chrome needs `--no-sandbox` here;
+  `getByRole('button', {name: 'Grid'})` did not find the header buttons (use `locator('button', {hasText: /^Grid$/})`); the xterm text is in `.xterm-rows`.
+- **A repeated trust prompt is not shown for a folder that was trusted before**: e2e scripts must not wait for it unconditionally. Real `claude` agents in a
+  test folder create `~/.claude*/projects/-tmp-asg1-proj` (+ `history.jsonl` lines and a trust entry in `<profile>/.claude.json`); only the project folder is safe to delete.
+- **tokio-tungstenite 0.28**: `Message::text(String)`, `Message::Text(Utf8Bytes)` (`.as_str()`); the handshake callback's `Err(ErrorResponse)` trips
+  clippy `result_large_err` (allow it on the closure).
+

@@ -6,11 +6,12 @@
 mod shell;
 
 use anyhow::Result;
-use as_gui::{Mode, parse_args, run_daemon};
+use as_gui::{Mode, parse_args, run_daemon, run_dev_bridge};
 
 fn main() -> Result<()> {
     match parse_args(std::env::args_os().skip(1))? {
         Mode::Daemon { home, foreground } => run_daemon(home, foreground),
-        Mode::Gui => shell::run_gui(),
+        Mode::DevBridge { home } => run_dev_bridge(home),
+        Mode::Gui { home } => shell::run_gui(home),
     }
 }

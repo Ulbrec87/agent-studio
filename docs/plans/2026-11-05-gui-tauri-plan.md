@@ -92,7 +92,7 @@ argument so it can host the daemon itself; editing files in the GUI is allowed (
 ## Progress
 
 - [x] G0 Scaffold
-- [ ] G1 Core bridge
+- [x] G1 Core bridge
 - [ ] G2 Everything else
 - [ ] G3 Parity + polish
 - [ ] G4 Packaging + CI

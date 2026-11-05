@@ -84,6 +84,9 @@ export function createMockTransport(options: { appInfo?: AppInfo } = {}): MockTr
     resizeAgent: noop,
     broadcast: (() => []) as Handler,
 
+    // Connection state (always connected: there is no daemon)
+    getDaemonStatus: () => ({ connected: true }),
+
     // Overview
     getOverview: () => overviewSnapshot(agents),
     getOverviewAgentDetails: () => null,

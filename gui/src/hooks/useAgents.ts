@@ -34,12 +34,16 @@ export function useAgents(initialSelectedAgentId: string | null = null) {
   const [agents, setAgents] = useState<Map<string, AgentData>>(new Map())
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(initialSelectedAgentId)
   const selectedAgentIdRef = useRef<string | null>(initialSelectedAgentId)
+  const agentsRef = useRef<Map<string, AgentData>>(new Map())
   const pendingOutputRef = useRef<Map<string, string>>(new Map())
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     selectedAgentIdRef.current = selectedAgentId
   }, [selectedAgentId])
+  useEffect(() => {
+    agentsRef.current = agents
+  }, [agents])
 
   const readAgentBufferText = useCallback(async (agentId: string): Promise<string> => {
     try {
@@ -185,6 +189,45 @@ export function useAgents(initialSelectedAgentId: string | null = null) {
       })
     })
   }, [initialSelectedAgentId, readAgentBufferText])
+
+  // The agent list changed elsewhere (CLI/TUI/MCP created or removed an agent) or the daemon connection was re-established:
+  // reload the list, keep what we already have, fetch the buffer of agents we did not know.
+  useEffect(() => {
+    const onChanged = window.hydra.onAgentsChanged
+    if (!onChanged) return
+    let cancelled = false
+    const unsub = onChanged(() => {
+      window.hydra
+        .listAgents()
+        .then(async (list) => {
+          if (cancelled) return
+          const ids = new Set(list.map((a) => a.id))
+          const fresh = list.filter((a) => !agentsRef.current.has(a.id))
+          const buffers = await Promise.all(fresh.map(async (a) => [a.id, await readAgentBufferText(a.id)] as const))
+          if (cancelled) return
+          const bufferOf = new Map(buffers)
+          setAgents((prev) => {
+            const next = new Map<string, AgentData>()
+            for (const state of list) {
+              const existing = prev.get(state.id)
+              next.set(state.id, {
+                state,
+                rawOutput: existing ? existing.rawOutput : (bufferOf.get(state.id) ?? '')
+              })
+            }
+            return next
+          })
+          setSelectedAgentId((current) => (current && !ids.has(current) ? null : current))
+        })
+        .catch(() => {
+          // A failed refresh is retried by the next change event.
+        })
+    })
+    return () => {
+      cancelled = true
+      unsub()
+    }
+  }, [readAgentBufferText])
 
   const createAgent = useCallback(async (payload: CreateAgentPayload) => {
     const traceId = createTraceId('agent-create')

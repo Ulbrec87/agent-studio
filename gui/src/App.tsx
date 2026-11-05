@@ -10,6 +10,7 @@ import { HeadlessPanel } from './components/Headless/HeadlessPanel'
 import { UsageDashboard } from './components/UsageDashboard/UsageDashboard'
 import { UpdatePanel } from './components/Updates/UpdatePanel'
 import { UpdateBanner } from './components/Updates/UpdateBanner'
+import { DaemonBanner } from './components/Daemon/DaemonBanner'
 import { NotificationToast } from './components/Notifications/NotificationToast'
 import { FileSearchPopup } from './components/FileSearchPopup/FileSearchPopup'
 import { CommandPalette } from './components/CommandPalette/CommandPalette'
@@ -952,6 +953,8 @@ export default function App() {
           }}
         />
       )}
+
+      <DaemonBanner />
 
       <UpdateBanner
         state={updateState}

@@ -33,6 +33,8 @@ Desktop app (Node 22 via nvm; always `source ~/.nvm/nvm.sh && nvm use 22` first)
 
 ```bash
 cd gui && npm ci && npm run dev         # browser only, mock bridge, http://localhost:1420
+cd crates/as-gui && cargo run -- --dev-bridge --home /tmp/as-dev   # no window: prints `DEV_BRIDGE ws://127.0.0.1:PORT token=TOKEN`
+#   then open http://localhost:1420/?bridge=ws://127.0.0.1:PORT&token=TOKEN (npm run dev running) = the UI against a real daemon
 cd gui && npm run typecheck && npm run lint && npm test && npm run build
 cd crates/as-gui && ../../gui/node_modules/.bin/tauri dev   # native window (needs gui/node_modules; gui/dist for plain cargo build)
 cd crates/as-gui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test   # after gui build

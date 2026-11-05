@@ -69,7 +69,8 @@ Plan: [docs/plans/2026-11-05-gui-tauri-plan.md](plans/2026-11-05-gui-tauri-plan.
 |-------|------|-------|--------|
 | `src/` (components, hooks, lib, styles, App, main, tests) | `gui/src/` | G0 | done (copied, rebranded "Agent Studio", localStorage keys `agentStudio.*`; all 56 copied/new test files pass) |
 | `shared/` | `gui/shared/` | G0 | done (copied; hand-keep in sync with `as-core` types) |
-| `electron/preload.ts` (`window.hydra`) | `gui/src/bridge/` (all 112 methods, every one a stub, see its README) | G0 stub, G1/G2 real | stub |
+| `electron/preload.ts` (`window.hydra`) | `gui/src/bridge/` (112 methods + 3 extensions; mapping layer `daemonApi.ts`, see its README) | G0 stub, G1/G2 real | G1: 41 of 112 wired (agents, config, sessions/profiles/models, notifications, overview, usage, MCP status); the 71 G2 ones and a few G1 no-ops stay stubs |
+| `electron/daemon/DaemonClient.ts`, `ipc/handlers.ts` (request mapping) | `crates/as-gui/src/{link,devbridge,shell}.rs` + `gui/src/bridge/daemonApi.ts` | G1 | done (generic `daemon_request`, events, reconnect, dev bridge) |
 | `src/components/RemoteControl/*`, `useRemoteControl`, `qrcode` | — | P11 | removed from the UI (API methods remain as stubs) |
 | `src/assets` brand images | new Agent Studio mark in `gui/src/assets` | G0 | done (placeholder, replaceable) |
 | `electron/main.ts`, windows, tray, menus | `crates/as-gui` | G0 minimal window, G3 polish | window only |
