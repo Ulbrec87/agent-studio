@@ -5,7 +5,9 @@ use std::io;
 
 use as_core::paths::Paths;
 use interprocess::local_socket::tokio::{Listener, Stream};
-use interprocess::local_socket::traits::tokio::{Listener as _, Stream as _};
+use interprocess::local_socket::traits::tokio::Listener as _;
+#[cfg(not(windows))]
+use interprocess::local_socket::traits::tokio::Stream as _;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 
 pub type Conn = Stream;
