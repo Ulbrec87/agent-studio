@@ -242,3 +242,18 @@ included, so a test reading "the next frame" can get an event instead of its res
   a short terminal. Snapshot tests of the panel use `overview_tests::NOW` (UTC clock) like the Overview ones.
 - **Manual checks create real Claude files**: the manager/headless runs trusted `/tmp/as8*-manager-workspace` and `/tmp/as8w` in
   `<profile>/.claude.json`, added lines to `history.jsonl` and `projects/-tmp-as8*` session folders; only the project folders are safe to delete.
+
+## Windows: ConPTY needs a cursor-position reply; interprocess' tokio connect can block forever
+
+- **A ConPTY child never runs until the terminal answers `ESC [ 6 n`.** conhost emits a DSR query on startup and holds
+  the child; with nobody replying, `wait()` never returns and the agent stays Running forever (no output, no exit).
+  `NativePtyBackend` wraps the reader (`DsrResponder`) and answers `ESC [ 1 ; 1 R` on Windows. Diagnose with a tiny
+  spawn test that logs raw reads: the first read is exactly `"\x1b[6n"`.
+- **interprocess' tokio named-pipe connect has no timeout, and `ConnectWaitMode` is ignored by its `local_socket`
+  wrapper.** While the pipe is busy (no listening instance, e.g. a stopped daemon whose last server instances still
+  linger) it parks a `spawn_blocking` thread in `WaitNamedPipe(INFINITE)`. A `tokio::time::timeout` cannot cancel that
+  thread and the runtime's shutdown (end of a `#[tokio::test]`) waits for it forever: the test hangs after all
+  assertions passed and the in-test timeout never fires. On Windows `transport::Conn` is therefore tokio's own
+  `NamedPipeClient` with a bounded async retry on `ERROR_PIPE_BUSY`.
+- Debugging a CI hang: run one crate per step with `timeout-minutes` + `continue-on-error` (not `cargo test | tail`, a
+  killed step loses piped output), add stage `eprintln!`s and a watchdog thread that `exit`s after 40 s.
