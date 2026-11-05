@@ -18,6 +18,7 @@ use as_core::paths::Paths;
 use as_core::sessions::{
     CatalogSessionLocator, ListSessionsOptions, SessionSummary, profiles::make_resolver,
 };
+use as_core::terminals::{TerminalEvent, TerminalManager, TerminalSettings};
 use as_core::usage::alerts::{
     AlertConfig, Budgets, TodayUsage, UsageAlert, UsageAlerts, UsageAlertsOptions,
 };
@@ -78,6 +79,12 @@ pub struct Daemon {
     pub history: Arc<Mutex<HistoryStore>>,
     /// Headless runs (P8).
     pub headless: HeadlessOrchestrator,
+    /// Free terminals (P9).
+    pub terminals: Arc<TerminalManager>,
+    /// Where the skills scan/toggle looks (real `~/.claude*` / `~/.codex` unless a test overrides it).
+    pub skills: as_core::skills::SkillScanOptions,
+    /// Hydra's data dir when not the default (tests).
+    pub hydra_dir: Option<std::path::PathBuf>,
     /// The MCP server (P8) once started, or why it did not.
     pub mcp: Mutex<Option<McpServer>>,
     pub mcp_error: Mutex<Option<String>>,
@@ -103,6 +110,12 @@ impl Daemon {
         let config = Arc::new(ConfigStore::open(&paths));
         let workspace = Arc::new(WorkspaceStore::open(&paths));
         let mut manager_options = options.manager;
+        let terminals = {
+            let config = config.clone();
+            TerminalManager::new(manager_options.backend.clone(), move || {
+                TerminalSettings::from_config(&config.get())
+            })
+        };
         if options.catalog_locator {
             let locator: Arc<dyn SessionLocator> = Arc::new(CatalogSessionLocator::new(
                 options.catalogs.claude.clone(),
@@ -147,6 +160,7 @@ impl Daemon {
                 overrides.insert("PATH".into(), Some(path));
                 models.set_env_overrides(overrides.clone());
                 headless.set_env_overrides(overrides.clone());
+                terminals.set_env_overrides(overrides.clone());
                 manager.set_env_overrides(overrides);
             }
         }
@@ -179,6 +193,11 @@ impl Daemon {
             overview,
             history,
             headless,
+            terminals,
+            skills: options
+                .skills
+                .unwrap_or_else(as_core::skills::SkillScanOptions::from_env),
+            hydra_dir: options.hydra_dir,
             mcp: Mutex::new(None),
             mcp_error: Mutex::new(None),
             overview_kick: Notify::new(),
@@ -198,6 +217,7 @@ impl Daemon {
         daemon.spawn_tasks(control_rx);
         daemon.install_usage_hooks();
         daemon.spawn_headless_events();
+        daemon.spawn_terminal_events();
         if options.mcp {
             daemon.start_mcp().await;
         }
@@ -282,6 +302,60 @@ impl Daemon {
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
+            }
+        });
+    }
+
+    /// Free-terminal output, exits and layout changes -> clients; plus the idle sweep.
+    fn spawn_terminal_events(self: &Arc<Self>) {
+        let this = self.clone();
+        let mut rx = self.terminals.subscribe();
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(TerminalEvent::Output {
+                        terminal_id, data, ..
+                    }) => {
+                        this.registry.terminal_output(&terminal_id, &data);
+                    }
+                    Ok(TerminalEvent::Exit {
+                        terminal_id,
+                        project_dir,
+                        exit_code,
+                    }) => {
+                        this.registry.unsubscribe_all_terminal(&terminal_id);
+                        this.registry.broadcast(&Event::TerminalExit {
+                            terminal_id,
+                            project_dir,
+                            exit_code,
+                        });
+                    }
+                    Ok(TerminalEvent::LayoutChanged {
+                        project_dir,
+                        layout,
+                    }) => {
+                        this.registry.broadcast(&Event::TerminalLayoutChanged {
+                            project_dir,
+                            layout,
+                        });
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "terminal event dispatcher lagged");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+        let this = self.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                tick.tick().await;
+                let t = this.terminals.clone();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as u64);
+                let _ = tokio::task::spawn_blocking(move || t.sweep_idle(now)).await;
             }
         });
     }
@@ -432,6 +506,7 @@ impl Daemon {
         }
         tracing::info!(stop_agents, "stopping services");
         self.persist(true);
+        self.terminals.kill_all();
         self.history.lock().stop();
         self.usage.stop(); // flushes the usage cache
         if let Some(mcp) = &*self.mcp.lock() {

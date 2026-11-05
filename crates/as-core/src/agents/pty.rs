@@ -50,6 +50,48 @@ pub trait PtyBackend: Send + Sync + 'static {
     fn spawn(&self, request: &PtySpawnRequest) -> Result<PtyProcess>;
 }
 
+/// Run the reader and waiter of a spawned process on two threads.
+///
+/// `on_data` gets every chunk, then `on_exit` the exit code once the process ended and the reader
+/// had up to 500 ms to deliver the last output (ConPTY only closes the reader with the console).
+/// Shared by free terminals; the agent manager has its own copy with run ids.
+pub fn pump(
+    name: &str,
+    mut reader: Box<dyn Read + Send>,
+    mut waiter: Box<dyn PtyWaiter>,
+    on_data: impl Fn(&[u8]) + Send + 'static,
+    on_exit: impl FnOnce(i32) + Send + 'static,
+) {
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    let spawned = std::thread::Builder::new()
+        .name(format!("{name}-read"))
+        .spawn(move || {
+            let mut buf = vec![0u8; 16 * 1024];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => on_data(&buf[..n]),
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                    Err(_) => break, // EIO on Linux once the child closed the PTY
+                }
+            }
+            let _ = done_tx.send(());
+        });
+    if let Err(err) = spawned {
+        tracing::error!(%err, "cannot start the PTY reader thread");
+    }
+    let spawned = std::thread::Builder::new()
+        .name(format!("{name}-wait"))
+        .spawn(move || {
+            let code = waiter.wait();
+            let _ = done_rx.recv_timeout(std::time::Duration::from_millis(500));
+            on_exit(code);
+        });
+    if let Err(err) = spawned {
+        tracing::error!(%err, "cannot start the PTY waiter thread");
+    }
+}
+
 /// The real thing: `portable-pty`.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NativePtyBackend;

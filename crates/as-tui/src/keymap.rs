@@ -218,6 +218,23 @@ pub enum Command {
     // Headless runs and the MCP server (P8).
     Headless,
     McpStatus,
+    // P9 panels.
+    GitPanel,
+    ToggleFiles,
+    FileSearch,
+    Settings,
+    OpenIn,
+    ExportDiagnostics,
+    ImportHydra,
+    TerminalToggle,
+    TerminalNew,
+    TerminalSplit,
+    TerminalKill,
+    TerminalNextTab,
+    TerminalPrevTab,
+    TerminalNextPane,
+    TerminalRename,
+    TerminalFullscreen,
     // Grid.
     ToggleTileExpand,
     Broadcast,
@@ -286,6 +303,22 @@ pub const ALL_COMMANDS: &[Command] = &[
     Command::ToggleUsageAlerts,
     Command::Headless,
     Command::McpStatus,
+    Command::GitPanel,
+    Command::ToggleFiles,
+    Command::FileSearch,
+    Command::Settings,
+    Command::OpenIn,
+    Command::ExportDiagnostics,
+    Command::ImportHydra,
+    Command::TerminalToggle,
+    Command::TerminalNew,
+    Command::TerminalSplit,
+    Command::TerminalKill,
+    Command::TerminalNextTab,
+    Command::TerminalPrevTab,
+    Command::TerminalNextPane,
+    Command::TerminalRename,
+    Command::TerminalFullscreen,
     Command::ToggleTileExpand,
     Command::Broadcast,
     Command::GridLeft,
@@ -354,6 +387,22 @@ impl Command {
             Command::ToggleUsageAlerts => "toggle-usage-alerts",
             Command::Headless => "headless",
             Command::McpStatus => "mcp-status",
+            Command::GitPanel => "git-panel",
+            Command::ToggleFiles => "toggle-editor",
+            Command::FileSearch => "file-search",
+            Command::Settings => "settings",
+            Command::OpenIn => "open-in",
+            Command::ExportDiagnostics => "export-diagnostics",
+            Command::ImportHydra => "import-hydra",
+            Command::TerminalToggle => "toggle-terminal",
+            Command::TerminalNew => "terminal-new",
+            Command::TerminalSplit => "terminal-split",
+            Command::TerminalKill => "terminal-kill",
+            Command::TerminalNextTab => "terminal-next-tab",
+            Command::TerminalPrevTab => "terminal-prev-tab",
+            Command::TerminalNextPane => "terminal-next-pane",
+            Command::TerminalRename => "terminal-rename",
+            Command::TerminalFullscreen => "terminal-fullscreen",
             Command::ToggleTileExpand => "toggle-tile-expand",
             Command::Broadcast => "broadcast",
             Command::GridLeft => "grid-left",
@@ -918,7 +967,7 @@ mod tests {
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("rename-agent") && problems[0].contains("new-agent"));
 
-        let (_, problems) = build(&[rule("new-agent", "prefix X"), rule("quit", "prefix X")]);
+        let (_, problems) = build(&[rule("new-agent", "prefix w"), rule("quit", "prefix w")]);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("bound to both"));
     }
@@ -941,7 +990,7 @@ mod tests {
 
     #[test]
     fn none_unbinds_and_later_phase_commands_are_ignored() {
-        let (km, problems) = build(&[rule("quit", "none"), rule("git-panel", "ctrl+g")]);
+        let (km, problems) = build(&[rule("quit", "none"), rule("updates", "ctrl+g")]);
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(
             km.after_prefix(&ev(KeyCode::Char('q'), KeyModifiers::NONE)),

@@ -1,6 +1,6 @@
 //! One-shot CLI commands: connect to the daemon (starting it when needed), do one thing, print.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use as_core::paths::Paths;
@@ -44,9 +44,13 @@ async fn execute(paths: &Paths, command: Command) -> Result<()> {
             name,
             yolo,
             prompt,
+            worktree,
         } => {
-            let payload =
+            let mut payload =
                 new_payload(&client, &project, provider, model, name, yolo, prompt).await?;
+            if worktree {
+                payload.work_mode = as_core::WorkMode::Worktree;
+            }
             let agent = client.create_agent(payload).await?;
             println!("{}  {}  {}", agent.id, agent.name, agent.status_label());
         }
@@ -72,7 +76,57 @@ async fn execute(paths: &Paths, command: Command) -> Result<()> {
             println!("clients  {}", s.clients);
             println!("home     {}", paths.root().display());
         }
+        Command::ImportHydra { dir, yes } => import_hydra(&client, dir, yes).await?,
         Command::Stop { .. } | Command::Version | Command::Daemon { .. } => {}
+    }
+    Ok(())
+}
+
+/// Preview what a Hydra import would change, ask, then apply it through the daemon.
+async fn import_hydra(client: &DaemonClient, dir: Option<PathBuf>, yes: bool) -> Result<()> {
+    use as_proto::{Request, Response};
+    let dir = dir.map(|d| d.to_string_lossy().into_owned());
+    let Response::HydraPreview(p) = client
+        .request(Request::PreviewHydraImport { dir: dir.clone() })
+        .await?
+    else {
+        bail!("unexpected answer from the daemon");
+    };
+    println!("Hydra data: {}", p.dir);
+    println!("agents:       {} new of {}", p.agents_new, p.agents_total);
+    println!(
+        "keybindings:  {} of {} importable",
+        p.keybindings_importable, p.keybindings_total
+    );
+    println!("config values that differ: {}", p.config_changes.len());
+    for c in &p.config_changes {
+        println!("  {}: {} -> {}", c.key, c.current, c.incoming);
+    }
+    for w in &p.warnings {
+        println!("note: {w}");
+    }
+    if !yes {
+        use std::io::Write;
+        print!("Import now? [y/N] ");
+        std::io::stdout().flush()?;
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer)?;
+        if !answer.trim().eq_ignore_ascii_case("y") {
+            println!("nothing imported");
+            return Ok(());
+        }
+    }
+    let Response::HydraReport(r) = client.request(Request::ApplyHydraImport { dir }).await? else {
+        bail!("unexpected answer from the daemon");
+    };
+    println!(
+        "imported {} config value(s), {} agent(s), {} keybinding(s)",
+        r.config_keys_applied,
+        r.agents_added.len(),
+        r.keybindings_added
+    );
+    for w in &r.warnings {
+        println!("note: {w}");
     }
     Ok(())
 }

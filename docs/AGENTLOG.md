@@ -257,3 +257,46 @@ included, so a test reading "the next frame" can get an event instead of its res
   `NamedPipeClient` with a bounded async retry on `ERROR_PIPE_BUSY`.
 - Debugging a CI hang: run one crate per step with `timeout-minutes` + `continue-on-error` (not `cargo test | tail`, a
   killed step loses piped output), add stage `eprintln!`s and a watchdog thread that `exit`s after 40 s.
+
+## P9 git gotchas
+
+- **Parse `status --porcelain=v2 --branch -z`, not v1.** `-z` disables quoting (spaces/unicode paths arrive raw) and a rename
+  record is followed by a *separate* NUL-terminated original path. Use `--untracked-files=all` so untracked files are listed
+  one by one (a directory entry cannot be staged/committed per file).
+- **Run git with `GIT_LITERAL_PATHSPECS=1` and `-c core.quotepath=off`.** Otherwise file names with `*`/`?` are globbed and
+  non-ASCII names in `diff` headers come out as `"\303\251"`. Diffs also pass `--src-prefix=a/ --dst-prefix=b/` so a user's
+  `diff.noprefix` cannot break the parser. `GIT_OPTIONAL_LOCKS=0` keeps read-only `status` from touching `index.lock`.
+- **`git commit -- <paths>` needs `--only` semantics and known paths.** `GitRunner::commit` runs `add -- files` first, then
+  `commit --only -- files`, so other staged files stay staged; an empty list commits just the index (Hydra's add-all is `commit_all`).
+- **`git diff` never shows untracked files.** A per-file diff of an untracked file uses `diff --no-index -- /dev/null <file>`
+  (exit code 1 means "differences", accepted) so the diff view works for new files.
+- **`worktree remove` without `--force` is the safety net.** git refuses when the worktree has modified or untracked files, so
+  the agent manager never deletes uncommitted work; the branch is deleted with `-d` (kept if it has unmerged commits).
+  Hydra used `--force` + `branch -D` from *inside* the worktree; we run it from the main worktree (`main_worktree`).
+- **`.worktrees/` is added to `.git/info/exclude`** of the repository (Hydra put worktrees there without ignoring them, which
+  showed up as untracked noise in the main repo).
+- **Tests: isolate git with env, not `-c`.** `GIT_CONFIG_GLOBAL=<nonexistent>`, `GIT_CONFIG_NOSYSTEM=1` and
+  `GIT_CONFIG_COUNT/KEY_n/VALUE_n` (`commit.gpgsign=false`, `init.defaultBranch=main`) work for every command including
+  `clone`. On macOS the temp dir is a symlink (`/var` -> `/private/var`) and `rev-parse --show-toplevel` returns the real
+  path: compare with `fs::canonicalize` on both sides.
+- **Child pipes can outlive git.** A grandchild (ssh, credential helper) may keep stdout open after git exited, so the runner
+  waits at most 2 s for the readers instead of joining them; on timeout the child is killed and the readers are abandoned.
+
+## P9 (panels, terminals, settings) gotchas
+
+- **Modals swallow the prefix.** Inside Git/Files/Settings panels `Ctrl+A t` is not a command: `Ctrl+A` is ignored and `t` is a panel
+  key. During a manual check, keystrokes meant for a free terminal ended up in the Files panel and, once it closed, in the agent
+  (they answered Claude's trust dialog). Look at the footer (`FILES`, `GIT`, ...) before typing; `q` closes every panel.
+- **Free terminals are not agents.** They have their own `PtyBackend` use (`terminals::TerminalManager`), their own subscription key
+  (`term:<id>` in the same per-connection set) and no run ids: the pump (`agents::pty::pump`) reports the exit once the reader had
+  500 ms to drain. The manager still has its own copy of the reader/waiter code (run ids, trust gate); do not "unify" it blindly.
+- **Subscribe is subscribe-then-snapshot for terminals.** A chunk arriving in the gap shows up twice (in the buffer and as an event);
+  the other order would lose it. Agents avoid this with the dispatcher task; shells were not worth the extra machinery.
+- **Panel replies are keyed strings.** `Effect::Req { key }` -> `Msg::Reply { key }`: stale answers (a diff for a file the cursor left)
+  are dropped by a sequence number in the key (`git:diff:<n>`, `fs:file:<n>`, `fs:search:<n>`). New requests should do the same.
+- **A ratatui `Terminal` smaller than `app.screen` panics in tests.** `App::on_resize` first, then draw with the same size.
+- **Case-insensitive sort puts `blob.bin` before `README.md`.** `fs::list_dir` sorts dirs first, then by lowercase name.
+- **`git panel dir` = the agent's `project_dir`.** For a worktree agent that already is the worktree path; the main checkout is
+  `git worktree list`'s first entry (`GitRunner::main_worktree`).
+- **Manual checks create real Claude files** again (trust entries for `/tmp/as9repo/.worktrees/...` in the profile's `.claude.json`,
+  `history.jsonl`, `projects/-tmp-as9repo-*`): only the project folders are safe to delete.

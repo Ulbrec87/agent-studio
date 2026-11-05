@@ -15,6 +15,7 @@ pub mod keymap;
 pub mod new_agent;
 pub mod overview;
 pub mod palette;
+pub mod panels;
 pub mod runner;
 pub mod sessions;
 pub mod sidebar;

@@ -55,6 +55,19 @@ wins. `prefix g` / `prefix \` toggle Chat/Grid (Hydra `mod+\`), `prefix O` shows
 | `<` / `>` | `sidebar-narrower` / `sidebar-wider` | sidebar width |
 | `u` | `usage-dashboard` | usage report overlay (see below) |
 | `?` | `show-shortcuts` | help overlay |
+| `G` | `git-panel` | git panel (see below) |
+| `e` | `toggle-editor` | files panel |
+| `f` | `file-search` | fuzzy file search (opens the files panel) |
+| `t` | `toggle-terminal` | show / hide the free terminals (opens a first shell) |
+| `T` | `terminal-new` | new terminal tab |
+| `\|` | `terminal-split` | split the tab: another shell side by side |
+| `]` / `{` | `terminal-next-tab` / `terminal-prev-tab` | next / previous terminal tab |
+| `}` | `terminal-next-pane` | next pane of the tab |
+| `X` | `terminal-kill` | kill the active terminal |
+| *(palette)* | `terminal-rename`, `terminal-fullscreen` | rename the active terminal; panel bottom / full screen |
+| `,` | `settings` | settings |
+| `I` | `open-in` | open the project in an editor / file manager / terminal |
+| *(palette)* | `import-hydra`, `export-diagnostics` | import from Hydra (also CLI `import-hydra`); write a diagnostics folder |
 | `q` | `quit` | quit |
 
 ## Sidebar focus
@@ -270,3 +283,44 @@ dialog `Detach` (leave, agents keep running) · `Stop all & quit` (`Shutdown { s
 
 All keys are encoded like xterm (`as-tui::term::keys`): Ctrl+letter control bytes, Alt = ESC prefix,
 modified arrows `ESC[1;5A`, `Shift+Enter` = LF, `Shift+Tab` = `ESC[Z`, F1-F12, application cursor mode.
+
+## Git panel (`prefix G`; `gitPanelDisplayMode`: `overlay` = centered, `split` = right 60 %)
+
+Works on the selected agent's folder (the worktree for worktree agents). Tabs: `Tab`/`Shift+Tab` or `1` `2` `3`.
+The title shows branch, ahead/behind and the diff stats. A missing `git`/`gh` or a folder that is not a repository is shown as a message.
+
+| Tab | Keys |
+|-----|------|
+| **Changes** | `j`/`k` file (the diff follows) · `Enter`/`l` focus the diff · `Space` stage / unstage · `a` stage all · `c` commit message (Enter commits the staged files) · `P` push (asks `y`/`n`) · `n`/`N` next / previous hunk · `r` refresh · `q` close |
+| diff focus | `j`/`k`, `PgUp`/`PgDn`, `g`/`G` scroll · `n`/`N` hunk · `h`/`Esc` back to the list |
+| **Branches** | `j`/`k` · `Enter` checkout (asks first when the work tree is dirty) · `n` new branch |
+| **PR review** | `/` PR number or URL (needs `gh`, read-only) · `j`/`k` file · `Enter` diff of the file |
+
+Markers are `git status --short` style (`M `, ` M`, `MM`, `A `, `??`). The diff is a colored unified diff: hunk headers (accent),
+`+` green, `-` red, old / new line numbers in the gutter.
+
+## Files panel (`prefix e`; `prefix f` opens it with the search popup; `editorPanelDisplayMode`)
+
+Tree on the left, preview with line numbers on the right (plain text, binary and too-large files show a placeholder; the open file is
+re-read when its mtime changes, polled every second). `j`/`k` move · `Enter`/`l` expand / open · `h` collapse / parent · `.` hidden files ·
+`f` or `/` search (type, `Up`/`Down`, `Enter` opens) · `Tab` focus the preview (`j`/`k`/`PgUp`/`PgDn` scroll) · `E` open in `$VISUAL`/`$EDITOR`
+(the TUI suspends) · `y` copy the absolute path (OSC 52) · `o` open-in picker · `q`/`Esc` close.
+
+## Free terminals (`prefix t`)
+
+A panel with a tab row (one tab per group, `|2` marks a split) and the shells below. With the panel open **every key goes to the shell**;
+use the prefix for app commands (`t` hides the panel, shells keep running; they are per project: the project of the selected agent).
+`T` new tab · `|` split (side by side) · `]` `{` tabs · `}` pane · `X` kill (the tab disappears when its last shell ends) · `Shift+PgUp/PgDn` scroll the shell's history.
+
+## Settings (`prefix ,`)
+
+Sections on the left (`j`/`k`, `Enter`/`l` to enter, `Esc`/`h` back): General, Terminal / shell, Panels, Usage, Claude profiles (read-only),
+Skills, Keybindings, Data & diagnostics, About. Values: `Space`/`Left`/`Right` toggle or cycle, `+`/`-` step numbers, `Enter` edits text
+and numbers (validated; the daemon's answer is compared with what was sent and a clamped value is reported). Every change is an `UpdateConfig`
+patch applied at once. **Skills**: `Tab` switches Claude / Codex, `Space` toggles, `r` rescans. **Keybindings**: effective bindings,
+`Enter` opens `keybindings.json` in `$EDITOR`. **Data**: *Import from Hydra* (preview, `Enter` confirms) and *Export diagnostics*.
+
+## Open in (`prefix I`, `o` in the files panel)
+
+Lists the editors found on this machine (VS Code, Cursor, Windsurf, Antigravity, Zed), `$EDITOR` (runs in the TUI's terminal), the file
+manager and a terminal window. `Enter` opens the project folder (or the file).

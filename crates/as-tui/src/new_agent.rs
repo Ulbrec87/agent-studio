@@ -34,6 +34,8 @@ pub enum Field {
     Name,
     ProjectDir,
     Provider,
+    /// Local | Worktree (only for folders inside a git repository).
+    WorkMode,
     Model,
     Effort,
     /// Claude profile of the project (only with more than one profile).
@@ -72,6 +74,8 @@ pub struct NewAgentForm {
     /// 0 = provider default, otherwise `CODEX_REASONING_LEVELS[effort_idx - 1]`.
     pub effort_idx: usize,
     pub yolo: bool,
+    /// Run the agent in its own git worktree (`studio/<name>-<id>` branch).
+    pub worktree: bool,
     pub prompt: TextArea,
     pub error: Option<String>,
     pub submitting: bool,
@@ -125,6 +129,7 @@ impl NewAgentForm {
             model_idx: Some(idx),
             effort_idx: 0,
             yolo: config.global_yolo,
+            worktree: false,
             prompt: TextArea::multi_line(),
             error: None,
             submitting: false,
@@ -270,6 +275,25 @@ impl NewAgentForm {
         (chosen_dir != current).then(|| (project_dir.to_string(), chosen_dir.to_string()))
     }
 
+    /// Whether the typed directory is inside a git repository (a `.git` entry in it or a parent).
+    pub fn dir_is_git_repo(&self) -> bool {
+        let text = self.dir.text();
+        let text = text.trim();
+        if text.is_empty() {
+            return false;
+        }
+        let mut dir = expand_tilde(text);
+        if dir.is_relative() {
+            dir = self.cwd.join(dir);
+        }
+        dir.is_dir() && dir.ancestors().any(|d| d.join(".git").exists())
+    }
+
+    /// Worktree mode is only offered (and sent) for git repositories.
+    pub fn worktree_active(&self) -> bool {
+        self.worktree && !self.manager && self.mode != FormMode::Headless && self.dir_is_git_repo()
+    }
+
     /// Focusable fields in order.
     pub fn fields(&self) -> Vec<Field> {
         let headless = self.mode == FormMode::Headless;
@@ -280,6 +304,9 @@ impl NewAgentForm {
         if !self.manager {
             f.push(Field::ProjectDir);
             f.push(Field::Provider);
+            if !headless && self.dir_is_git_repo() {
+                f.push(Field::WorkMode);
+            }
         }
         f.push(Field::Model);
         if self.provider == ProviderId::Codex {
@@ -447,6 +474,12 @@ impl NewAgentForm {
             Field::Provider => match key.code {
                 KeyCode::Left | KeyCode::Char('h') => self.cycle_provider(-1),
                 KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(' ') => self.cycle_provider(1),
+                _ => self.nav(key),
+            },
+            Field::WorkMode => match key.code {
+                KeyCode::Left | KeyCode::Right | KeyCode::Char('h' | 'l' | ' ' | 'w') => {
+                    self.worktree = !self.worktree
+                }
                 _ => self.nav(key),
             },
             Field::Model => self.model_key(key),
@@ -663,6 +696,11 @@ impl NewAgentForm {
             reasoning_effort: self.effort().map(str::to_string),
             yolo: self.yolo,
             initial_prompt: self.prompt.text().trim().to_string(),
+            work_mode: if self.worktree_active() {
+                as_core::WorkMode::Worktree
+            } else {
+                as_core::WorkMode::Local
+            },
             ..Default::default()
         })
     }

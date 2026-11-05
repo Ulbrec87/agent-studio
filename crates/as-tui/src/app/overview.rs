@@ -22,6 +22,7 @@ impl App {
     /// the one-second redraw of the timers). Call it every frame.
     pub fn poll_effects(&mut self, now: Instant) -> Vec<Effect> {
         let mut fx = self.usage_effects();
+        fx.extend(self.panel_poll());
         if self.view != ViewMode::Overview {
             return fx;
         }

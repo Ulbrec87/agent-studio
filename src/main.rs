@@ -58,6 +58,18 @@ enum Command {
         /// First prompt sent to the agent.
         #[arg(long)]
         prompt: Option<String>,
+        /// Work in a new git worktree (branch `studio/<name>-<id>`); the project must be a repository.
+        #[arg(long)]
+        worktree: bool,
+    },
+    /// Import config, agents and keybindings from Hydra (never modifies Hydra's files).
+    ImportHydra {
+        /// Hydra's data directory (default: the OS location of Hydra's userData).
+        #[arg(long, value_name = "DIR")]
+        dir: Option<PathBuf>,
+        /// Do not ask for confirmation.
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
     /// Send text to an agent and submit it.
     Send {
@@ -132,6 +144,19 @@ mod tests {
         );
         let cli = Cli::parse_from(["agent-studio", "new", "--project", "/p", "--yolo"]);
         assert!(matches!(cli.command, Some(Command::New { yolo: true, .. })));
+        let cli = Cli::parse_from(["agent-studio", "new", "--project", "/p", "--worktree"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::New { worktree: true, .. })
+        ));
+        let cli = Cli::parse_from(["agent-studio", "import-hydra", "--dir", "/h", "-y"]);
+        assert!(matches!(
+            cli.command,
+            Some(Command::ImportHydra {
+                yes: true,
+                dir: Some(_)
+            })
+        ));
         let cli = Cli::parse_from(["agent-studio", "stop", "--force"]);
         assert!(matches!(cli.command, Some(Command::Stop { force: true })));
     }

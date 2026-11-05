@@ -44,13 +44,15 @@ Update the row (and add new rows) in the same commit that ports the code.
 | `electron/mcp/{McpServer,manager-workspace}.ts` | `as-daemon::mcp::{mod (server, bearer auth), tools (`studio_*`), workspace, text}` (rmcp 3.8 streamable HTTP + axum) | P8 | done (7 tools like Hydra; `hydra_get_notifications` and the `/notifications` endpoints not ported; bearer token added; `create_agent` also checks the folder and `maxAgents`) |
 | `electron/headless/HeadlessOrchestrator.ts` (+ test) | `as-core::headless::{mod (orchestrator), log (tail), types}`; protocol `StartHeadlessRun`/`ListHeadlessRuns`/`GetHeadlessRun`/`CancelHeadlessRun`/`GetHeadlessRunLog`, events `HeadlessRunEvent`/`HeadlessRunChanged`, notifications `HeadlessCompleted`/`HeadlessErrored` | P8 | done (shell wrapping + profile env reused, process-group/`taskkill /T` cancel, stderr kept in the log, runs left `running` by a dead daemon become `errored`; no retention, like Hydra; Claude gets `--verbose`) |
 | `src/components/Headless/HeadlessPanel.tsx`, manager toggle of `NewAgentDialog.tsx`, MCP status of Settings | `as-tui::{headless (state, stream-json renderer), ui::headless, app::headless_ui, new_agent (FormMode, manager)}` | P8 | done (log is rendered stream-json with a raw toggle; the Settings MCP status lives in the help overlay + palette until P9; manager pinning already existed from P3) |
-| `electron/git/GitService.ts` | `as-core::git` | P9 | todo |
-| `src/components/GitPanel/*` | `as-tui::views::git` (unified diff viewer) | P9 | todo |
-| `electron/fs/FileSystemService.ts` | `as-core::fs` | P9 | todo |
-| `src/components/EditorPanel/*`, `FileSearchPopup` | `as-tui::views::files` (read-only + `$EDITOR`) | P9 | todo |
-| free terminals (daemon routes, `FreeTerminalPanel.tsx`) | `as-core::terminals`, `as-tui::views::terminals` | P9 | todo |
-| `src/components/Settings/*`, `electron/skills/SkillScanner.ts` | `as-tui::views::settings`, `as-core::skills` | P9 | todo |
-| `EDITOR_REGISTRY` / open-in | `as-core::open_in` | P9 | todo |
+| `electron/git/GitService.ts` | `as-core::git` | P9 | done |
+| `src/components/GitPanel/*` | `as-tui::{panels::{git,diff_view}, ui::panels, app::panels}` (Changes / Branches / PR review, colored unified diff, no side-by-side) | P9 | done |
+| `electron/fs/FileSystemService.ts` | `as-core::fs` (gitignore-aware fuzzy search with `ignore` + `nucleo-matcher`; read-only; no watcher: mtime polled every 1 s) | P9 | done (no write: editing opens `$EDITOR`) |
+| `src/components/EditorPanel/*`, `FileSearchPopup` | `as-tui::panels::files` (tree, preview, search popup, `E` = `$EDITOR`, `y` = OSC 52, `o` = open-in) | P9 | done (no syntax highlighting, no tabs) |
+| free terminals (daemon routes, `FreeTerminalPanel.tsx`) | `as-core::terminals` (+ `agents::pty::pump`), `as-tui::panels::terminals` | P9 | done (tabs = groups, split = side-by-side panes) |
+| `src/components/Settings/*`, `electron/skills/SkillScanner.ts` | `as-tui::panels::settings`, `as-core::skills`, `as-core::hydra_import` | P9 | done (sections: General, Terminal, Panels, Usage, Profiles (read-only), Skills, Keybindings, Data, About; the deprecated usage budgets are not editable) |
+| `EDITOR_REGISTRY` / open-in | `as-core::open_in`, `as-tui::panels::open_in` | P9 | done |
+| "Import from Hydra" (decision 8) | `as-core::hydra_import`, Settings > Data, CLI `import-hydra` | P9 | done (Hydra's `mod+x` shortcuts are not converted) |
+| `electron/observability` export diagnostics | `as-daemon::handler::p9::export_diagnostics` (folder with logs + `snapshot.json`, secrets redacted) | P9 | done |
 | `electron/observability/*` | `tracing` setup in bin (`src/logging.rs`) + `diagnostics` subcommand | P0/P10 | wip |
 | `electron/updates/UpdateService.ts` | `as-core::updates` (GitHub release check) | P10 | todo |
 | `electron/remote/*`, `hydra-remote/`, `firebase-backend/` | — | P11 | deferred |

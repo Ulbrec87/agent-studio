@@ -344,6 +344,15 @@ fn execute_effects(app: &mut App, io: Option<&Io>, effects: Vec<Effect>) -> bool
                 let _ = out.write_all(b"\x07");
                 let _ = out.flush();
             }
+            Effect::Clipboard(text) => {
+                // OSC 52: the terminal puts the text on the clipboard.
+                use base64::Engine as _;
+                let b64 = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+                let mut out = io::stdout();
+                let _ = out.write_all(format!("\x1b]52;c;{b64}\x07").as_bytes());
+                let _ = out.flush();
+                app.toast(ToastKind::Info, "Copied", &text);
+            }
             other => match io {
                 Some(io) => io.run(other),
                 None => offline(app, &other),
@@ -357,7 +366,12 @@ fn execute_effects(app: &mut App, io: Option<&Io>, effects: Vec<Effect>) -> bool
 fn offline(app: &mut App, effect: &Effect) {
     match effect {
         // Typing into a dead connection must not flood the screen with toasts.
-        Effect::SendRaw(..) | Effect::Resize(..) | Effect::SetFocus(_) | Effect::Subscribe(_) => {}
+        Effect::SendRaw(..)
+        | Effect::Resize(..)
+        | Effect::SetFocus(_)
+        | Effect::Subscribe(_)
+        | Effect::TermInput(..)
+        | Effect::TermResize(..) => {}
         Effect::ShutdownAndQuit => {
             let _ = app.handle_msg(Msg::ShutdownDone(Err("not connected to the daemon".into())));
         }

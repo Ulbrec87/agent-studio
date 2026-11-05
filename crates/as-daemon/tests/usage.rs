@@ -168,6 +168,11 @@ async fn start(alerts: bool) -> (Rig, PathBuf, PathBuf) {
             http: Some(http.clone()),
             credentials: Some(Arc::new(FakeCreds)),
         },
+        skills: Some(as_core::skills::SkillScanOptions {
+            claude_config_dirs: Vec::new(),
+            home: std::env::temp_dir().join("as-test-no-home"),
+        }),
+        hydra_dir: None,
     };
     let stop = CancellationToken::new();
     let task = tokio::spawn(serve(paths.clone(), options, stop.clone()));

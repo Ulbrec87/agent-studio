@@ -6,20 +6,43 @@ use std::collections::VecDeque;
 pub const MAX_BUFFER_BYTES: usize = 2_000_000;
 
 /// Ring buffer of raw PTY bytes; the oldest bytes are dropped first.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct OutputBuffer {
     bytes: VecDeque<u8>,
+    cap: usize,
+}
+
+impl Default for OutputBuffer {
+    fn default() -> Self {
+        Self::with_cap(MAX_BUFFER_BYTES)
+    }
 }
 
 impl OutputBuffer {
+    /// A buffer that keeps at most `cap` bytes (free terminals size it from their scrollback setting).
+    pub fn with_cap(cap: usize) -> Self {
+        Self {
+            bytes: VecDeque::new(),
+            cap: cap.max(1),
+        }
+    }
+
+    pub fn set_cap(&mut self, cap: usize) {
+        self.cap = cap.max(1);
+        let excess = self.bytes.len().saturating_sub(self.cap);
+        if excess > 0 {
+            self.bytes.drain(..excess);
+        }
+    }
+
     pub fn push(&mut self, data: &[u8]) {
-        if data.len() >= MAX_BUFFER_BYTES {
+        if data.len() >= self.cap {
             self.bytes.clear();
-            self.bytes.extend(&data[data.len() - MAX_BUFFER_BYTES..]);
+            self.bytes.extend(&data[data.len() - self.cap..]);
             return;
         }
         self.bytes.extend(data);
-        let excess = self.bytes.len().saturating_sub(MAX_BUFFER_BYTES);
+        let excess = self.bytes.len().saturating_sub(self.cap);
         if excess > 0 {
             self.bytes.drain(..excess);
         }

@@ -23,7 +23,7 @@ pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
     }
 }
 
-fn frame(theme: &Theme, title: &str, area: Rect, buf: &mut Buffer) -> Rect {
+pub(crate) fn frame(theme: &Theme, title: &str, area: Rect, buf: &mut Buffer) -> Rect {
     Clear.render(area, buf);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -109,6 +109,13 @@ pub fn render(app: &mut App, screen: Rect, buf: &mut Buffer) -> Option<(u16, u16
         }
         Modal::Headless => {
             crate::ui::headless::render(app, visible, &mut canvas);
+            None
+        }
+        Modal::Git => crate::ui::panels::render_git(app, visible, &mut canvas),
+        Modal::Files => crate::ui::panels::render_files(app, visible, &mut canvas),
+        Modal::Settings => crate::ui::panels::render_settings(app, visible, &mut canvas),
+        Modal::OpenIn => {
+            crate::ui::panels::render_open_in(app, visible, &mut canvas);
             None
         }
         Modal::Resume(picker) => session_picker(&theme, picker, visible, &mut canvas),
@@ -200,6 +207,7 @@ fn new_agent(
         + 2
         + u16::from(!headless)
         + u16::from(!manager)
+        + u16::from(form.fields().contains(&Field::WorkMode))
         + 1
         + u16::from(form.provider == as_core::ProviderId::Codex)
         + u16::from(show_profile)
@@ -290,6 +298,27 @@ fn new_agent(
             theme,
             form.provider.label(),
             active(Field::Provider),
+        ));
+        buf.set_line(
+            x_label,
+            y,
+            &Line::from(spans),
+            inner.width.saturating_sub(1),
+        );
+        y += 1;
+    }
+
+    // Work mode (git repositories only)
+    if form.fields().contains(&Field::WorkMode) {
+        let mut spans = vec![label(theme, "Work mode", active(Field::WorkMode))];
+        spans.extend(selector(
+            theme,
+            if form.worktree {
+                "Worktree (own branch)"
+            } else {
+                "Local (project folder)"
+            },
+            active(Field::WorkMode),
         ));
         buf.set_line(
             x_label,

@@ -76,6 +76,12 @@ fn options(backend: &FakePtyBackend) -> DaemonOptions {
             profiles: Some(Vec::new()),
             ..Default::default()
         },
+        // Never the developer's real skills or Hydra data.
+        skills: Some(as_core::skills::SkillScanOptions {
+            claude_config_dirs: Vec::new(),
+            home: std::env::temp_dir().join("as-test-no-home"),
+        }),
+        hydra_dir: None,
     }
 }
 

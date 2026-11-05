@@ -136,6 +136,37 @@
   error), `GetHeadlessRunLog { tailLines (400), maxChars (120 000) }` -> `{ content, totalLines, returnedLines, truncated }` (streams
   the file; the oldest characters are cut when over the cap). Finished runs raise `Notification` `HeadlessCompleted` ("Run <id>
   finished successfully") or `HeadlessErrored` ("Run <id> failed: <error>"). There is no retention (Hydra has none either).
+* **P9 requests** (`as_daemon::handler::p9`; all blocking work under `spawn_blocking`):
+  * *git* (`as_core::git::GitRunner`, shells out to `git`/`gh`): `GitStatus`, `GitLog`, `GitDiff` (whole/file/staged), `GitDiffStats`,
+    `GitStage`/`GitUnstage`, `GitCommit` (stages the listed files, else commits the index), `GitPush`, `GitBranches`, `GitCheckout`,
+    `GitCreateBranch`, `GitFileContents`, `GitWorktreeCreate`/`GitWorktreeRemove`, `GitPrFetch`/`GitPrFileDiff` (read-only `gh`).
+    `GIT_TERMINAL_PROMPT=0`, timeouts (30 s, 60 s for push/gh), mutations serialized per repository root. A folder that is not a
+    repository answers an empty `GitStatus { is_repo: false }`; a missing `git`/`gh` is an error text the panel shows.
+  * *files*: `FsReadDir`, `FsReadFile` (1 MiB cap, binary and too-large placeholders), `FsMtime` (the viewer polls it every second;
+    there is no watcher), `FsSearch` (gitignore-aware walk of at most 20 000 files, `nucleo-matcher` ranking). Relative paths use `/`;
+    absolute paths, `..` and symlinks that leave the project are refused (`OutsideProject`).
+  * *free terminals* (`as_core::terminals::TerminalManager`, shells per project, `agents::pty::pump` shared reader/waiter threads,
+    the same `PtyBackend` as agents so the Windows DSR reply applies): `SpawnTerminal` (new tab, or a pane of `group_id`),
+    `TerminalInput`, `TerminalResize`, `KillTerminal`, `RenameTerminal`, `SubscribeTerminal` (returns the scrollback, then
+    `Event::TerminalOutput` goes to that connection only; subscribe first, snapshot second, so a chunk may repeat but never gets lost),
+    `UnsubscribeTerminal`, `GetTerminalLayout`, `ActivateTerminal`, `ListTerminals`. Events to everyone: `TerminalExit`,
+    `TerminalLayoutChanged { project_dir, layout }` (groups, panes, labels; an exited terminal leaves the layout like in Hydra).
+    Lifecycle from the config at use time: `explicit` keeps all, `lru` evicts the least recently active terminal when spawning past
+    `freeTerminalMaxCount`, `idle` is swept every minute (`freeTerminalIdleTimeoutMinutes` without input). Scrollback cap =
+    `freeTerminalScrollbackLines` x 200 bytes. Terminals die with the daemon.
+  * *skills*: `ScanSkills`, `ToggleSkill` (Claude: `enabledPlugins` of the profile's `settings.json`, atomic write, other keys kept;
+    Codex: `SKILL.md` <-> `SKILL.md.disabled`, only for files the scan lists).
+  * *open-in*: `ListOpenTargets` (editors found on PATH or as macOS app bundles, file manager, terminal, `$EDITOR`), `OpenIn`.
+  * *Hydra import*: `PreviewHydraImport`/`ApplyHydraImport` (`as_core::hydra_import`; Hydra's files are only read; unknown config keys
+    ignored, bad values skipped per key, agents merged by id and session id, only `prefix ...` keybindings are taken), also the CLI
+    `agent-studio import-hydra [--dir D] [-y]`. `ExportDiagnostics` writes `<root>/diagnostics/<timestamp>/{snapshot.json, logs/}`
+    (last 5 logs, 1 MiB each; keys named token/secret/password/credential/apikey/authorization are redacted).
+  * *worktree mode*: `CreateAgent { work_mode: worktree }` creates `<repo>/.worktrees/<branch>` on branch `studio/<name>-<id>`
+    before the spawn; the agent's `project_dir` is the worktree. Removing the agent deletes the worktree and branch only when clean.
+* **TUI panels (P9)**: `Modal::{Git, Files, Settings, OpenIn}` take all keys (`Esc`/`q` closes); the free terminals are a panel
+  (`FreeTerms`) at the bottom (45 %) or full screen: while it is open every key goes to the active shell except the prefix and the
+  direct bindings. Panel state lives in `as_tui::panels::*` and talks to the daemon only through the generic `Effect::Req { key, req }`
+  -> `Msg::Reply { key, result }` (keys `git:*`, `fs:*`, `term:*`, `set:*`, `open:*`, `diag:*`), so each panel is unit-tested without a daemon.
 * **Overview history (`<root>/overview-history/v1-YYYY-MM-DD.jsonl`, mode 600, folder 700)**: one writer (the daemon).
   Lines: `{"start":<ms>}` (each daemon start; time between the last point and the next one is *unmeasured*),
   `{"point":[at,needsYou,working,idle,total,{agentId:status}]}` every 5 s (a trailing `1` marks a delta line: only the

@@ -82,6 +82,10 @@ pub struct DaemonOptions {
     /// Replaces the provider CLI of headless runs (tests).
     pub headless_override: Option<as_core::headless::HeadlessCommandOverride>,
     pub usage_options: UsageOptions,
+    /// Skills locations (tests); `None` = the real `~/.claude*` and `~/.codex`.
+    pub skills: Option<as_core::skills::SkillScanOptions>,
+    /// Hydra data dir used by the import requests when none is given (tests).
+    pub hydra_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for DaemonOptions {
@@ -100,6 +104,8 @@ impl Default for DaemonOptions {
             mcp: true,
             headless_override: None,
             usage_options: UsageOptions::default(),
+            skills: None,
+            hydra_dir: None,
         }
     }
 }

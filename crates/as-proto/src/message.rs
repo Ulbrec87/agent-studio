@@ -2,14 +2,22 @@
 //! names, so adding a variant never changes the encoding of the others. Binary data is base64.
 
 use as_core::agents::providers::PreflightResult;
+use as_core::fs::{FileContent, FsEntry, SearchHit};
+use as_core::git::{
+    GitBranch, GitCommit, GitDiffStats, GitFileContents, GitPrDiff, GitStatus, GitWorktree,
+};
 use as_core::headless::{
     HeadlessRun, HeadlessRunLog, HeadlessRunLogOptions, ListHeadlessRunsOptions,
     StartHeadlessRunPayload,
 };
+use as_core::hydra_import::{ImportPreview, ImportReport};
+use as_core::open_in::{OpenOption, OpenTarget};
 use as_core::overview::{
     AgentDetails, HistoryResponse, OverviewEvent, OverviewSnapshot, WaitLedgerData,
 };
 use as_core::sessions::{ClaudeProfile, ListSessionsOptions, SessionSummary};
+use as_core::skills::{SkillScan, SkillToggle};
+use as_core::terminals::{FreeTerminalLayout, SpawnedTerminal, TerminalInfo};
 use as_core::usage::report::{UsageReport, UsageReportProvider};
 use as_core::usage::{UsagePeriod, UsageState, UsageSummary};
 use as_core::{
@@ -207,6 +215,188 @@ pub enum Request {
         #[serde(default)]
         options: HeadlessRunLogOptions,
     },
+
+    // ── P9: files ───────────────────────────────────────────────────────────
+    /// One directory of a project (`path` relative, `""` = root); answers `FsEntries`.
+    FsReadDir {
+        project_dir: String,
+        path: String,
+        #[serde(default)]
+        show_hidden: bool,
+    },
+    /// Preview of a project file (size cap, binary placeholder); answers `FileContent`.
+    FsReadFile {
+        project_dir: String,
+        path: String,
+    },
+    /// Modification time (ms) of a file, polled by the viewer; answers `Number`.
+    FsMtime {
+        project_dir: String,
+        path: String,
+    },
+    /// Fuzzy file search (gitignore aware); answers `SearchHits`.
+    FsSearch {
+        project_dir: String,
+        query: String,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+
+    // ── P9: git (blocking `git` / `gh` calls; mutations are serialized per repository) ──
+    GitStatus {
+        dir: String,
+    },
+    GitLog {
+        dir: String,
+        limit: u32,
+    },
+    /// Unified diff text (whole tree, or one file; staged = index vs HEAD); answers `Text`.
+    GitDiff {
+        dir: String,
+        #[serde(default)]
+        file: Option<String>,
+        #[serde(default)]
+        staged: bool,
+    },
+    GitDiffStats {
+        dir: String,
+    },
+    GitStage {
+        dir: String,
+        files: Vec<String>,
+    },
+    GitUnstage {
+        dir: String,
+        files: Vec<String>,
+    },
+    /// Commit the listed files (all staged changes when empty); answers `Text` (the new hash).
+    GitCommit {
+        dir: String,
+        message: String,
+        files: Vec<String>,
+    },
+    /// Answers `Text` (git's output).
+    GitPush {
+        dir: String,
+    },
+    GitBranches {
+        dir: String,
+    },
+    GitCheckout {
+        dir: String,
+        branch: String,
+    },
+    GitCreateBranch {
+        dir: String,
+        name: String,
+        #[serde(default)]
+        from: Option<String>,
+    },
+    GitFileContents {
+        dir: String,
+        path: String,
+        #[serde(default)]
+        staged: bool,
+    },
+    GitWorktreeCreate {
+        dir: String,
+        branch: String,
+        #[serde(default)]
+        start_point: Option<String>,
+    },
+    GitWorktreeRemove {
+        dir: String,
+        path: String,
+        #[serde(default)]
+        delete_branch: Option<String>,
+        #[serde(default)]
+        force: bool,
+    },
+    /// Read-only: `gh pr view/diff`; `pr` is a number or a URL.
+    GitPrFetch {
+        dir: String,
+        pr: String,
+    },
+    GitPrFileDiff {
+        dir: String,
+        pr: String,
+        path: String,
+    },
+
+    // ── P9: free terminals ──────────────────────────────────────────────────
+    /// Start a shell for a project (new tab, or a split of `group_id`); answers `TerminalSpawned`.
+    SpawnTerminal {
+        project_dir: String,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        group_id: Option<String>,
+        cols: u16,
+        rows: u16,
+    },
+    TerminalInput {
+        terminal_id: String,
+        #[serde(with = "crate::b64")]
+        data: Vec<u8>,
+    },
+    TerminalResize {
+        terminal_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    /// Answers `Flag`.
+    KillTerminal {
+        terminal_id: String,
+    },
+    /// Answers `Flag`.
+    RenameTerminal {
+        terminal_id: String,
+        label: String,
+    },
+    /// Receive `TerminalOutput` of this terminal; answers `Buffer` (the scrollback so far).
+    SubscribeTerminal {
+        terminal_id: String,
+    },
+    UnsubscribeTerminal {
+        terminal_id: String,
+    },
+    /// Answers `TerminalLayout`.
+    GetTerminalLayout {
+        project_dir: String,
+    },
+    /// Make a tab / pane the active one; answers `TerminalLayout`.
+    ActivateTerminal {
+        project_dir: String,
+        #[serde(default)]
+        group_id: Option<String>,
+        #[serde(default)]
+        pane_id: Option<String>,
+    },
+    /// Answers `Terminals`.
+    ListTerminals,
+
+    // ── P9: skills, open-in, import, diagnostics ────────────────────────────
+    ScanSkills,
+    /// Answers `Ok` (or an error text).
+    ToggleSkill(SkillToggle),
+    /// Editors / file manager / terminal that look usable here; answers `OpenTargets`.
+    ListOpenTargets,
+    OpenIn {
+        target: OpenTarget,
+        path: String,
+    },
+    /// What importing from Hydra would change (`dir` overrides the default location); answers `HydraPreview`.
+    PreviewHydraImport {
+        #[serde(default)]
+        dir: Option<String>,
+    },
+    /// Merge Hydra's data into ours; answers `HydraReport`.
+    ApplyHydraImport {
+        #[serde(default)]
+        dir: Option<String>,
+    },
+    /// Write a diagnostics folder (logs + snapshot, no secrets); answers `Path`.
+    ExportDiagnostics,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -242,6 +432,26 @@ pub enum Response {
     HeadlessRun(Option<Box<HeadlessRun>>),
     HeadlessRuns(Vec<HeadlessRun>),
     HeadlessRunLog(Option<HeadlessRunLog>),
+    Text(String),
+    GitStatus(Box<GitStatus>),
+    GitLog(Vec<GitCommit>),
+    GitDiffStats(GitDiffStats),
+    GitBranches(Vec<GitBranch>),
+    GitFileContents(Box<GitFileContents>),
+    GitWorktree(Box<GitWorktree>),
+    GitPr(Box<GitPrDiff>),
+    FsEntries(Vec<FsEntry>),
+    FileContent(FileContent),
+    Number(u64),
+    SearchHits(Vec<SearchHit>),
+    TerminalSpawned(SpawnedTerminal),
+    TerminalLayout(FreeTerminalLayout),
+    Terminals(Vec<TerminalInfo>),
+    Skills(SkillScan),
+    OpenTargets(Vec<OpenOption>),
+    HydraPreview(Box<ImportPreview>),
+    HydraReport(Box<ImportReport>),
+    Path(String),
 }
 
 /// The MCP server of the daemon (Hydra `McpServerStatus`).
@@ -318,6 +528,23 @@ pub enum Event {
     },
     /// A headless run started, got its session id, or finished.
     HeadlessRunChanged(Box<HeadlessRun>),
+    /// Output of a free terminal this client subscribed to.
+    TerminalOutput {
+        terminal_id: String,
+        #[serde(with = "crate::b64")]
+        data: Vec<u8>,
+    },
+    /// A free terminal's process ended (it is already gone from the layout).
+    TerminalExit {
+        terminal_id: String,
+        project_dir: String,
+        exit_code: i32,
+    },
+    /// Tabs / panes / labels of a project's free terminals changed.
+    TerminalLayoutChanged {
+        project_dir: String,
+        layout: FreeTerminalLayout,
+    },
 }
 
 /// Hydra `NotificationType` (agent part).

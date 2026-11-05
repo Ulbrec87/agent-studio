@@ -5,11 +5,17 @@
 
 pub mod agents;
 pub mod config;
+pub mod fs;
+pub mod git;
 pub mod headless;
+pub mod hydra_import;
 pub mod keybindings;
+pub mod open_in;
 pub mod overview;
 pub mod paths;
 pub mod sessions;
+pub mod skills;
+pub mod terminals;
 pub mod types;
 pub mod usage;
 pub mod usage_settings;

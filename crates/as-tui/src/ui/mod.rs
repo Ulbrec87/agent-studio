@@ -8,6 +8,7 @@ pub mod header;
 pub mod headless;
 pub mod layout;
 pub mod overview;
+pub mod panels;
 pub mod sidebar;
 pub mod toasts;
 pub mod usage;
@@ -46,6 +47,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             ViewMode::Overview => overview::render(app, &l, buf),
         }
         footer::render(app, l.footer, buf);
+        if let Some(c) = panels::render_free_terms(app, buf)
+            && app.modal.is_none()
+        {
+            cursor = Some(c);
+        } else if app.free_terms.open {
+            cursor = None;
+        }
         toasts::render(app, area, buf);
         if let Some(c) = dialogs::render(app, area, buf) {
             cursor = Some(c);
@@ -62,6 +70,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 mod headless_tests;
 #[cfg(test)]
 mod overview_tests;
+#[cfg(test)]
+mod panel_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

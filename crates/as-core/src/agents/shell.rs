@@ -88,7 +88,7 @@ fn pwsh_quote(value: &str) -> String {
 
 /// Whitespace-split shell args. Intentionally simple: users who need quoting
 /// should use `custom` mode with a wrapper script.
-fn split_args(input: &str) -> Vec<String> {
+pub fn split_args(input: &str) -> Vec<String> {
     input.split_whitespace().map(str::to_string).collect()
 }
 

@@ -10,6 +10,8 @@ use as_proto::{DaemonStatus, HelloInfo, ProviderPreflight, Request, Response};
 
 use crate::services::Daemon;
 
+mod p9;
+
 type Reply = Result<Response, String>;
 
 pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
@@ -331,6 +333,43 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
                     .map_err(|e| format!("reading the log failed: {e}"))?;
             Ok(Response::HeadlessRunLog(log))
         }
+        req @ (Request::GitStatus { .. }
+        | Request::GitLog { .. }
+        | Request::GitDiff { .. }
+        | Request::GitDiffStats { .. }
+        | Request::GitStage { .. }
+        | Request::GitUnstage { .. }
+        | Request::GitCommit { .. }
+        | Request::GitPush { .. }
+        | Request::GitBranches { .. }
+        | Request::GitCheckout { .. }
+        | Request::GitCreateBranch { .. }
+        | Request::GitFileContents { .. }
+        | Request::GitWorktreeCreate { .. }
+        | Request::GitWorktreeRemove { .. }
+        | Request::GitPrFetch { .. }
+        | Request::GitPrFileDiff { .. }
+        | Request::FsReadDir { .. }
+        | Request::FsReadFile { .. }
+        | Request::FsMtime { .. }
+        | Request::FsSearch { .. }
+        | Request::SpawnTerminal { .. }
+        | Request::TerminalInput { .. }
+        | Request::TerminalResize { .. }
+        | Request::KillTerminal { .. }
+        | Request::RenameTerminal { .. }
+        | Request::SubscribeTerminal { .. }
+        | Request::UnsubscribeTerminal { .. }
+        | Request::GetTerminalLayout { .. }
+        | Request::ActivateTerminal { .. }
+        | Request::ListTerminals
+        | Request::ScanSkills
+        | Request::ToggleSkill(_)
+        | Request::ListOpenTargets
+        | Request::OpenIn { .. }
+        | Request::PreviewHydraImport { .. }
+        | Request::ApplyHydraImport { .. }
+        | Request::ExportDiagnostics) => p9::handle(daemon, client, req).await,
         Request::Shutdown { stop_agents } => {
             if !stop_agents && m.active_count() > 0 {
                 return Err(format!(

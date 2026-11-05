@@ -30,6 +30,11 @@ use crate::keymap::{Command, KeyChord, Keymap};
 use crate::new_agent::{FormAction, FormMode, NewAgentForm};
 use crate::overview::OverviewState;
 use crate::palette::{Palette, PaletteAction, PaletteOutcome};
+use crate::panels::files::FilesUi;
+use crate::panels::git::GitUi;
+use crate::panels::open_in::OpenInUi;
+use crate::panels::settings::SettingsUi;
+use crate::panels::terminals::FreeTerms;
 use crate::sessions::{PickerAction, PickerOrigin, SessionPicker};
 use crate::sidebar::{self, Row, RowKey, SortKey, StatusChip, ViewOpts};
 use crate::state::TuiState;
@@ -149,6 +154,14 @@ pub enum Modal {
     Usage(UsageOverlay),
     /// `prefix H`: headless runs (P8); the state is `App::headless`.
     Headless,
+    /// `prefix G`: git panel (P9); the state is `App::git`.
+    Git,
+    /// `prefix e` / `prefix f`: files panel and search; the state is `App::files`.
+    Files,
+    /// `prefix ,`: settings; the state is `App::settings`.
+    Settings,
+    /// `prefix I`: open in editor / file manager / terminal.
+    OpenIn,
 }
 
 /// One entry of the profile chooser.
@@ -244,10 +257,22 @@ pub enum Effect {
     CancelHeadlessRun(String),
     /// The log of a run (its tail).
     LoadHeadlessLog(String),
+    /// A daemon request whose answer comes back as [`Msg::Reply`] with the same `key`
+    /// (`git:*`, `fs:*`, `term:*`, `set:*`, `open:*`, `diag:*`).
+    Req {
+        key: String,
+        req: as_proto::Request,
+    },
+    /// Bytes for a free terminal's shell (kept in order with the other keystrokes).
+    TermInput(String, Vec<u8>),
+    TermResize(String, u16, u16),
+    /// Copy text to the clipboard (OSC 52).
+    Clipboard(String),
 }
 
 /// Results of asynchronous work, fed back into [`App::handle_msg`].
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // short-lived values, boxing would only clutter the API
 pub enum Msg {
     Agents(Vec<AgentState>),
     Config(Box<AppConfig>),
@@ -290,6 +315,11 @@ pub enum Msg {
     HeadlessLog {
         run_id: String,
         result: Result<Option<HeadlessRunLog>, String>,
+    },
+    /// Answer of an [`Effect::Req`].
+    Reply {
+        key: String,
+        result: Result<as_proto::Response, String>,
     },
 }
 
@@ -364,6 +394,12 @@ pub struct App {
     pub usage: UsageUi,
     /// Headless runs panel (P8).
     pub headless: HeadlessUi,
+    /// P9 panels.
+    pub git: GitUi,
+    pub files: FilesUi,
+    pub free_terms: FreeTerms,
+    pub settings: SettingsUi,
+    pub open_in: OpenInUi,
     /// The daemon's MCP server, once known.
     pub mcp: Option<McpStatus>,
     pub broadcast: TextArea,
@@ -421,6 +457,11 @@ impl App {
             overview: OverviewState::default(),
             usage: UsageUi::default(),
             headless: HeadlessUi::default(),
+            git: GitUi::default(),
+            files: FilesUi::default(),
+            free_terms: FreeTerms::default(),
+            settings: SettingsUi::default(),
+            open_in: OpenInUi::default(),
             mcp: None,
             broadcast: TextArea::multi_line(),
             help_scroll: 0,
@@ -696,6 +737,9 @@ impl App {
             Event::HeadlessRunEvent { run_id, data } => {
                 self.on_headless_line(&run_id, &data);
             }
+            ev @ (Event::TerminalOutput { .. }
+            | Event::TerminalExit { .. }
+            | Event::TerminalLayoutChanged { .. }) => fx.extend(self.on_terminal_event(ev)),
             Event::OverviewEvents(events) => {
                 let moved = self.overview.add_events(&events);
                 if moved && self.view == ViewMode::Overview {
@@ -741,6 +785,7 @@ impl App {
             self.keymap = keymap;
         }
         self.theme = Theme::new(config.theme, self.color_mode);
+        self.settings.on_config(&config);
         self.config = config;
         self.dirty = true;
     }
@@ -876,6 +921,7 @@ impl App {
                 self.mcp = Some(*status);
                 self.dirty = true;
             }
+            Msg::Reply { key, result } => fx.extend(self.on_reply(&key, result)),
             Msg::HeadlessRuns(result) => self.on_headless_runs(result),
             Msg::HeadlessStarted(result) => fx.extend(self.on_headless_started(result)),
             Msg::HeadlessLog { run_id, result } => self.on_headless_log(&run_id, result),
@@ -998,6 +1044,15 @@ impl App {
             fx.push(Effect::LoadHeadlessRuns);
         }
         self.usage.reset_connection();
+        // Free terminals died with the old daemon connection (its subscriptions); ask again.
+        self.free_terms.reset();
+        if self.free_terms.open {
+            let dir = self.free_terms.project_dir.clone();
+            fx.push(crate::panels::req(
+                "term:layout",
+                as_proto::Request::GetTerminalLayout { project_dir: dir },
+            ));
+        }
         for (id, term) in &mut self.terms {
             term.emu = Box::new(Vt100Emulator::new(cols, rows));
             term.sub = SubState::Requested(Vec::new());
@@ -1015,6 +1070,7 @@ impl App {
         self.screen = Rect::new(0, 0, width, height);
         self.dirty = true;
         let mut fx = self.sync_layout();
+        fx.extend(self.free_terms.on_resize(self.screen));
         fx.extend(self.grid_refresh_if_open());
         fx
     }
@@ -1206,6 +1262,9 @@ impl App {
             self.prefix_pending = true;
             return Vec::new();
         }
+        if self.free_terms.open {
+            return self.free_term_key(key);
+        }
         match self.focus {
             Focus::Terminal => self.terminal_key(key),
             Focus::App => self.app_key(key),
@@ -1339,6 +1398,9 @@ impl App {
             Some(_) => return Vec::new(),
             None => {}
         }
+        if self.free_terms.open {
+            return self.free_terms.paste(text);
+        }
         match self.focus {
             Focus::Input => {
                 self.input.insert_str(text);
@@ -1458,6 +1520,22 @@ impl App {
             Command::NewManagerAgent => self.open_new_agent(true),
             Command::Headless => self.open_headless(),
             Command::McpStatus => self.show_mcp_status(),
+            Command::GitPanel => self.open_git(),
+            Command::ToggleFiles => self.open_files(false),
+            Command::FileSearch => self.open_files(true),
+            Command::Settings => self.open_settings(None),
+            Command::OpenIn => self.open_open_in(None),
+            Command::ExportDiagnostics => self.export_diagnostics(),
+            Command::ImportHydra => self.open_import_hydra(),
+            Command::TerminalToggle
+            | Command::TerminalNew
+            | Command::TerminalSplit
+            | Command::TerminalKill
+            | Command::TerminalNextTab
+            | Command::TerminalPrevTab
+            | Command::TerminalNextPane
+            | Command::TerminalRename
+            | Command::TerminalFullscreen => self.term_command(command),
             Command::ResumeSession => {
                 let agent = self.selected_agent();
                 let project = agent.map(|a| a.project_dir.clone()).unwrap_or_default();
@@ -1886,6 +1964,10 @@ impl App {
             }
             Modal::Usage(overlay) => self.usage_overlay_key(overlay, key),
             Modal::Headless => self.headless_key(key),
+            Modal::Git => self.git_key(key),
+            Modal::Files => self.files_key(key),
+            Modal::Settings => self.settings_key(key),
+            Modal::OpenIn => self.open_in_key(key),
             Modal::Palette(mut palette) => match palette.handle_key(&key, PALETTE_PAGE) {
                 PaletteOutcome::None => {
                     self.modal = Some(Modal::Palette(palette));
@@ -2020,6 +2102,7 @@ impl App {
 }
 
 mod headless_ui;
+mod panels;
 pub use headless_ui::headless_log_options;
 mod overview;
 mod usage_ui;

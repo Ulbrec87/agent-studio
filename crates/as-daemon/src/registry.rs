@@ -100,6 +100,36 @@ impl Registry {
         }
     }
 
+    /// Send free-terminal output to the clients subscribed to it (subscriptions share the agent
+    /// set under the key `term:<id>`, which no agent id can collide with).
+    pub fn terminal_output(&self, terminal_id: &str, data: &[u8]) {
+        let key = terminal_key(terminal_id);
+        let mut clients = self.clients.lock();
+        for (id, entry) in clients.iter_mut().filter(|(_, e)| e.subs.contains(&key)) {
+            push(
+                *id,
+                entry,
+                Event::TerminalOutput {
+                    terminal_id: terminal_id.to_string(),
+                    data: data.to_vec(),
+                },
+            );
+        }
+    }
+
+    /// A terminal that exited: nobody listens to it any more.
+    pub fn unsubscribe_all_terminal(&self, terminal_id: &str) {
+        self.drop_agent(&terminal_key(terminal_id));
+    }
+
+    pub fn subscribe_terminal(&self, client: u64, terminal_id: &str) {
+        self.subscribe(client, &terminal_key(terminal_id));
+    }
+
+    pub fn unsubscribe_terminal(&self, client: u64, terminal_id: &str) {
+        self.unsubscribe(client, &terminal_key(terminal_id));
+    }
+
     /// Send PTY output to the clients subscribed to `agent_id`.
     pub fn output(&self, agent_id: &str, data: &[u8]) {
         let mut clients = self.clients.lock();
@@ -117,6 +147,10 @@ impl Registry {
             );
         }
     }
+}
+
+fn terminal_key(terminal_id: &str) -> String {
+    format!("term:{terminal_id}")
 }
 
 fn push(id: u64, entry: &mut Entry, event: Event) {

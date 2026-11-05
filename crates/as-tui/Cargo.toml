@@ -12,6 +12,7 @@ workspace = true
 anyhow = "1.0.104"
 as-core = { version = "0.1.0", path = "../as-core" }
 as-proto = { version = "0.1.0", path = "../as-proto" }
+base64 = "0.22"
 chrono = "0.4.45"
 crossterm = { version = "0.29.0", features = ["event-stream"] }
 futures = "0.3.34"

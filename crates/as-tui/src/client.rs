@@ -19,6 +19,8 @@ enum Ordered {
     Input(String, String),
     Resize(String, u16, u16),
     Focus(bool),
+    TermInput(String, Vec<u8>),
+    TermResize(String, u16, u16),
 }
 
 pub struct Io {
@@ -47,6 +49,21 @@ impl Io {
                         Ordered::Input(id, text) => client.send_input(&id, &text).await.map(|_| ()),
                         Ordered::Resize(id, cols, rows) => client.resize(&id, cols, rows).await,
                         Ordered::Focus(focused) => client.set_focus(focused).await,
+                        Ordered::TermInput(id, data) => client
+                            .request(as_proto::Request::TerminalInput {
+                                terminal_id: id,
+                                data,
+                            })
+                            .await
+                            .map(|_| ()),
+                        Ordered::TermResize(id, cols, rows) => client
+                            .request(as_proto::Request::TerminalResize {
+                                terminal_id: id,
+                                cols,
+                                rows,
+                            })
+                            .await
+                            .map(|_| ()),
                     };
                     if let Err(err) = result {
                         failure(&client, &msg_tx, &err);
@@ -81,6 +98,18 @@ impl Io {
             }
             Effect::SetFocus(focused) => {
                 let _ = self.ordered.send(Ordered::Focus(focused));
+            }
+            Effect::TermInput(id, data) => {
+                let _ = self.ordered.send(Ordered::TermInput(id, data));
+            }
+            Effect::TermResize(id, cols, rows) => {
+                let _ = self.ordered.send(Ordered::TermResize(id, cols, rows));
+            }
+            Effect::Req { key, req } => {
+                tokio::spawn(async move {
+                    let result = client.request(req).await.map_err(|e| format!("{e:#}"));
+                    let _ = tx.send(Msg::Reply { key, result });
+                });
             }
             Effect::Refresh => {
                 tokio::spawn(async move { refresh(&client, &tx, true).await });
@@ -458,7 +487,7 @@ impl Io {
                 });
             }
             // Handled by the runner (needs the terminal).
-            Effect::Quit | Effect::Bell | Effect::Suspend(_) => {}
+            Effect::Quit | Effect::Bell | Effect::Suspend(_) | Effect::Clipboard(_) => {}
         }
     }
 }

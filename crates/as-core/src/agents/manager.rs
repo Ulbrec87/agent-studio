@@ -15,7 +15,9 @@
 //! as idle agents without a process. Claude's startup input (`/rename`, initial prompt) is held back
 //! while its "trust this folder" dialog is on screen (see `agents::startup`).
 //!
-//! Deferred (see `TODO(P10)`): git worktree mode.
+//! Worktree mode (F4): `create` with `WorkMode::Worktree` first makes a `git worktree` on branch
+//! `studio/<slug>-<id>` under `<repo>/.worktrees/` and runs the agent there (its `project_dir` is the
+//! worktree, like Hydra). `remove` deletes the worktree afterwards only when git agrees it is clean.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -116,8 +118,54 @@ pub struct AgentActivity {
 pub enum ManagerError {
     #[error("Maximum concurrent agents ({MAX_CONCURRENT_AGENTS_HARD_LIMIT}) reached")]
     MaxAgents,
-    #[error("worktree mode not yet supported")]
-    WorktreeUnsupported,
+    #[error("could not create the worktree: {0}")]
+    Worktree(#[from] crate::git::GitError),
+}
+
+/// `studio/<slug of the name>-<id>`; the slug keeps ASCII letters, digits, `-`, `_` and `.`.
+pub fn worktree_branch_name(name: &str, id: &str) -> String {
+    let mut slug = String::new();
+    for c in name.trim().to_lowercase().chars() {
+        let c = if c.is_ascii_alphanumeric() || c == '_' || c == '.' {
+            c
+        } else {
+            '-'
+        };
+        if c == '-' && slug.ends_with('-') {
+            continue;
+        }
+        slug.push(c);
+    }
+    let slug = slug
+        .trim_matches(|c| c == '-' || c == '.')
+        .chars()
+        .take(40)
+        .collect::<String>();
+    let slug = slug.trim_end_matches(['-', '.']);
+    let slug = if slug.is_empty() { "agent" } else { slug };
+    format!("studio/{slug}-{id}")
+}
+
+/// Remove an agent's worktree and branch if it is clean; otherwise keep everything and log.
+fn cleanup_worktree(path: &str, branch: &str) {
+    let git = crate::git::GitRunner::new();
+    let wt = Path::new(path);
+    let repo = match git.main_worktree(wt) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::debug!(path, error = %e, "worktree already gone or not a repository");
+            return;
+        }
+    };
+    match git.worktree_remove(&repo, wt, Some(branch), false) {
+        Ok(()) => tracing::info!(path, branch, "removed agent worktree"),
+        Err(e) => tracing::warn!(
+            path,
+            branch,
+            error = %e,
+            "kept the agent's worktree (uncommitted work or git error)"
+        ),
+    }
 }
 
 /// What a [`SessionLocator`] gets to work with.
@@ -1073,22 +1121,38 @@ impl AgentManager {
 
     /// Create an agent and start its process (up to 10 active at once).
     pub async fn create(&self, payload: CreateAgentPayload) -> Result<AgentState, ManagerError> {
-        if payload.work_mode == WorkMode::Worktree {
-            // TODO(P10): create `git worktree` on branch `studio/<name>-<id>` and use it as the cwd.
-            return Err(ManagerError::WorktreeUnsupported);
+        let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
+        let mut worktree = None;
+        if payload.work_mode == WorkMode::Worktree && !payload.project_dir.is_empty() {
+            if self.shared.inner.lock().count_active(None) >= MAX_CONCURRENT_AGENTS_HARD_LIMIT {
+                return Err(ManagerError::MaxAgents);
+            }
+            let dir = std::path::PathBuf::from(&payload.project_dir);
+            let branch = worktree_branch_name(&payload.name, &id);
+            let made = tokio::task::spawn_blocking(move || {
+                crate::git::GitRunner::new().worktree_create(&dir, &branch, None)
+            })
+            .await
+            .map_err(|e| crate::git::GitError::Io(std::io::Error::other(e)))??;
+            worktree = Some(made);
         }
         let mut inner = self.shared.inner.lock();
         if inner.count_active(None) >= MAX_CONCURRENT_AGENTS_HARD_LIMIT {
+            drop(inner);
+            Self::discard_worktree(worktree);
             return Err(ManagerError::MaxAgents);
         }
         let resumed = payload.resume_session_id.clone();
-        let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
+        let (project_dir, worktree_path, worktree_branch) = match &worktree {
+            Some(w) => (w.path.clone(), Some(w.path.clone()), w.branch.clone()),
+            None => (payload.project_dir, None, None),
+        };
         let now = now_iso();
         let state = AgentState {
             config: AgentConfig {
                 id,
                 name: payload.name,
-                project_dir: payload.project_dir,
+                project_dir,
                 provider: payload.provider,
                 model: payload.model,
                 reasoning_effort: payload.reasoning_effort,
@@ -1097,9 +1161,9 @@ impl AgentManager {
                 session_id: payload.resume_session_id,
                 initial_prompt: payload.initial_prompt.clone(),
                 created_at: now.clone(),
-                work_mode: WorkMode::Local,
-                worktree_path: None,
-                worktree_branch: None,
+                work_mode: payload.work_mode,
+                worktree_path,
+                worktree_branch,
             },
             status: AgentStatus::Starting,
             pid: None,
@@ -1115,6 +1179,8 @@ impl AgentManager {
         let outcome = self.shared.spawn_locked(&mut inner, idx);
         if outcome == SpawnOutcome::Capped {
             inner.agents.pop();
+            drop(inner);
+            Self::discard_worktree(worktree);
             return Err(ManagerError::MaxAgents);
         }
         let state = inner.agents[idx].state.clone();
@@ -1131,6 +1197,14 @@ impl AgentManager {
         drop(inner);
         self.shared.emit(AgentEvent::Changed);
         Ok(state)
+    }
+
+    /// Drop a worktree made for an agent that was never created (cleanup runs in the background).
+    fn discard_worktree(worktree: Option<crate::git::GitWorktree>) {
+        if let Some(w) = worktree {
+            let branch = w.branch.unwrap_or_default();
+            std::thread::spawn(move || cleanup_worktree(&w.path, &branch));
+        }
     }
 
     /// Ask the agent's process to stop (SIGTERM, SIGKILL after the grace period). An explicit
@@ -1153,13 +1227,26 @@ impl AgentManager {
             };
             inner.agents.remove(idx)
         };
-        // TODO(P10): remove the agent's git worktree when it has one.
+        let worktree = removed
+            .state
+            .worktree_path
+            .clone()
+            .zip(removed.state.worktree_branch.clone());
         if let Some(mut run) = removed.run {
             run.control.terminate(false);
             let grace = self.shared.kill_grace;
             self.shared.handle.spawn(async move {
                 tokio::time::sleep(grace).await;
                 run.control.terminate(true);
+                if let Some((path, branch)) = worktree {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    let _ =
+                        tokio::task::spawn_blocking(move || cleanup_worktree(&path, &branch)).await;
+                }
+            });
+        } else if let Some((path, branch)) = worktree {
+            self.shared.handle.spawn(async move {
+                let _ = tokio::task::spawn_blocking(move || cleanup_worktree(&path, &branch)).await;
             });
         }
         self.shared.emit(AgentEvent::Changed);
@@ -1776,17 +1863,140 @@ mod tests {
         assert!(!req.env.contains_key("CLAUDE_CODE_CHILD_SESSION"));
     }
 
+    /// A repository with one commit, isolated from the user's git configuration.
+    fn temp_repo() -> Option<tempfile::TempDir> {
+        if which::which("git").is_err() {
+            eprintln!("skipped: git is not installed");
+            return None;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(tmp.path())
+                .args([
+                    "-c",
+                    "init.defaultBranch=main",
+                    "-c",
+                    "commit.gpgsign=false",
+                ])
+                .args(args)
+                .env(
+                    "GIT_CONFIG_GLOBAL",
+                    std::env::temp_dir().join("as-no-such-gitconfig"),
+                )
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_AUTHOR_NAME", "T")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "T")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        git(&["init", "-q"]);
+        std::fs::write(tmp.path().join("a.txt"), "a\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-q", "-m", "init"]);
+        Some(tmp)
+    }
+
+    #[test]
+    fn worktree_branch_names_are_slugged_and_prefixed() {
+        assert_eq!(
+            worktree_branch_name("My Agent", "ab12cd34"),
+            "studio/my-agent-ab12cd34"
+        );
+        assert_eq!(
+            worktree_branch_name("  Fix: the ~bug?? ", "id"),
+            "studio/fix-the-bug-id"
+        );
+        assert_eq!(worktree_branch_name("", "id"), "studio/agent-id");
+        assert_eq!(worktree_branch_name("***", "id"), "studio/agent-id");
+        assert!(worktree_branch_name(&"x".repeat(100), "id").len() < 60);
+    }
+
     #[tokio::test]
-    async fn worktree_mode_is_not_supported_yet() {
+    async fn worktree_mode_runs_the_agent_in_a_new_worktree() {
+        let Some(repo) = temp_repo() else { return };
+        let backend = FakePtyBackend::new();
+        let manager = manager_with(&backend);
+        let created = manager
+            .create(CreateAgentPayload {
+                name: "Wt Agent".into(),
+                project_dir: repo.path().to_string_lossy().into_owned(),
+                work_mode: WorkMode::Worktree,
+                ..payload()
+            })
+            .await
+            .unwrap();
+        let branch = created.worktree_branch.clone().unwrap();
+        assert_eq!(branch, format!("studio/wt-agent-{}", created.id));
+        let wt = std::path::PathBuf::from(created.worktree_path.clone().unwrap());
+        assert!(wt.join("a.txt").is_file());
+        assert_eq!(created.work_mode, WorkMode::Worktree);
+        assert_eq!(created.project_dir, wt.to_string_lossy());
+        assert_eq!(backend.request(0).unwrap().cwd, wt.to_string_lossy());
+
+        // A clean worktree goes away with the agent, branch included.
+        assert!(manager.remove(&created.id).await);
+        wait_for("worktree removed", || !wt.exists()).await;
+        let repo_path = repo.path().to_path_buf();
+        wait_for("branch deleted", || {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&repo_path)
+                .args(["branch", "--list", &branch])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().is_empty()
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn removing_an_agent_keeps_a_worktree_with_uncommitted_work() {
+        let Some(repo) = temp_repo() else { return };
+        let manager = manager_with(&FakePtyBackend::new());
+        let created = manager
+            .create(CreateAgentPayload {
+                project_dir: repo.path().to_string_lossy().into_owned(),
+                work_mode: WorkMode::Worktree,
+                ..payload()
+            })
+            .await
+            .unwrap();
+        let wt = std::path::PathBuf::from(created.worktree_path.clone().unwrap());
+        std::fs::write(wt.join("wip.txt"), "unsaved work\n").unwrap();
+        assert!(manager.remove(&created.id).await);
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        assert!(
+            wt.join("wip.txt").is_file(),
+            "uncommitted work must survive"
+        );
+        assert!(manager.list().is_empty());
+    }
+
+    #[tokio::test]
+    async fn worktree_mode_outside_a_repository_is_an_error() {
+        if which::which("git").is_err() {
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
         let manager = manager_with(&FakePtyBackend::new());
         let err = manager
             .create(CreateAgentPayload {
+                project_dir: tmp.path().to_string_lossy().into_owned(),
                 work_mode: WorkMode::Worktree,
                 ..payload()
             })
             .await
             .unwrap_err();
-        assert_eq!(err.to_string(), "worktree mode not yet supported");
+        assert!(matches!(err, ManagerError::Worktree(_)), "{err}");
         assert!(manager.list().is_empty());
     }
 

@@ -76,6 +76,30 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
                 ),
             };
         }
+        Some(Modal::Git) => {
+            return (
+                "GIT",
+                "Tab/1-3 tabs \u{00B7} j/k move \u{00B7} Space stage \u{00B7} c commit \u{00B7} P push \u{00B7} q close".into(),
+            );
+        }
+        Some(Modal::Files) => {
+            return (
+                "FILES",
+                "j/k move \u{00B7} Enter open \u{00B7} f search \u{00B7} E editor \u{00B7} o open in \u{00B7} q close".into(),
+            );
+        }
+        Some(Modal::Settings) => {
+            return (
+                "SETTINGS",
+                "j/k move \u{00B7} Enter/Space change \u{00B7} Esc back".into(),
+            );
+        }
+        Some(Modal::OpenIn) => {
+            return (
+                "OPEN IN",
+                "\u{2191}/\u{2193} choose \u{00B7} Enter open \u{00B7} Esc cancel".into(),
+            );
+        }
         Some(Modal::Palette(_)) => {
             return (
                 "PALETTE",
@@ -83,6 +107,14 @@ pub fn mode_and_hints(app: &App) -> (&'static str, String) {
             );
         }
         None => {}
+    }
+    if app.free_terms.open {
+        return (
+            "TERMINALS",
+            format!(
+                "typing into the shell \u{00B7} {p} t hide \u{00B7} {p} T new tab \u{00B7} {p} | split \u{00B7} {p} ] / {{ tabs \u{00B7} {p} }} pane \u{00B7} {p} X kill"
+            ),
+        );
     }
     if app.scroll_mode {
         return (
