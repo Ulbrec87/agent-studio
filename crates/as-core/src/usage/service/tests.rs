@@ -22,6 +22,8 @@ struct FakeStore {
     progress: Mutex<Option<UsageScanProgress>>,
     changed_next: AtomicBool,
     delay_ms: AtomicUsize,
+    /// While true a scan blocks (bounded), so a test controls its length.
+    hold: AtomicBool,
     summaries: Mutex<Vec<(UsagePeriod, Option<String>)>>,
     clock: Arc<Mutex<i64>>,
     /// Progress steps reported by the next scan, with the clock advance before each.
@@ -48,6 +50,12 @@ impl UsageStoreLike for FakeStore {
             if let Some(cb) = on_progress {
                 cb(p);
             }
+        }
+        for _ in 0..2000 {
+            if !self.hold.load(Ordering::SeqCst) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
         }
         let delay = self.delay_ms.load(Ordering::SeqCst);
         if delay > 0 {
@@ -277,16 +285,29 @@ fn throttles_progress_emits_to_500ms_and_shows_indexing_only_on_the_first_index(
 #[test]
 fn coalesces_concurrent_refresh_calls() {
     let rig = make();
-    rig.store.delay_ms.store(100, Ordering::SeqCst);
+    // Hold the first scan open until every caller is inside `refresh`, so the
+    // result does not depend on how fast the OS starts the threads.
+    rig.store.hold.store(true, Ordering::SeqCst);
+    let entered = Arc::new(AtomicUsize::new(0));
     let handles: Vec<_> = (0..3)
-        .map(|i| {
+        .map(|_| {
             let s = rig.service.clone();
+            let entered = entered.clone();
             thread::spawn(move || {
-                thread::sleep(Duration::from_millis(i * 20));
+                entered.fetch_add(1, Ordering::SeqCst);
                 s.refresh()
             })
         })
         .collect();
+    for _ in 0..2000 {
+        if entered.load(Ordering::SeqCst) == 3 && rig.scans() >= 1 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    // Let the other two reach the coalescing path before the scan ends.
+    thread::sleep(Duration::from_millis(200));
+    rig.store.hold.store(false, Ordering::SeqCst);
     for h in handles {
         h.join().unwrap();
     }
