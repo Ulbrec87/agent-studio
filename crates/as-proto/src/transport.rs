@@ -17,7 +17,22 @@ fn name(socket: &str) -> io::Result<interprocess::local_socket::Name<'static>> {
 
 /// Connect to the socket named `socket`.
 pub async fn connect_name(socket: &str) -> io::Result<Conn> {
-    Stream::connect(name(socket)?).await
+    #[cfg(windows)]
+    {
+        // A busy named pipe (no listening instance) makes interprocess wait on a blocking thread
+        // with NO timeout by default; that thread outlives our `tokio::time::timeout` callers and
+        // blocks runtime shutdown forever. Bound it.
+        use interprocess::ConnectWaitMode;
+        use interprocess::local_socket::ConnectOptions;
+        let options = ConnectOptions::new()
+            .name(name(socket)?)
+            .wait_mode(ConnectWaitMode::Timeout(std::time::Duration::from_secs(2)));
+        options.connect_tokio().await
+    }
+    #[cfg(not(windows))]
+    {
+        Stream::connect(name(socket)?).await
+    }
 }
 
 pub async fn connect(paths: &Paths) -> io::Result<Conn> {
