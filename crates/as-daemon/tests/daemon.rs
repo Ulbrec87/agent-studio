@@ -367,6 +367,16 @@ async fn malformed_frames_get_an_error_and_do_not_kill_the_daemon() {
 
 #[tokio::test]
 async fn ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it() {
+    // Bounded: a hang here must fail fast instead of burning the CI runner.
+    tokio::time::timeout(
+        Duration::from_secs(60),
+        ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it_body(),
+    )
+    .await
+    .expect("timed out");
+}
+
+async fn ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it_body() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::at(dir.path());
     let backend = FakePtyBackend::new();
@@ -375,7 +385,10 @@ async fn ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it() {
     // Leftovers of a crashed daemon must be cleaned up first.
     std::fs::write(
         paths.daemon_lock_file(),
-        r#"{"pid":999999999,"version":"0","socket":"x","started_at":"x"}"#,
+        format!(
+            r#"{{"pid":999999999,"version":"0","socket":{},"started_at":"x"}}"#,
+            serde_json::to_string(&paths.daemon_socket_name()).unwrap()
+        ),
     )
     .unwrap();
 
@@ -402,6 +415,10 @@ async fn ensure_daemon_spawns_when_missing_and_stop_daemon_stops_it() {
     .await
     .unwrap();
     assert_eq!(again.status().await.unwrap().clients, 2);
+    // Windows: a named pipe stays "busy" for new connections (and the final probe) while any
+    // server-side instance is still open, so close our own connections before stopping.
+    drop(client);
+    drop(again);
 
     assert!(stop_daemon(&paths, false).await.unwrap());
     let handle = task.lock().take().unwrap();

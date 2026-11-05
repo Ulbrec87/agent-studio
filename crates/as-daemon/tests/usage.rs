@@ -95,6 +95,17 @@ fn codex_rollout(root: &Path) {
     write(&root.join("sessions/2026/10/22/rollout-a.jsonl"), &text);
 }
 
+fn enable_alerts(paths: &Paths) {
+    let usage = UsageSettings {
+        alerts_enabled: true,
+        ..UsageSettings::default()
+    };
+    write(
+        &paths.config_file(),
+        &serde_json::to_string(&json!({"usage": usage, "importSessionsOnStartup": false})).unwrap(),
+    );
+}
+
 async fn start(alerts: bool) -> (Rig, PathBuf, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let claude_projects = dir.path().join("claude/projects");
@@ -107,15 +118,7 @@ async fn start(alerts: bool) -> (Rig, PathBuf, PathBuf) {
     let paths = Paths::at(dir.path().join("data"));
     paths.ensure().unwrap();
     if alerts {
-        let usage = UsageSettings {
-            alerts_enabled: true,
-            ..UsageSettings::default()
-        };
-        write(
-            &paths.config_file(),
-            &serde_json::to_string(&json!({"usage": usage, "importSessionsOnStartup": false}))
-                .unwrap(),
-        );
+        enable_alerts(&paths);
     }
     let http = Arc::new(FakeHttp {
         calls: AtomicUsize::new(0),
@@ -307,10 +310,14 @@ async fn new_log_lines_are_picked_up_incrementally() {
 
 #[tokio::test]
 async fn a_window_near_its_limit_raises_one_usage_limit_notification() {
-    let (rig, _, _) = start(true).await;
+    // The daemon scans on startup; if alerts were already on, the notification could fire before
+    // this client subscribes and be missed. Start with alerts off, subscribe, then enable them
+    // (the hot-reloaded config re-evaluates the alerts).
+    let (rig, _, _) = start(false).await;
     let client = DaemonClient::connect(&rig.paths).await.unwrap();
     let mut events = client.take_events().unwrap();
     client.refresh_usage().await.unwrap();
+    enable_alerts(&rig.paths);
     let n = next_event(
         &mut events,
         "usage limit notification",

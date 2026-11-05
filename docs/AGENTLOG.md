@@ -204,3 +204,19 @@ included, so a test reading "the next frame" can get an event instead of its res
   `INSTA_UPDATE=always` and delete leftover `.snap.new` files.
 - **Daemon tests must pin the usage sources.** `DaemonOptions::usage_options` (sources, profiles, http, credentials) keeps tests off
   the real `~/.claude*`, `~/.codex` and the network; leave `sources: Some(vec![])` in new test harnesses.
+
+## Test portability pitfalls (CI runs Linux, macOS and Windows)
+
+- **No `/tmp/...` as a real directory.** A PTY/process spawn with a missing cwd fails on Windows. Use
+  `std::env::temp_dir()` or `tempfile` whenever the path is really used (strings in pure-logic tests are fine).
+- **Compare paths as `Path`/`PathBuf` (or their components), never as `/`-joined strings.** `h.join(".claude/projects")`
+  keeps a `/` on Windows, so `to_string_lossy()` comparisons differ; build with `.join(a).join(b)`.
+- **A failed spawn is not an error on Windows.** The manager retries through `cmd.exe`, which starts fine and exits
+  non-zero: the agent becomes Errored a moment later. Tests must wait for the status, not read it at creation.
+- **Named pipes stay "busy" while a server-side instance is open.** Drop in-process `DaemonClient`s before probing or
+  stopping a daemon in a test, and wrap daemon lifecycle tests in `tokio::time::timeout`. `pid_alive` is always true on
+  Windows (the socket probe decides), so a stale lock is detected by the failed connect only.
+- **Events are broadcast, not replayed.** A test that waits for a notification must subscribe before the cause: the
+  daemon's startup scan can fire the alert before the client connects (flaky `usage_limit` test). Start with the feature
+  off, subscribe, then enable it (the hot-reloaded config re-evaluates).
+- CI jobs have `timeout-minutes: 25` so a hung test fails fast.

@@ -216,10 +216,15 @@ mod tests {
     use crate::sessions::testutil::write;
     use pretty_assertions::assert_eq;
 
-    fn strs(paths: &[PathBuf]) -> Vec<String> {
+    /// Compare by components, not by text: `h.join(".claude/projects")` keeps a `/` on Windows.
+    fn strs(paths: &[PathBuf]) -> Vec<Vec<String>> {
         paths
             .iter()
-            .map(|p| p.to_string_lossy().into_owned())
+            .map(|p| {
+                p.components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect()
+            })
             .collect()
     }
 

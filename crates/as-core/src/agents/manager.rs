@@ -3030,6 +3030,14 @@ mod tests {
         })
     }
 
+    /// `payload()` with a project dir that exists on every OS (`/tmp/project` does not on Windows).
+    fn real_payload() -> CreateAgentPayload {
+        CreateAgentPayload {
+            project_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+            ..payload()
+        }
+    }
+
     async fn wait_status(manager: &AgentManager, id: &str, status: AgentStatus) {
         for _ in 0..600 {
             if manager.get(id).unwrap().status == status {
@@ -3048,7 +3056,7 @@ mod tests {
             .create(CreateAgentPayload {
                 provider: ProviderId::Codex,
                 model: "gpt-5.4".into(),
-                ..payload()
+                ..real_payload()
             })
             .await
             .unwrap();
@@ -3075,7 +3083,7 @@ mod tests {
             .create(CreateAgentPayload {
                 provider: ProviderId::Codex,
                 model: "gpt-5.4".into(),
-                ..payload()
+                ..real_payload()
             })
             .await
             .unwrap();
@@ -3098,11 +3106,13 @@ mod tests {
             .create(CreateAgentPayload {
                 provider: ProviderId::Codex,
                 model: "gpt-5.4".into(),
-                ..payload()
+                ..real_payload()
             })
             .await
             .unwrap();
-        assert_eq!(a.status, AgentStatus::Errored);
+        // On Windows the failed direct spawn is retried through `cmd.exe`, which starts fine and
+        // then exits non-zero: the agent turns Errored a moment later instead of at creation.
+        wait_status(&manager, &a.id, AgentStatus::Errored).await;
         assert!(manager.get(&a.id).unwrap().ended_at.is_some());
     }
 
@@ -3117,7 +3127,7 @@ mod tests {
             .create(CreateAgentPayload {
                 provider: ProviderId::Codex,
                 model: "gpt-5.4".into(),
-                ..payload()
+                ..real_payload()
             })
             .await
             .unwrap();

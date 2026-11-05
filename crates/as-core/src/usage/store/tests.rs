@@ -693,11 +693,7 @@ fn default_sources_cover_every_profile_and_codex() {
         .map(|x| {
             (
                 x.provider,
-                x.root
-                    .strip_prefix(home.path())
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned(),
+                x.root.strip_prefix(home.path()).unwrap().to_path_buf(),
                 x.max_depth,
             )
         })
@@ -705,16 +701,24 @@ fn default_sources_cover_every_profile_and_codex() {
     assert_eq!(
         roots,
         [
-            (UsageProvider::Claude, ".claude/projects".to_string(), 4),
             (
                 UsageProvider::Claude,
-                ".claude-work/projects".to_string(),
+                Path::new(".claude").join("projects"),
                 4
             ),
-            (UsageProvider::Codex, ".codex/sessions".to_string(), 5),
+            (
+                UsageProvider::Claude,
+                Path::new(".claude-work").join("projects"),
+                4
+            ),
             (
                 UsageProvider::Codex,
-                ".codex/archived_sessions".to_string(),
+                Path::new(".codex").join("sessions"),
+                5
+            ),
+            (
+                UsageProvider::Codex,
+                Path::new(".codex").join("archived_sessions"),
                 2
             ),
         ]
