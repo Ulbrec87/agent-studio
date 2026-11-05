@@ -558,6 +558,11 @@ async fn git_requests_status_stage_commit_diff_and_branches() {
     let repo = h.dir.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q"]);
+    // The daemon runs plain `git commit`, so the identity must live in the
+    // repo's own config (CI runners have no global one).
+    git(&repo, &["config", "user.name", "T"]);
+    git(&repo, &["config", "user.email", "t@example.com"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
     write(&repo.join("a.txt"), "one\n");
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "init"]);
