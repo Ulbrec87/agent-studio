@@ -48,12 +48,18 @@ fn options(backend: &FakePtyBackend) -> DaemonOptions {
         // The "CLI" of headless runs prints two stream-json lines.
         headless_override: Some(Arc::new(|_run| {
             Some(if cfg!(windows) {
+                // A batch file: quotes in a `cmd /c` argument would be
+                // backslash-escaped by Rust's Windows argument quoting.
+                let script = std::env::temp_dir()
+                    .join(format!("as-test-headless-{}.cmd", std::process::id()));
+                std::fs::write(
+                    &script,
+                    "@echo off\r\necho {\"type\":\"system\",\"session_id\":\"sess-9\"}\r\necho {\"type\":\"result\",\"result\":\"ok\"}\r\n",
+                )
+                .expect("write batch");
                 as_core::agents::shell::SpawnSpec {
                     cmd: "cmd.exe".into(),
-                    args: vec![
-                        "/c".into(),
-                        r#"echo {"type":"system","session_id":"sess-9"} & echo {"type":"result","result":"ok"}"#.into(),
-                    ],
+                    args: vec!["/c".into(), script.to_string_lossy().into_owned()],
                 }
             } else {
                 as_core::agents::shell::SpawnSpec {

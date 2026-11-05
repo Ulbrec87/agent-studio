@@ -14,13 +14,17 @@ fn payload(dir: &str) -> StartHeadlessRunPayload {
 
 /// An orchestrator whose "CLI" is a shell command line.
 fn scripted(dir: &Path, unix: &'static str, windows: &'static str) -> HeadlessOrchestrator {
+    let script_dir = dir.to_path_buf();
     HeadlessOrchestrator::with_override(
         dir,
         Some(Arc::new(move |_run| {
             Some(if cfg!(windows) {
+                // Quotes in a `cmd /c` argument get backslash-escaped by Rust's
+                // Windows argument quoting; a batch file is read verbatim.
+                let script = write_batch(&script_dir, windows);
                 SpawnSpec {
                     cmd: "cmd.exe".into(),
-                    args: vec!["/c".into(), windows.into()],
+                    args: vec!["/c".into(), script.to_string_lossy().into_owned()],
                 }
             } else {
                 SpawnSpec {
@@ -30,6 +34,22 @@ fn scripted(dir: &Path, unix: &'static str, windows: &'static str) -> HeadlessOr
             })
         })),
     )
+}
+
+/// Write `body` as a `.cmd` file (unique per content) and return its path.
+#[cfg(windows)]
+fn write_batch(dir: &Path, body: &str) -> std::path::PathBuf {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    body.hash(&mut h);
+    let path = dir.join(format!("script-{:016x}.cmd", h.finish()));
+    std::fs::write(&path, format!("@echo off\r\n{body}\r\n")).expect("write batch");
+    path
+}
+
+#[cfg(not(windows))]
+fn write_batch(_dir: &Path, _body: &str) -> std::path::PathBuf {
+    unreachable!("only used on Windows")
 }
 
 async fn wait_for_status(
