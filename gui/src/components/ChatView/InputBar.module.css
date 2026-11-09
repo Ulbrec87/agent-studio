@@ -115,6 +115,8 @@
 }
 
 .inputCard {
+  /* Anchor for the slash menu, which floats above the card instead of growing it. */
+  position: relative;
   background: var(--color-sidebar-hover);
   border: 1px solid var(--color-input-border);
   border-radius: 16px;
@@ -254,7 +256,12 @@
 }
 
 .slashMenu {
-  margin-top: var(--space-2);
+  /* Overlay: opens above the input card without changing its size (Hydra put it in the flow, which grew the chat box). */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + var(--space-2));
+  z-index: 30;
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -5,6 +5,7 @@ import codexIcon from '@/assets/icons/codex.svg'
 import opencodeIcon from '@/assets/icons/opencode.svg'
 import { useRuntimeProviderModels } from '../../hooks/useRuntimeProviderModels'
 import styles from './InputBar.module.css'
+import { providerCommands } from './slashCommands'
 
 export interface AttachedImage {
   id: string
@@ -833,12 +834,21 @@ function SlashMenu({
   selectedIndex: number
   onSelect: (item: SlashMenuItem) => void
 }) {
+  const menuRef = useRef<HTMLDivElement>(null)
+  // Keep the keyboard selection visible in the scrollable list.
+  useEffect(() => {
+    const active = menuRef.current?.children[selectedIndex] as HTMLElement | undefined
+    active?.scrollIntoView?.({ block: 'nearest' })
+  }, [selectedIndex])
+
   return (
-    <div className={styles.slashMenu}>
+    <div ref={menuRef} className={styles.slashMenu} role="listbox" aria-label="Commands and skills">
       {items.map((item, index) => (
         <button
           key={item.id}
           type="button"
+          role="option"
+          aria-selected={index === selectedIndex}
           className={`${styles.slashItem} ${index === selectedIndex ? styles.slashItemActive : ''}`}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onSelect(item)}
@@ -905,44 +915,12 @@ function buildSlashMenuItems(provider: ProviderId, skills: SkillInfo[]): SlashMe
 }
 
 function getProviderCommandItems(provider: ProviderId): SlashMenuItem[] {
-  const common: SlashMenuItem[] = [
-    {
-      id: 'command:clear',
-      label: 'clear',
-      description: 'Clear the current CLI conversation context',
-      searchText: 'clear reset conversation context',
-      insertText: '/clear ',
-      kind: 'command'
-    }
-  ]
-
-  if (provider === 'codex') {
-    return [
-      {
-        id: 'command:model',
-        label: 'model',
-        description: 'Open the Codex model picker in-session',
-        searchText: 'model switch codex',
-        insertText: '/model ',
-        kind: 'command'
-      },
-      ...common
-    ]
-  }
-
-  if (provider === 'claude') {
-    return [
-      {
-        id: 'command:rename',
-        label: 'rename',
-        description: 'Rename the current Claude session',
-        searchText: 'rename title session claude',
-        insertText: '/rename ',
-        kind: 'command'
-      },
-      ...common
-    ]
-  }
-
-  return common
+  return providerCommands(provider).map<SlashMenuItem>((command) => ({
+    id: `command:${command.name}`,
+    label: command.name,
+    description: command.description,
+    searchText: `${command.name} ${command.description} ${command.keywords ?? ''}`.toLowerCase(),
+    insertText: `/${command.name} `,
+    kind: 'command'
+  }))
 }

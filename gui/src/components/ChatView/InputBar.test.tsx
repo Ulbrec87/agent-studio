@@ -63,6 +63,21 @@ describe('InputBar', () => {
     })
   })
 
+  it('offers the built-in commands of the agent CLI', async () => {
+    render(<InputBar onSend={() => undefined} provider="claude" model="sonnet" />)
+    const input = screen.getByPlaceholderText('Send a message...') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '/co', selectionStart: 3 } })
+
+    await waitFor(() => {
+      expect(screen.getByText('compact')).toBeTruthy()
+      expect(screen.getByText('context')).toBeTruthy()
+      expect(screen.getByText('config')).toBeTruthy()
+      // Codex-only command, not offered to a Claude agent.
+      expect(screen.queryByText('approvals')).toBeNull()
+    })
+    expect(screen.getByRole('listbox', { name: 'Commands and skills' })).toBeTruthy()
+  })
+
   it('inserts a skill prompt when selecting a slash skill item', async () => {
     render(
       <InputBar
