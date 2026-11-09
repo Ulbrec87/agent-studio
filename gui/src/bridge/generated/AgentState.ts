@@ -11,4 +11,8 @@ export type AgentState = { status: AgentStatus, pid: number | null, restartCount
 /**
  * When the agent's process last ended; `None` when unknown or running.
  */
-endedAt: string | null, lastActivityAt: string, id: string, name: string, projectDir: string, provider: ProviderId, model: string, reasoningEffort: string | null, yolo: boolean, isManager: boolean, sessionId: string | null, initialPrompt: string, createdAt: string, workMode: WorkMode, worktreePath: string | null, worktreeBranch: string | null, };
+endedAt: string | null, lastActivityAt: string, id: string, name: string, projectDir: string, provider: ProviderId, model: string, reasoningEffort: string | null, 
+/**
+ * Explicit Claude profile (`CLAUDE_CONFIG_DIR`) chosen at creation; `Some("")` = default profile.
+ */
+claudeConfigDir: string | null, yolo: boolean, isManager: boolean, sessionId: string | null, initialPrompt: string, createdAt: string, workMode: WorkMode, worktreePath: string | null, worktreeBranch: string | null, };

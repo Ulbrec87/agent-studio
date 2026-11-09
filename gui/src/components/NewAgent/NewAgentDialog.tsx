@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ModelId, ProviderId, CreateAgentPayload, ClaudeSessionSummary, DirSuggestion, McpServerStatus, WorkMode } from '@shared/types'
 import { PROVIDER_LABELS, CODEX_REASONING_LEVELS } from '@shared/types'
+import { resolveClaudeProfile } from '@shared/claudeProfiles'
+import { ClaudeProfileOptions } from '../shared/ClaudeProfileOptions'
+import { useClaudeProfiles } from '../../hooks/useClaudeProfiles'
 import { useRuntimeProviderModels } from '../../hooks/useRuntimeProviderModels'
 import { fuzzyScore } from '../../lib/fuzzy'
 import claudeIcon from '../../assets/icons/claude.svg'
@@ -18,6 +21,8 @@ interface NewAgentDialogProps {
   defaultProjectDir: string
   globalYolo: boolean
   knownProjectDirs?: string[]
+  /** Per-project Claude profile mapping (config `claudeProfileByProject`), used to preselect the profile. */
+  claudeProfileByProject?: Record<string, string>
   onSubmit: (payload: CreateAgentPayload) => void
   onClose: () => void
 }
@@ -28,6 +33,7 @@ export function NewAgentDialog({
   defaultProjectDir,
   globalYolo,
   knownProjectDirs = [],
+  claudeProfileByProject,
   onSubmit,
   onClose
 }: NewAgentDialogProps) {
@@ -49,6 +55,12 @@ export function NewAgentDialog({
   const [sessionSearch, setSessionSearch] = useState('')
   const [selectedSessionId, setSelectedSessionId] = useState('')
   const { providerModels, getDefaultModel, getModelOption } = useRuntimeProviderModels()
+  const claudeProfiles = useClaudeProfiles()
+  // `null` until the user picks one: the preselection then follows the project directory.
+  const [pickedProfile, setPickedProfile] = useState<string | null>(null)
+  const showProfilePicker = provider === 'claude' && claudeProfiles.length > 1
+  // `''` is the default profile (`~/.claude`).
+  const claudeProfile = pickedProfile ?? resolveClaudeProfile(projectDir.trim(), claudeProfileByProject) ?? ''
 
   useEffect(() => {
     window.hydra.getMcpServerStatus().then(setMcpStatus).catch(console.error)
@@ -145,6 +157,8 @@ export function NewAgentDialog({
       provider,
       model: effectiveModel,
       reasoningEffort: provider === 'codex' && reasoningEffort ? reasoningEffort : undefined,
+      // A resumed session always runs in the profile that owns it (the daemon decides), so no override then.
+      claudeConfigDir: showProfilePicker && !resumeExisting ? claudeProfile : undefined,
       yolo,
       initialPrompt: initialPrompt.trim(),
       resumeSessionId: resumeExisting ? selectedSessionId : null,
@@ -466,6 +480,25 @@ export function NewAgentDialog({
               />
             )}
           </div>
+
+          {/* Claude profile (Claude only, when more than one profile exists) */}
+          {showProfilePicker && (
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="new-agent-claude-profile">Claude profile</label>
+              <select
+                id="new-agent-claude-profile"
+                className={styles.select}
+                value={claudeProfile}
+                onChange={(e) => setPickedProfile(e.target.value)}
+                disabled={resumeExisting}
+              >
+                <ClaudeProfileOptions profiles={claudeProfiles} selected={claudeProfile} />
+              </select>
+              {resumeExisting && (
+                <span className={styles.hint}>A resumed session keeps the profile it was created in</span>
+              )}
+            </div>
+          )}
 
           {/* Reasoning Effort (Codex only) */}
           {provider === 'codex' && (

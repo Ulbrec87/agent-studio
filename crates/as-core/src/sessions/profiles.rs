@@ -191,22 +191,33 @@ pub fn profile_of_session(
         .map(|path| config_dir_for_transcript(&path, home))
 }
 
-/// Resolver for the manager (`(project_dir, session_id) -> CLAUDE_CONFIG_DIR`): a resumed session
-/// only exists in the profile that saved it, so that wins over the project mapping; new sessions
-/// follow the project (or nearest parent) mapping. Profiles are rediscovered on every call so new
+/// Pick the config dir for an agent: the profile owning its resumed session wins (it only exists
+/// there), then the agent's explicit choice (`Some("")` = default profile), then the project mapping.
+pub fn pick_profile(
+    session_profile: Option<String>,
+    explicit: Option<&str>,
+    project_profile: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    session_profile
+        .or_else(|| explicit.map(str::to_string))
+        .or_else(project_profile)
+}
+
+/// Resolver for the manager (`(project_dir, session_id, explicit) -> CLAUDE_CONFIG_DIR`): see
+/// [`pick_profile`]; new sessions follow the project (or nearest parent) mapping. Profiles are rediscovered on every call so new
 /// ones show up without a restart.
 pub fn make_resolver(
     get_map: impl Fn() -> BTreeMap<String, String> + Send + Sync + 'static,
-) -> impl Fn(&str, Option<&str>) -> Option<String> + Send + Sync + 'static {
-    move |project_dir, session_id| {
-        if let Some(sid) = session_id {
+) -> impl Fn(&str, Option<&str>, Option<&str>) -> Option<String> + Send + Sync + 'static {
+    move |project_dir, session_id, explicit| {
+        let session_profile = session_id.and_then(|sid| {
             let home = home_dir();
             let dirs = discover_projects_dirs_from_env();
-            if let Some(found) = profile_of_session(sid, &dirs, &home) {
-                return Some(found);
-            }
-        }
-        resolve_profile(project_dir, &get_map())
+            profile_of_session(sid, &dirs, &home)
+        });
+        pick_profile(session_profile, explicit, || {
+            resolve_profile(project_dir, &get_map())
+        })
     }
 }
 
@@ -226,6 +237,22 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    #[test]
+    fn pick_profile_precedence() {
+        let mapped = || Some("/map".to_string());
+        assert_eq!(
+            pick_profile(Some("/sess".into()), Some("/pick"), mapped),
+            Some("/sess".into())
+        );
+        assert_eq!(
+            pick_profile(None, Some("/pick"), mapped),
+            Some("/pick".into())
+        );
+        assert_eq!(pick_profile(None, Some(""), mapped), Some(String::new()));
+        assert_eq!(pick_profile(None, None, mapped), Some("/map".into()));
+        assert_eq!(pick_profile(None, None, || None), None);
     }
 
     #[test]

@@ -5,4 +5,8 @@ import type { WorkMode } from "./WorkMode";
 /**
  * Create-agent request (Hydra `CreateAgentPayload`).
  */
-export type CreateAgentPayload = { name: string, projectDir: string, provider: ProviderId, model: string, reasoningEffort: string | null, yolo: boolean, initialPrompt: string, resumeSessionId: string | null, isManager: boolean, workMode: WorkMode, };
+export type CreateAgentPayload = { name: string, projectDir: string, provider: ProviderId, model: string, reasoningEffort: string | null, 
+/**
+ * Explicit Claude profile for this agent; `Some("")` = default profile, `None` = project mapping.
+ */
+claudeConfigDir: string | null, yolo: boolean, initialPrompt: string, resumeSessionId: string | null, isManager: boolean, workMode: WorkMode, };

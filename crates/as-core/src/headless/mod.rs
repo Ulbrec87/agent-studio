@@ -101,7 +101,7 @@ impl HeadlessOrchestrator {
                 events,
                 shell_config: Mutex::new(Arc::new(ShellConfig::default)),
                 env_overrides: Mutex::new(EnvOverrides::new()),
-                claude_profile: Mutex::new(Arc::new(|_, _| None)),
+                claude_profile: Mutex::new(Arc::new(|_, _, _| None)),
                 provider_path: Mutex::new(Arc::new(|_| None)),
                 command_override,
             }),
@@ -127,7 +127,7 @@ impl HeadlessOrchestrator {
 
     pub fn set_claude_profile_resolver(
         &self,
-        resolver: impl Fn(&str, Option<&str>) -> Option<String> + Send + Sync + 'static,
+        resolver: impl Fn(&str, Option<&str>, Option<&str>) -> Option<String> + Send + Sync + 'static,
     ) {
         *self.inner.claude_profile.lock() = Arc::new(resolver);
     }
@@ -204,6 +204,7 @@ impl HeadlessOrchestrator {
             let profile = (self.inner.claude_profile.lock())(
                 &run.project_dir,
                 run.resume_session_id.as_deref(),
+                None,
             );
             overrides.extend(claude_profile_env(profile.as_deref()));
         }

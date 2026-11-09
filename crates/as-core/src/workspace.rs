@@ -41,6 +41,9 @@ pub struct PersistedWorkspaceAgent {
     pub worktree_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_branch: Option<String>,
+    /// Explicit Claude profile chosen when the agent was created (`""` = default profile).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_config_dir: Option<String>,
 }
 
 #[derive(Serialize, ts_rs::TS)]
@@ -146,6 +149,7 @@ mod tests {
             work_mode: Some(WorkMode::Local),
             worktree_path: None,
             worktree_branch: None,
+            claude_config_dir: None,
         }
     }
 

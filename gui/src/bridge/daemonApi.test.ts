@@ -52,6 +52,14 @@ describe('agents', () => {
     expect(raw.of('subscribe')).toEqual([{ type: 'subscribe', payload: { agent_id: 'newagent1' } }])
   })
 
+  it('createAgent forwards claudeConfigDir, including the empty default-profile value', async () => {
+    const { raw, api } = await setup((r) => r.handlers.set('create_agent', () => ({ type: 'agent', payload: AGENT })))
+    await api.createAgent({ name: 'p', projectDir: '/p', provider: 'claude', model: 'sonnet', yolo: false, initialPrompt: '', claudeConfigDir: '/home/me/.claude-work' })
+    await api.createAgent({ name: 'd', projectDir: '/p', provider: 'claude', model: 'sonnet', yolo: false, initialPrompt: '', claudeConfigDir: '' })
+    expect((raw.of('create_agent')[0].payload as { claudeConfigDir?: string }).claudeConfigDir).toBe('/home/me/.claude-work')
+    expect((raw.of('create_agent')[1].payload as { claudeConfigDir?: string }).claudeConfigDir).toBe('')
+  })
+
   it('manager agents are created in the MCP manager workspace and fail when MCP is down', async () => {
     const { raw, api } = await setup((r) => {
       r.handlers.set('get_mcp_status', () => ({ type: 'mcp_status', payload: { running: true, port: 1, error: null, manager_workspace: '/m' } }))

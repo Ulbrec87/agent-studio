@@ -93,6 +93,9 @@ pub struct AgentConfig {
     pub model: ModelId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    /// Explicit Claude profile (`CLAUDE_CONFIG_DIR`) chosen at creation; `Some("")` = default profile.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_config_dir: Option<String>,
     pub yolo: bool,
     pub is_manager: bool,
     pub session_id: Option<String>,
@@ -112,6 +115,7 @@ impl Default for AgentConfig {
             provider: ProviderId::Claude,
             model: String::new(),
             reasoning_effort: None,
+            claude_config_dir: None,
             yolo: false,
             is_manager: false,
             session_id: None,
@@ -557,6 +561,9 @@ pub struct CreateAgentPayload {
     pub model: ModelId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    /// Explicit Claude profile for this agent; `Some("")` = default profile, `None` = project mapping.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_config_dir: Option<String>,
     pub yolo: bool,
     pub initial_prompt: String,
     pub resume_session_id: Option<String>,

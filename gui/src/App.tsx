@@ -904,6 +904,7 @@ export default function App() {
           defaultProjectDir={newAgentPrefillDir || config.defaultProjectDir}
           globalYolo={config.globalYolo}
           knownProjectDirs={projectGroups.map((g) => g.projectDir)}
+          claudeProfileByProject={config.claudeProfileByProject}
           onSubmit={async (payload) => {
             if (!(await ensurePreflightReady())) return
             await createAgent(payload)

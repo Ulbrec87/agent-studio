@@ -6,4 +6,8 @@ import type { WorkMode } from "./WorkMode";
  * One agent as stored in `workspace.json`. Required keys: `id`, `name`,
  * `projectDir`, `model`, `yolo`, `createdAt` (entries missing one are dropped).
  */
-export type PersistedWorkspaceAgent = { id: string, name: string, projectDir: string, provider?: ProviderId | null, model: string, yolo: boolean, isManager?: boolean | null, sessionId: string | null, createdAt: string, lastActivityAt?: string | null, endedAt?: string | null, workMode?: WorkMode | null, worktreePath?: string | null, worktreeBranch?: string | null, };
+export type PersistedWorkspaceAgent = { id: string, name: string, projectDir: string, provider?: ProviderId | null, model: string, yolo: boolean, isManager?: boolean | null, sessionId: string | null, createdAt: string, lastActivityAt?: string | null, endedAt?: string | null, workMode?: WorkMode | null, worktreePath?: string | null, worktreeBranch?: string | null, 
+/**
+ * Explicit Claude profile chosen when the agent was created (`""` = default profile).
+ */
+claudeConfigDir?: string | null, };

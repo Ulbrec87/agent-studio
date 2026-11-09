@@ -255,7 +255,8 @@ pub(crate) fn normalize_prompt_hint(input: Option<&str>) -> String {
 pub type CommandOverride = Arc<dyn Fn(&AgentState) -> Option<SpawnSpec> + Send + Sync>;
 /// `(project_dir, session_id) -> CLAUDE_CONFIG_DIR`: `Some(dir)` selects a profile,
 /// `Some("")` forces the default one, `None` keeps the daemon's env.
-pub type ClaudeProfileResolver = Arc<dyn Fn(&str, Option<&str>) -> Option<String> + Send + Sync>;
+pub type ClaudeProfileResolver =
+    Arc<dyn Fn(&str, Option<&str>, Option<&str>) -> Option<String> + Send + Sync>;
 pub type ShellConfigProvider = Arc<dyn Fn() -> ShellConfig + Send + Sync>;
 
 pub struct ManagerOptions {
@@ -624,7 +625,11 @@ impl Shared {
 
         let mut overrides: EnvOverrides = base_overrides;
         if m.state.provider == ProviderId::Claude {
-            let dir = claude_profile(&m.state.project_dir, m.state.session_id.as_deref());
+            let dir = claude_profile(
+                &m.state.project_dir,
+                m.state.session_id.as_deref(),
+                m.state.claude_config_dir.as_deref(),
+            );
             overrides.extend(claude_profile_env(dir.as_deref()));
         }
         overrides.insert("TERM".into(), Some("xterm-256color".into()));
@@ -993,7 +998,7 @@ impl AgentManager {
                 provider_paths: HashMap::new(),
                 // Default 'direct' so a bare manager spawns the CLI as is; the daemon installs the real config.
                 shell_config: Arc::new(ShellConfig::direct),
-                claude_profile: Arc::new(|_, _| None),
+                claude_profile: Arc::new(|_, _, _| None),
                 env_overrides: EnvOverrides::new(),
             }),
             events,
@@ -1048,7 +1053,7 @@ impl AgentManager {
     /// Claude profile (`CLAUDE_CONFIG_DIR`) resolver; defaults to "keep the daemon's env".
     pub fn set_claude_profile_resolver(
         &self,
-        resolver: impl Fn(&str, Option<&str>) -> Option<String> + Send + Sync + 'static,
+        resolver: impl Fn(&str, Option<&str>, Option<&str>) -> Option<String> + Send + Sync + 'static,
     ) {
         self.shared.inner.lock().claude_profile = Arc::new(resolver);
     }
@@ -1110,6 +1115,7 @@ impl AgentManager {
                 provider: payload.provider,
                 model: payload.model,
                 reasoning_effort: payload.reasoning_effort,
+                claude_config_dir: payload.claude_config_dir,
                 yolo: payload.yolo,
                 is_manager: payload.is_manager,
                 session_id: payload.resume_session_id,
@@ -1512,6 +1518,7 @@ impl AgentManager {
                     work_mode: p.work_mode.unwrap_or_default(),
                     worktree_path: p.worktree_path.clone(),
                     worktree_branch: p.worktree_branch.clone(),
+                    claude_config_dir: p.claude_config_dir.clone(),
                 },
                 status: AgentStatus::Idle,
                 pid: None,
@@ -1580,6 +1587,7 @@ impl AgentManager {
                     work_mode: WorkMode::Local,
                     worktree_path: None,
                     worktree_branch: None,
+                    claude_config_dir: None,
                 },
                 status: AgentStatus::Idle,
                 pid: None,
@@ -1630,6 +1638,7 @@ impl AgentManager {
                 work_mode: Some(m.state.work_mode),
                 worktree_path: m.state.worktree_path.clone(),
                 worktree_branch: m.state.worktree_branch.clone(),
+                claude_config_dir: m.state.claude_config_dir.clone(),
             })
             .collect()
     }
@@ -1716,7 +1725,7 @@ mod tests {
     use crate::agents::fake_pty::FakePtyBackend;
     use pretty_assertions::assert_eq;
 
-    type ProfileCalls = Vec<(String, Option<String>)>;
+    type ProfileCalls = Vec<(String, Option<String>, Option<String>)>;
 
     /// Startup gate timing small enough for tests.
     fn fast_startup() -> StartupOptions {
@@ -1798,6 +1807,7 @@ mod tests {
             work_mode: None,
             worktree_path: None,
             worktree_branch: None,
+            claude_config_dir: None,
         }
     }
 
@@ -2562,12 +2572,16 @@ mod tests {
         let manager = manager_with(&backend);
         let calls: Arc<Mutex<ProfileCalls>> = Arc::default();
         let seen = calls.clone();
-        manager.set_claude_profile_resolver(move |dir, sid| {
-            seen.lock().push((dir.to_string(), sid.map(str::to_string)));
+        manager.set_claude_profile_resolver(move |dir, sid, explicit| {
+            seen.lock().push((
+                dir.to_string(),
+                sid.map(str::to_string),
+                explicit.map(str::to_string),
+            ));
             Some("/home/me/.claude-work".into())
         });
         manager.create(payload()).await.unwrap();
-        assert_eq!(*calls.lock(), [("/tmp/project".to_string(), None)]);
+        assert_eq!(*calls.lock(), [("/tmp/project".to_string(), None, None)]);
         assert_eq!(
             backend.env_of(0)["CLAUDE_CONFIG_DIR"],
             "/home/me/.claude-work"
@@ -2586,6 +2600,72 @@ mod tests {
             backend.env_of(1).get("CLAUDE_CONFIG_DIR"),
             std::env::var("CLAUDE_CONFIG_DIR").ok().as_ref()
         );
+    }
+
+    #[tokio::test]
+    async fn explicit_claude_config_dir_is_passed_to_the_resolver_and_persisted() {
+        let backend = FakePtyBackend::new();
+        let manager = manager_with(&backend);
+        let calls: Arc<Mutex<ProfileCalls>> = Arc::default();
+        let seen = calls.clone();
+        manager.set_claude_profile_resolver(move |dir, sid, explicit| {
+            seen.lock().push((
+                dir.to_string(),
+                sid.map(str::to_string),
+                explicit.map(str::to_string),
+            ));
+            explicit.map(str::to_string)
+        });
+        let created = manager
+            .create(CreateAgentPayload {
+                claude_config_dir: Some("/home/me/.claude-alternative".into()),
+                ..payload()
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            created.claude_config_dir.as_deref(),
+            Some("/home/me/.claude-alternative")
+        );
+        assert_eq!(
+            calls.lock()[0].2.as_deref(),
+            Some("/home/me/.claude-alternative")
+        );
+        assert_eq!(
+            backend.env_of(0)["CLAUDE_CONFIG_DIR"],
+            "/home/me/.claude-alternative"
+        );
+
+        // Persisted, and kept after hydrating a fresh manager and restarting.
+        let saved = manager.export_workspace_agents(false);
+        assert_eq!(
+            saved[0].claude_config_dir.as_deref(),
+            Some("/home/me/.claude-alternative")
+        );
+        let backend2 = FakePtyBackend::new();
+        let manager2 = manager_with(&backend2);
+        manager2.set_claude_profile_resolver(|_, _, explicit| explicit.map(str::to_string));
+        manager2.hydrate_workspace_agents(&saved);
+        manager2.restart(&saved[0].id).unwrap();
+        assert_eq!(
+            backend2.env_of(0)["CLAUDE_CONFIG_DIR"],
+            "/home/me/.claude-alternative"
+        );
+    }
+
+    #[test]
+    fn old_workspace_entries_and_payloads_load_without_the_field() {
+        let a: PersistedWorkspaceAgent = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "n", "projectDir": "/p", "model": "sonnet",
+            "yolo": false, "createdAt": "2026-01-01T00:00:00.000Z"
+        }))
+        .unwrap();
+        assert_eq!(a.claude_config_dir, None);
+        let p: CreateAgentPayload =
+            serde_json::from_value(serde_json::json!({"name": "n"})).unwrap();
+        assert_eq!(p.claude_config_dir, None);
+        let v = serde_json::to_value(&p).unwrap();
+        assert!(v.get("claudeConfigDir").is_none());
     }
 
     #[tokio::test]

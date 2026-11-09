@@ -13,6 +13,7 @@ export interface AgentConfig {
   provider: ProviderId
   model: ModelId
   reasoningEffort?: string
+  claudeConfigDir?: string
   yolo: boolean
   isManager: boolean
   sessionId: string | null
@@ -449,6 +450,8 @@ export interface CreateAgentPayload {
   provider: ProviderId
   model: ModelId
   reasoningEffort?: string
+  /** Claude profile (`CLAUDE_CONFIG_DIR`) for this agent; `''` = default profile, omitted = project mapping. */
+  claudeConfigDir?: string
   yolo: boolean
   initialPrompt: string
   resumeSessionId?: string | null

@@ -139,4 +139,61 @@ describe('NewAgentDialog', () => {
       })
     )
   })
+  describe('Claude profile picker', () => {
+    const DEFAULT = { configDir: '/home/me/.claude', label: 'default', isDefault: true }
+    const WORK = { configDir: '/home/me/.claude-work', label: 'work', isDefault: false }
+
+    const renderDialog = (props: Partial<React.ComponentProps<typeof NewAgentDialog>> = {}) => {
+      const onSubmit = vi.fn()
+      render(
+        <NewAgentDialog
+          defaultProvider="claude"
+          defaultModel="sonnet"
+          defaultProjectDir="/work/api"
+          globalYolo={false}
+          onSubmit={onSubmit}
+          onClose={() => undefined}
+          {...props}
+        />
+      )
+      return onSubmit
+    }
+
+    it('is hidden with a single profile and sends no override', async () => {
+      window.hydra.listClaudeProfiles = vi.fn().mockResolvedValue([DEFAULT])
+      const onSubmit = renderDialog()
+      await waitFor(() => expect(window.hydra.listClaudeProfiles).toHaveBeenCalled())
+      expect(screen.queryByLabelText('Claude profile')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Create Agent' }))
+      expect(onSubmit.mock.calls[0][0].claudeConfigDir).toBeUndefined()
+    })
+
+    it('shows with two profiles, preselects the project mapping and sends the choice', async () => {
+      window.hydra.listClaudeProfiles = vi.fn().mockResolvedValue([DEFAULT, WORK])
+      const onSubmit = renderDialog({ claudeProfileByProject: { '/work': WORK.configDir } })
+      const select = (await screen.findByLabelText('Claude profile')) as HTMLSelectElement
+      expect(select.value).toBe(WORK.configDir)
+      fireEvent.click(screen.getByRole('button', { name: 'Create Agent' }))
+      expect(onSubmit.mock.calls[0][0].claudeConfigDir).toBe(WORK.configDir)
+
+      fireEvent.change(select, { target: { value: '' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Create Agent' }))
+      expect(onSubmit.mock.calls[1][0].claudeConfigDir).toBe('')
+    })
+
+    it('falls back to the default profile, follows the project dir until picked manually, and hides for Codex', async () => {
+      window.hydra.listClaudeProfiles = vi.fn().mockResolvedValue([DEFAULT, WORK])
+      renderDialog({ claudeProfileByProject: { '/work': WORK.configDir }, defaultProjectDir: '/other' })
+      const select = (await screen.findByLabelText('Claude profile')) as HTMLSelectElement
+      expect(select.value).toBe('')
+      const dir = screen.getByPlaceholderText(/path\/to\/project/)
+      fireEvent.change(dir, { target: { value: '/work/web' } })
+      expect(select.value).toBe(WORK.configDir)
+      fireEvent.change(select, { target: { value: '' } })
+      fireEvent.change(dir, { target: { value: '/work/api' } })
+      expect(select.value).toBe('')
+      fireEvent.click(screen.getByRole('button', { name: /codex/i }))
+      expect(screen.queryByLabelText('Claude profile')).toBeNull()
+    })
+  })
 })
