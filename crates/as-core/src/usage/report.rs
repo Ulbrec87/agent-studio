@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::claude_line::claude_project_key_label;
 use super::types::{TokenCounts, UsageBucket, UsageProvider};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum UsageReportProvider {
     #[default]
@@ -27,7 +27,7 @@ impl UsageReportProvider {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageReportModel {
     pub model: String,
@@ -36,7 +36,7 @@ pub struct UsageReportModel {
     pub cost_usd: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageReportProject {
     pub project_key: String,
@@ -46,7 +46,7 @@ pub struct UsageReportProject {
     pub cost_usd: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageReportDay {
     /// Local calendar day, `YYYY-MM-DD`.
@@ -63,7 +63,7 @@ pub struct UsageReportDay {
     pub projects: Vec<UsageReportProject>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageReport {
     pub provider: UsageReportProvider,

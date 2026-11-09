@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Kind of change of a file (`git status` letter).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub enum GitStatusKind {
     #[serde(rename = "M")]
     Modified,
@@ -40,7 +40,7 @@ impl GitStatusKind {
 }
 
 /// One entry of `git status`. `path` is relative to the repository root and uses `/`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitFileStatus {
     pub path: String,
@@ -58,7 +58,7 @@ pub struct GitFileStatus {
     pub conflicted: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatus {
     pub is_repo: bool,
@@ -73,7 +73,7 @@ pub struct GitStatus {
     pub files: Vec<GitFileStatus>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommit {
     pub hash: String,
@@ -85,7 +85,7 @@ pub struct GitCommit {
     pub date: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitDiffStats {
     pub files: u32,
@@ -93,7 +93,7 @@ pub struct GitDiffStats {
     pub deletions: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitBranch {
     /// Short name (`main`, `origin/main`).
@@ -105,7 +105,7 @@ pub struct GitBranch {
     pub behind_upstream: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitFileContents {
     pub original: String,
@@ -115,7 +115,7 @@ pub struct GitFileContents {
     pub binary: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitPrMetadata {
     pub number: u64,
@@ -133,7 +133,7 @@ pub struct GitPrMetadata {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitPrFile {
     pub path: String,
@@ -145,7 +145,7 @@ pub struct GitPrFile {
     pub patch: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitPrDiff {
     pub metadata: GitPrMetadata,
@@ -153,7 +153,7 @@ pub struct GitPrDiff {
 }
 
 /// A worktree of a repository (`git worktree list`), or one just created.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitWorktree {
     pub path: String,

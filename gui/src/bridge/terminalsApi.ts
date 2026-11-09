@@ -7,19 +7,12 @@ import type { FreeTerminalLayout } from '@shared/types'
 import type { BridgeContext, MethodGroup } from './context'
 import { bytesToBase64, utf8Bytes, type ProtoRequest, type ProtoResponse } from './protocol'
 import { compact } from './mappers'
+import type { TerminalInfo } from './generated'
 import { createAgentStreams, terminalSubscribeRequest } from './streams'
 
 /** Size a shell starts with; the renderer sends its real size as soon as the pane is mounted. */
 const INITIAL_COLS = 80
 const INITIAL_ROWS = 24
-
-interface TerminalInfo {
-  terminalId: string
-  projectDir: string
-  label: string
-  lastActivityAt: number
-  lastInputAt: number
-}
 
 /** `listFreeTerminals` rows: the daemon drops exited terminals from its list, Hydra has an `exited` flag. */
 export function mapTerminalList(list: TerminalInfo[]): Array<TerminalInfo & { exited: boolean }> {

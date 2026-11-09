@@ -39,7 +39,7 @@ pub const HEADER_MAX_BYTES: usize = 256 * 1024;
 pub const COUNT_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Hydra `ClaudeSessionSummary` (plus `provider` and `hidden`).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SessionSummary {
     pub session_id: String,
@@ -59,7 +59,7 @@ pub struct SessionSummary {
 }
 
 /// Hydra `ListClaudeSessionsOptions`, plus a free-text `query`.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ListSessionsOptions {
     pub provider: ProviderId,

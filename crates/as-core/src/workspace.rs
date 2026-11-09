@@ -16,7 +16,7 @@ use crate::util::write_atomic;
 
 /// One agent as stored in `workspace.json`. Required keys: `id`, `name`,
 /// `projectDir`, `model`, `yolo`, `createdAt` (entries missing one are dropped).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedWorkspaceAgent {
     pub id: String,
@@ -43,7 +43,7 @@ pub struct PersistedWorkspaceAgent {
     pub worktree_branch: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceData<'a> {
     schema_version: u32,

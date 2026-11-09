@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::types::{ModelId, ProviderId};
 
 /// What an agent is doing right now, as shown in the Overview.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum OverviewStatus {
     NeedsYou,
@@ -22,7 +22,7 @@ pub enum OverviewStatus {
 }
 
 /// Why a session waits on the user.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum WaitingReason {
     Permission,
@@ -41,7 +41,7 @@ pub struct ClaudeRegistryStatusFields {
     pub waiting_for: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct OverviewSession {
     pub agent_id: String,
@@ -111,7 +111,7 @@ impl OverviewSession {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct OverviewCounts {
     pub working: u32,
@@ -132,7 +132,7 @@ pub struct OverviewCounts {
     pub longest_idle_ms: Option<i64>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct OverviewSnapshot {
     pub at: i64,
@@ -140,7 +140,7 @@ pub struct OverviewSnapshot {
     pub counts: OverviewCounts,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum EventKind {
     Appeared,
@@ -151,7 +151,7 @@ pub enum EventKind {
 }
 
 /// A change worth logging.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct OverviewEvent {
     /// `<agentId>@<at>:<kind>` (`resumed@<at>` for gaps).
@@ -177,7 +177,7 @@ pub struct OverviewEvent {
 }
 
 /// One 5 s sample of the counts per status.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryPoint {
     pub at: i64,
@@ -189,7 +189,7 @@ pub struct HistoryPoint {
     pub statuses: BTreeMap<String, OverviewStatus>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryAgent {
     pub name: String,
@@ -197,7 +197,7 @@ pub struct HistoryAgent {
 }
 
 /// Answer of `GetOverviewHistory`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HistoryResponse {
     /// Where the history held begins; time before it is unmeasured.
@@ -211,7 +211,7 @@ pub struct HistoryResponse {
     pub agents: BTreeMap<String, HistoryAgent>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum WaitDirection {
     In,
@@ -219,7 +219,7 @@ pub enum WaitDirection {
 }
 
 /// A move of an agent into (`in`) or out of (`out`) `needs-you`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct WaitTransition {
     pub agent_id: String,
@@ -230,14 +230,14 @@ pub struct WaitTransition {
 }
 
 /// A stretch of time the daemon was measuring.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct MeasuredSpan {
     pub start: i64,
     pub end: i64,
 }
 
 /// What the wait totals are worked out from: the last 9 days.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WaitLedgerData {
     pub transitions: Vec<WaitTransition>,
@@ -256,7 +256,7 @@ pub struct WaitingNow {
 }
 
 /// How long agents waited in a stretch of time. Only measured time counts.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct WaitFigure {
     pub ms: i64,
@@ -312,14 +312,15 @@ pub struct WaitBar {
 }
 
 /// The last message of a session, or why there is none.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", untagged)]
 pub enum LastMessage {
     Text { text: String, truncated: bool },
     Unavailable { unavailable: String },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(rename = "OverviewTokenCounts")]
 pub struct TokenCounts {
     pub input: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -328,7 +329,7 @@ pub struct TokenCounts {
 }
 
 /// What the details drawer shows, read on demand from the transcript.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentDetails {
     pub last_message: LastMessage,

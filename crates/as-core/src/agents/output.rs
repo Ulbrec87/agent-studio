@@ -27,14 +27,6 @@ impl OutputBuffer {
         }
     }
 
-    pub fn set_cap(&mut self, cap: usize) {
-        self.cap = cap.max(1);
-        let excess = self.bytes.len().saturating_sub(self.cap);
-        if excess > 0 {
-            self.bytes.drain(..excess);
-        }
-    }
-
     pub fn push(&mut self, data: &[u8]) {
         if data.len() >= self.cap {
             self.bytes.clear();

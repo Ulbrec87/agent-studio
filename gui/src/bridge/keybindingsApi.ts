@@ -1,11 +1,12 @@
 // Key bindings of the desktop app: Hydra's `mod+x` accelerators (`gui/shared/keybindings.ts`) with the user's overrides in
-// `<data>/gui-keybindings.json` (not the daemon's `keybindings.json`, which is the TUI's prefix-key file).
+// `<data>/gui-keybindings.json` .
 //
 // The daemon only reads the raw file (`GetGuiKeybindings`: path, parsed JSON array, error text, change stamp; tolerant of a missing
 // or corrupt file) and creates a template on request (`CreateGuiKeybindingsFile`); merging with the defaults and validating command ids
 // is TypeScript, like Hydra's `KeybindingStore`. Changes are found by polling the stamp once a second (the same cadence as Hydra's
 // `watchFile`), which works through the Tauri shell and the browser dev bridge alike. Unlike Hydra the file is not created at start
 // and not rewritten to append missing defaults: it appears when the user opens it from the app, and the user's own edits stay untouched.
+import type { GuiKeybindingsFile } from './generated'
 import { DEFAULT_KEYBINDINGS, isHydraCommandId, mergeKeybindingsWithDefaults, type KeybindingRule } from '@shared/keybindings'
 import type { BridgeContext, MethodGroup } from './context'
 
@@ -14,14 +15,8 @@ export const KEYBINDING_CHANNELS = ['onKeybindingsChange'] as const
 export const KEYBINDINGS_FILE = 'gui-keybindings.json'
 const POLL_MS = 1000
 
-/** Answer of the daemon's `GetGuiKeybindings`. */
-export interface GuiKeybindingsFile {
-  path: string
-  exists: boolean
-  rules: unknown[]
-  error?: string | null
-  stamp: string
-}
+/** Answer of the daemon's `GetGuiKeybindings` (generated from Rust `as_core::gui_keybindings`). */
+export type { GuiKeybindingsFile }
 
 /** Hydra's `parseRule`: keep `{ command, keys }` entries with a known command and non-empty keys, drop everything else. */
 export function parseRules(raw: unknown[]): KeybindingRule[] {

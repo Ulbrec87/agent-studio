@@ -327,13 +327,13 @@ pub struct UsageAlertsOptions {
     pub now: Box<dyn Fn() -> i64 + Send + Sync>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, ts_rs::TS)]
 struct AlertsFile {
     version: u32,
     notified: Vec<NotifiedEntry>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct NotifiedEntry {
     key: String,

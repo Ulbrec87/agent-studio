@@ -23,6 +23,7 @@ and `gui/dist` must exist (`cd gui && npm ci && npm run build`) because Tauri em
 ```bash
 cd gui && npm ci && npm run dev         # browser only, mock bridge, http://localhost:1420
 cd gui && npm run typecheck && npm run lint && npm test && npm run build
+UPDATE_TS_BINDINGS=1 cargo test -p as-proto --test ts_bindings   # regenerate gui/src/bridge/generated after changing a wire type
 cargo build                             # whole workspace (debug)
 cargo fmt --all --check                 # formatting
 cargo clippy --workspace --all-targets -- -D warnings   # lints, must be clean

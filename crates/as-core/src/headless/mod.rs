@@ -40,7 +40,7 @@ const META_SCHEMA_VERSION: u32 = 1;
 const KILL_GRACE: Duration = Duration::from_secs(3);
 const STDERR_TAIL_CHARS: usize = 400;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct MetaFile {
     schema_version: u32,
@@ -130,14 +130,6 @@ impl HeadlessOrchestrator {
         resolver: impl Fn(&str, Option<&str>) -> Option<String> + Send + Sync + 'static,
     ) {
         *self.inner.claude_profile.lock() = Arc::new(resolver);
-    }
-
-    /// Resolved CLI path per provider (from the daemon's preflight); the bare command otherwise.
-    pub fn set_provider_path_resolver(
-        &self,
-        resolver: impl Fn(ProviderId) -> Option<String> + Send + Sync + 'static,
-    ) {
-        *self.inner.provider_path.lock() = Arc::new(resolver);
     }
 
     fn log_path(&self, id: &str) -> PathBuf {
@@ -602,11 +594,6 @@ impl HeadlessOrchestrator {
                 .lock()
                 .insert(run.id.clone(), Managed { run, cancel: None });
         }
-    }
-
-    /// The folder of the logs.
-    pub fn dir(&self) -> &Path {
-        &self.inner.dir
     }
 }
 

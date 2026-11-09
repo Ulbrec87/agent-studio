@@ -15,7 +15,7 @@ use tokio::sync::watch;
 
 use crate::paths::Paths;
 use crate::types::{
-    AppConfig, DEFAULT_PREFIX_KEY, DEFAULT_TERMINAL_FONT_FAMILY, MAX_CONCURRENT_AGENTS_HARD_LIMIT,
+    AppConfig, DEFAULT_TERMINAL_FONT_FAMILY, MAX_CONCURRENT_AGENTS_HARD_LIMIT,
     TERMINAL_FONT_SIZE_RANGE,
 };
 use crate::usage_settings::normalize_usage_settings;
@@ -56,9 +56,6 @@ fn sanitize(mut config: AppConfig) -> AppConfig {
     );
     if config.terminal_font_family.trim().is_empty() {
         config.terminal_font_family = DEFAULT_TERMINAL_FONT_FAMILY.to_string();
-    }
-    if config.prefix_key.trim().is_empty() {
-        config.prefix_key = DEFAULT_PREFIX_KEY.to_string();
     }
     config
 }
@@ -250,46 +247,20 @@ mod tests {
     }
 
     #[test]
-    fn update_check_and_mouse_keys() {
+    fn update_check_key() {
         let dir = tempfile::tempdir().unwrap();
         let store = store_in(dir.path());
         let c = store.get();
         assert!(c.check_for_updates, "update checks are on by default");
-        assert!(!c.mouse, "mouse capture is off by default");
-        let next = store
-            .update(&json!({ "checkForUpdates": false, "mouse": true }))
-            .unwrap();
-        assert!(!next.check_for_updates && next.mouse);
+        let next = store.update(&json!({ "checkForUpdates": false })).unwrap();
+        assert!(!next.check_for_updates);
         let reopened = store_in(dir.path()).get();
-        assert!(!reopened.check_for_updates && reopened.mouse);
+        assert!(!reopened.check_for_updates);
         // A value of the wrong type is ignored, the rest still applies.
-        let next = store
-            .update(&json!({ "checkForUpdates": "no", "mouse": false }))
-            .unwrap();
-        assert!(!next.check_for_updates && !next.mouse);
+        let next = store.update(&json!({ "checkForUpdates": "no" })).unwrap();
+        assert!(!next.check_for_updates);
         let v = serde_json::to_value(&next).unwrap();
         assert_eq!(v["checkForUpdates"], json!(false));
-    }
-
-    #[test]
-    fn diff_layout_defaults_to_unified_persists_and_ignores_bad_values() {
-        use crate::types::DiffLayout;
-        let dir = tempfile::tempdir().unwrap();
-        let store = store_in(dir.path());
-        assert_eq!(store.get().diff_layout, DiffLayout::Unified);
-        let next = store.update(&json!({ "diffLayout": "split" })).unwrap();
-        assert_eq!(next.diff_layout, DiffLayout::Split);
-        assert_eq!(store_in(dir.path()).get().diff_layout, DiffLayout::Split);
-        let next = store.update(&json!({ "diffLayout": "wide" })).unwrap();
-        assert_eq!(
-            next.diff_layout,
-            DiffLayout::Split,
-            "a bad value is ignored"
-        );
-        assert_eq!(
-            serde_json::to_value(&next).unwrap()["diffLayout"],
-            json!("split")
-        );
     }
 
     #[test]
@@ -442,13 +413,6 @@ mod tests {
                 .unwrap()
                 .remote_session_timeout_minutes,
             1440
-        );
-        assert_eq!(
-            store
-                .update(&json!({ "prefixKey": "  " }))
-                .unwrap()
-                .prefix_key,
-            "ctrl+a"
         );
     }
 

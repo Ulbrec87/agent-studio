@@ -5,31 +5,9 @@
 import type { GitBranch, GitCommit, GitDiffStats, GitFileContents, GitPrDiff, GitStatus } from '@shared/types'
 import type { BridgeContext, MethodGroup } from './context'
 import { compact } from './mappers'
+import type { GitCommit as ProtoGitCommit, GitStatus as ProtoGitStatus } from './generated'
 
-interface ProtoFileStatus {
-  path: string
-  staged: boolean
-  unstaged: boolean
-  untracked: boolean
-  conflicted: boolean
-}
-
-export interface ProtoGitStatus {
-  isRepo: boolean
-  branch: string
-  detached: boolean
-  ahead: number
-  behind: number
-  files: ProtoFileStatus[]
-}
-
-interface ProtoGitCommit {
-  hash: string
-  shortHash: string
-  message: string
-  author: string
-  date: string
-}
+export type { ProtoGitStatus }
 
 interface ProtoGitFileContents extends GitFileContents {
   binary: boolean

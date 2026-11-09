@@ -9,6 +9,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
 anyhow = "1.0.104"
 base64 = "0.22"
 bytes = "1.12.1"

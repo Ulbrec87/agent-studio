@@ -11,7 +11,7 @@ pub const MIN_RATIO: u8 = 10;
 pub const MAX_RATIO: u8 = 90;
 pub const DEFAULT_RATIO: u8 = 50;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum SplitDir {
     /// Side by side: `a` on the left, `b` on the right.
@@ -20,7 +20,7 @@ pub enum SplitDir {
     Vertical,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum FreeTerminalNode {
     Leaf {

@@ -107,9 +107,9 @@ describe('skills', () => {
 
 describe('updates', () => {
   const AVAILABLE: DaemonUpdateState = {
-    enabled: true, currentVersion: '0.1.0', status: 'available', checkedAtMs: 1, installMethod: 'homebrew',
-    latest: { version: '9.9.9', tag: 'v9.9.9', url: 'https://example.com/rel', notes: '## Notes', assetUrl: 'https://example.com/a.tar.gz' },
-    hint: 'Run `brew upgrade agent-studio`'
+    enabled: true, currentVersion: '0.1.0', status: 'available', checkedAtMs: 1, installMethod: 'deb',
+    latest: { version: '9.9.9', tag: 'v9.9.9', url: 'https://example.com/rel', notes: '## Notes', assetUrl: 'https://example.com/a.deb' },
+    hint: 'Download https://example.com/a.deb and install it'
   }
   const UP_TO_DATE: DaemonUpdateState = { ...AVAILABLE, status: 'up_to_date', latest: null, hint: '' }
 
@@ -117,8 +117,8 @@ describe('updates', () => {
     const state = mapUpdateState(AVAILABLE, 'linux')
     expect(state).toMatchObject({
       supported: true, platform: 'linux', checking: false, available: true, downloaded: false, downloading: false, currentVersion: '0.1.0',
-      latestVersion: '9.9.9', releaseNotes: '## Notes', error: null, canAutoInstall: false, installMethod: 'brew',
-      downloadUrl: 'https://example.com/a.tar.gz', releaseUrl: 'https://example.com/rel', upgradeHint: 'Run `brew upgrade agent-studio`'
+      latestVersion: '9.9.9', releaseNotes: '## Notes', error: null, canAutoInstall: false, installMethod: 'direct',
+      downloadUrl: 'https://example.com/a.deb', releaseUrl: 'https://example.com/rel', upgradeHint: 'Download https://example.com/a.deb and install it'
     })
     // No asset for this platform: the release page is the download.
     expect(mapUpdateState({ ...AVAILABLE, latest: { ...AVAILABLE.latest!, assetUrl: null } }, 'linux').downloadUrl).toBe('https://example.com/rel')
@@ -131,7 +131,7 @@ describe('updates', () => {
     expect(mapUpdateState({ ...UP_TO_DATE, status: 'failed' }, 'linux').error).toMatch(/failed/)
     expect(mapUpdateState({ ...UP_TO_DATE, status: 'no_releases' }, 'linux').error).toBeNull()
     expect(mapUpdateState(UP_TO_DATE, 'linux', true).checking).toBe(true)
-    expect(['homebrew', 'direct', 'cargo', 'winget', 'unknown'].map((m) => mapInstallMethod(m as never))).toEqual(['brew', 'direct', 'unknown', 'unknown', 'unknown'])
+    expect(['appimage', 'deb', 'mac_app', 'msi', 'manual'].map((m) => mapInstallMethod(m as never))).toEqual(['direct', 'direct', 'direct', 'direct', 'unknown'])
   })
 
   it('getUpdateState / checkForUpdates ask the daemon; a check announces "checking" and then the result', async () => {
@@ -158,11 +158,11 @@ describe('updates', () => {
 
   it('download/install/brew are answered with an unsupported hint instead of doing anything', async () => {
     const { raw, api } = await makeBridge((r) => r.handlers.set('get_update_state', () => ({ type: 'update_state', payload: AVAILABLE })))
-    expect((await api.downloadUpdate()).error).toMatch(/does not update itself.*brew upgrade agent-studio/)
+    expect((await api.downloadUpdate()).error).toMatch(/does not update itself.*install it/)
     expect(await api.installUpdateAndRestart()).toBe(false)
     const brew = await api.runBrewUpgrade()
     expect(brew.ok).toBe(false)
-    expect(brew.error).toMatch(/brew upgrade agent-studio/)
+    expect(brew.error).toMatch(/install it/)
     expect(raw.requests.every((r) => r.type === 'get_update_state')).toBe(true)
   })
 
@@ -170,7 +170,7 @@ describe('updates', () => {
     const opened: string[] = []
     const { api } = await makeBridge((r) => r.handlers.set('get_update_state', () => ({ type: 'update_state', payload: AVAILABLE })), { openUrl: async (u) => void opened.push(u) })
     expect(await api.openUpdateDownload()).toEqual({ ok: true })
-    expect(opened).toEqual(['https://example.com/a.tar.gz'])
+    expect(opened).toEqual(['https://example.com/a.deb'])
     const none = await makeBridge((r) => r.handlers.set('get_update_state', () => ({ type: 'update_state', payload: UP_TO_DATE })))
     expect((await none.api.openUpdateDownload()).ok).toBe(false)
     const bad = await makeBridge((r) => r.handlers.set('get_update_state', () => ({ type: 'update_state', payload: { ...AVAILABLE, latest: { ...AVAILABLE.latest!, assetUrl: 'file:///etc/passwd' } } })), { openUrl: async (u) => void opened.push(u) })

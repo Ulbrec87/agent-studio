@@ -25,7 +25,7 @@ static OPENCODE_SESSION_ID_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(ses_[A-Za-z0-9]{10,})\b").expect("static regex"));
 
 /// Result of checking that a provider CLI is installed.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 pub struct PreflightResult {
     pub ok: bool,
     pub path: Option<String>,
@@ -74,10 +74,6 @@ pub fn get_provider(id: ProviderId) -> &'static Provider {
         ProviderId::Codex => &CODEX,
         ProviderId::Opencode => &OPENCODE,
     }
-}
-
-pub fn get_all_providers() -> [&'static Provider; 3] {
-    [&CLAUDE, &CODEX, &OPENCODE]
 }
 
 impl Provider {

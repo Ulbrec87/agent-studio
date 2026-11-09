@@ -22,7 +22,7 @@ pub enum ImportError {
     Failed(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigChange {
     pub key: String,
@@ -30,7 +30,7 @@ pub struct ConfigChange {
     pub incoming: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportPreview {
     pub dir: String,
@@ -40,7 +40,7 @@ pub struct ImportPreview {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportReport {
     pub config_keys_applied: usize,

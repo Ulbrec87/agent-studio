@@ -16,7 +16,7 @@ pub const MAX_TEMPLATE_BYTES: usize = 64 * 1024;
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
 /// Answer of `GetGuiKeybindings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GuiKeybindingsFile {
     /// Absolute path of the file (it may not exist).

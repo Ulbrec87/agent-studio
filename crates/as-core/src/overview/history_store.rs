@@ -210,7 +210,7 @@ fn encode_point(
 }
 
 /// Events are written field by field, so nothing else can reach a file.
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct EncEvent<'a> {
     id: &'a str,
@@ -231,7 +231,7 @@ struct EncEvent<'a> {
     gap_ms: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
 struct EncEventLine<'a> {
     event: EncEvent<'a>,
 }

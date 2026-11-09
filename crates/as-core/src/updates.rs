@@ -2,7 +2,7 @@
 //!
 //! Agent Studio never replaces its own binary. The daemon asks GitHub Releases for the latest
 //! release, compares versions and tells the user how to upgrade for the way the program was
-//! installed (cargo, Homebrew, ... or a direct download of the right asset for this OS and CPU).
+//! installed (AppImage, deb, macOS app bundle, Windows msi, or a plain download for a manual/dev build).
 //!
 //! * Prereleases and drafts are ignored, `404` means "no release published yet".
 //! * Offline, timeouts and rate limits are not errors the user must see: the state records them and
@@ -26,7 +26,6 @@ use crate::usage::limits_client::{HttpClient, HttpRequest};
 pub const RELEASES_URL: &str =
     "https://api.github.com/repos/kawashita86/agent-studio/releases/latest";
 pub const RELEASES_PAGE: &str = "https://github.com/kawashita86/agent-studio/releases";
-pub const INSTALL_GIT_URL: &str = "https://github.com/kawashita86/agent-studio";
 /// How often the daemon checks.
 pub const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -207,18 +206,24 @@ pub fn platform_label(os: &str, arch: &str) -> Option<&'static str> {
     })
 }
 
-/// The installer of a release for this platform: `.AppImage` (Linux), `.dmg` (macOS) or `.msi` (Windows), named
-/// `agent-studio-<tag>-<label>.<ext>` by the release workflow.
+/// The installer of a release for this platform and install method, named
+/// `agent-studio-<tag>-<label>.<ext>` by the release workflow: `.AppImage` or `.deb` (Linux), `.dmg` (macOS),
+/// `.msi` (Windows). A manual/dev build gets the default installer of its OS (`.AppImage`, `.dmg`, `.msi`).
 pub fn select_asset<'a>(
     assets: &'a [ReleaseAsset],
     os: &str,
     arch: &str,
+    method: InstallMethod,
 ) -> Option<&'a ReleaseAsset> {
     let label = platform_label(os, arch)?;
-    let ext = match os {
-        "windows" => ".msi",
-        "macos" => ".dmg",
-        _ => ".AppImage",
+    let ext = match (method, os) {
+        (InstallMethod::AppImage, _) => ".AppImage",
+        (InstallMethod::Deb, _) => ".deb",
+        (InstallMethod::MacApp, _) => ".dmg",
+        (InstallMethod::Msi, _) => ".msi",
+        (InstallMethod::Manual, "windows") => ".msi",
+        (InstallMethod::Manual, "macos") => ".dmg",
+        (InstallMethod::Manual, _) => ".AppImage",
     };
     assets
         .iter()
@@ -227,84 +232,89 @@ pub fn select_asset<'a>(
 
 // ── install method ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// How the desktop app was installed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallMethod {
-    Cargo,
-    Homebrew,
-    Winget,
-    Scoop,
-    Chocolatey,
-    /// A binary somewhere on disk (a release archive, copied by hand).
-    Direct,
-    /// Cannot tell (no executable path, or a build in a `target/` folder).
-    Unknown,
+    /// Running from an AppImage (`$APPIMAGE` is set).
+    #[serde(rename = "appimage")]
+    AppImage,
+    /// Installed by the `.deb` package (the executable lives under `/usr/bin` or `/usr/lib`).
+    Deb,
+    /// Inside a macOS app bundle (`*.app/Contents/MacOS`).
+    MacApp,
+    /// Installed by the Windows `.msi` (under Program Files or `%LOCALAPPDATA%\Programs`).
+    Msi,
+    /// Anything else: a dev build (`target/`), a binary copied by hand.
+    Manual,
 }
 
-/// Guess how the program was installed from the path of the running executable. Pure: the caller
-/// passes the path (and `$CARGO_HOME` when set) so tests need no real installation.
-pub fn detect_install_method(exe: Option<&Path>, cargo_home: Option<&Path>) -> InstallMethod {
+/// Guess how the app was installed from the environment and the path of the running executable. Pure:
+/// the caller passes what it found (`appimage` is whether `$APPIMAGE` is set and not empty), so tests need no
+/// real installation. Path-based on purpose (no `dpkg -S`): it has to be cheap.
+pub fn detect_install_method(exe: Option<&Path>, appimage: bool) -> InstallMethod {
+    if appimage {
+        return InstallMethod::AppImage;
+    }
     let Some(exe) = exe else {
-        return InstallMethod::Unknown;
+        return InstallMethod::Manual;
     };
     // Compare on a normalized string: lowercase, `/` separators.
-    let norm = |p: &Path| p.to_string_lossy().replace('\\', "/").to_lowercase();
-    let path = norm(exe);
-    if let Some(home) = cargo_home {
-        let bin = format!("{}/bin/", norm(home).trim_end_matches('/'));
-        if path.starts_with(&bin) {
-            return InstallMethod::Cargo;
-        }
-    }
+    let path = exe.to_string_lossy().replace('\\', "/").to_lowercase();
     let has = |needle: &str| path.contains(needle);
-    if has("/.cargo/bin/") {
-        InstallMethod::Cargo
-    } else if has("/cellar/") || has("/homebrew/") || has("/linuxbrew/") {
-        InstallMethod::Homebrew
-    } else if has("/winget/") || has("/windowsapps/") {
-        InstallMethod::Winget
-    } else if has("/scoop/") {
-        InstallMethod::Scoop
-    } else if has("/chocolatey/") {
-        InstallMethod::Chocolatey
+    if has(".app/contents/macos/") {
+        InstallMethod::MacApp
     } else if has("/target/debug/") || has("/target/release/") {
-        InstallMethod::Unknown
+        InstallMethod::Manual
+    } else if has("/program files/")
+        || has("/program files (x86)/")
+        || has("/appdata/local/programs/")
+    {
+        InstallMethod::Msi
+    } else if path.starts_with("/usr/bin/") || path.starts_with("/usr/lib/") {
+        InstallMethod::Deb
     } else {
-        InstallMethod::Direct
+        InstallMethod::Manual
     }
 }
 
 /// [`detect_install_method`] for the running process.
 pub fn detect_current_install_method() -> InstallMethod {
     let exe = std::env::current_exe().ok();
-    let cargo_home = std::env::var_os("CARGO_HOME").map(std::path::PathBuf::from);
-    detect_install_method(exe.as_deref(), cargo_home.as_deref())
+    // `$APPIMAGE`/`$APPDIR` are inherited by every child of an AppImage (e.g. a terminal started from one), so they only
+    // count when this executable really lives inside the mounted image (`$APPDIR`).
+    let appimage = std::env::var_os("APPIMAGE").is_some_and(|v| !v.is_empty())
+        && std::env::var_os("APPDIR")
+            .filter(|dir| !dir.is_empty())
+            .zip(exe.as_deref())
+            .is_some_and(|(dir, exe)| exe.starts_with(dir));
+    detect_install_method(exe.as_deref(), appimage)
 }
 
 /// The sentence that tells the user how to upgrade.
 pub fn upgrade_hint(method: InstallMethod, release: Option<&UpdateInfo>) -> String {
-    let download = || match release {
-        Some(info) => format!(
-            "Download {}",
-            info.asset_url.as_deref().unwrap_or(info.url.as_str())
-        ),
-        None => format!("Download the latest release from {RELEASES_PAGE}"),
+    let target = match release {
+        Some(info) => info.asset_url.as_deref().unwrap_or(info.url.as_str()),
+        None => RELEASES_PAGE,
     };
     match method {
-        InstallMethod::Cargo => {
-            format!("Run `cargo install --git {INSTALL_GIT_URL} --locked --force`")
+        InstallMethod::AppImage => {
+            format!("Download {target} and replace your AppImage with it")
         }
-        InstallMethod::Homebrew => "Run `brew upgrade agent-studio`".into(),
-        InstallMethod::Winget => "Run `winget upgrade agent-studio`".into(),
-        InstallMethod::Scoop => "Run `scoop update agent-studio`".into(),
-        InstallMethod::Chocolatey => "Run `choco upgrade agent-studio`".into(),
-        InstallMethod::Direct | InstallMethod::Unknown => download(),
+        InstallMethod::Deb => {
+            format!("Download {target} and install it with `sudo apt install ./<file>.deb`")
+        }
+        InstallMethod::MacApp => {
+            format!("Download {target}, open the disk image and drag Agent Studio to Applications")
+        }
+        InstallMethod::Msi => format!("Download {target} and run the installer"),
+        InstallMethod::Manual => format!("Download {target}"),
     }
 }
 
 // ── state ───────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
     pub version: String,
@@ -312,11 +322,11 @@ pub struct UpdateInfo {
     /// The release page.
     pub url: String,
     pub notes: String,
-    /// The archive for this OS and CPU, when the release has one.
+    /// The installer for this OS, CPU and install method, when the release has one.
     pub asset_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckStatus {
     /// No check has run yet.
@@ -333,7 +343,7 @@ pub enum CheckStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateState {
     /// `checkForUpdates` of the config (a manual check works either way).
@@ -356,7 +366,7 @@ impl UpdateState {
             .filter(|_| self.status == CheckStatus::Available)
     }
 
-    /// One line for the CLI, the About section and toasts.
+    /// One line for the About section and toasts.
     pub fn summary(&self) -> String {
         match self.status {
             CheckStatus::Idle => format!("agent-studio {} (not checked yet)", self.current_version),
@@ -453,8 +463,13 @@ impl UpdateService {
                         tag: release.tag.clone(),
                         url: release.url.clone(),
                         notes: release.notes.clone(),
-                        asset_url: select_asset(&release.assets, &self.opts.os, &self.opts.arch)
-                            .map(|a| a.url.clone()),
+                        asset_url: select_asset(
+                            &release.assets,
+                            &self.opts.os,
+                            &self.opts.arch,
+                            self.opts.install_method,
+                        )
+                        .map(|a| a.url.clone()),
                     };
                     state.hint = upgrade_hint(self.opts.install_method, Some(&info));
                     state.latest = Some(info);
@@ -666,7 +681,9 @@ mod tests {
         let r = parse_release(&release_json("v0.2.0", false, false))
             .expect("json")
             .expect("release");
-        let pick = |os, arch| select_asset(&r.assets, os, arch).map(|a| a.url.as_str());
+        let pick = |os, arch| {
+            select_asset(&r.assets, os, arch, InstallMethod::Manual).map(|a| a.url.as_str())
+        };
         assert_eq!(
             pick("linux", "x86_64"),
             Some("https://dl/linux-x64.AppImage")
@@ -681,56 +698,91 @@ mod tests {
 
     #[test]
     fn detects_the_install_method() {
-        let d = |p: &str| detect_install_method(Some(&PathBuf::from(p)), None);
-        assert_eq!(d("/home/me/.cargo/bin/agent-studio"), InstallMethod::Cargo);
+        let d = |p: &str| detect_install_method(Some(&PathBuf::from(p)), false);
+        // The AppImage env wins over the (mounted) path.
         assert_eq!(
-            d("C:\\Users\\me\\.cargo\\bin\\agent-studio.exe"),
-            InstallMethod::Cargo
+            detect_install_method(
+                Some(&PathBuf::from("/tmp/.mount_x/usr/bin/agent-studio")),
+                true
+            ),
+            InstallMethod::AppImage
+        );
+        assert_eq!(d("/usr/bin/agent-studio"), InstallMethod::Deb);
+        assert_eq!(d("/usr/lib/agent-studio/agent-studio"), InstallMethod::Deb);
+        assert_eq!(
+            d("/Applications/Agent Studio.app/Contents/MacOS/agent-studio"),
+            InstallMethod::MacApp
         );
         assert_eq!(
-            d("/opt/homebrew/Cellar/agent-studio/0.1.0/bin/agent-studio"),
-            InstallMethod::Homebrew
+            d("C:\\Program Files\\Agent Studio\\agent-studio.exe"),
+            InstallMethod::Msi
         );
         assert_eq!(
-            d("/home/linuxbrew/.linuxbrew/bin/agent-studio"),
-            InstallMethod::Homebrew
+            d("C:\\Users\\me\\AppData\\Local\\Programs\\Agent Studio\\agent-studio.exe"),
+            InstallMethod::Msi
         );
-        assert_eq!(
-            d("C:\\Users\\me\\scoop\\apps\\agent-studio\\current\\agent-studio.exe"),
-            InstallMethod::Scoop
-        );
-        assert_eq!(
-            d("C:\\ProgramData\\chocolatey\\bin\\agent-studio.exe"),
-            InstallMethod::Chocolatey
-        );
-        assert_eq!(
-            d("C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Packages\\x\\agent-studio.exe"),
-            InstallMethod::Winget
-        );
-        assert_eq!(d("/usr/local/bin/agent-studio"), InstallMethod::Direct);
+        assert_eq!(d("/usr/local/bin/agent-studio"), InstallMethod::Manual);
+        assert_eq!(d("/home/me/.local/bin/agent-studio"), InstallMethod::Manual);
         assert_eq!(
             d("/src/agent-studio/target/debug/agent-studio"),
-            InstallMethod::Unknown
+            InstallMethod::Manual
         );
-        assert_eq!(detect_install_method(None, None), InstallMethod::Unknown);
-        // A custom CARGO_HOME.
-        let exe = PathBuf::from("/data/cargo/bin/agent-studio");
+        assert_eq!(detect_install_method(None, false), InstallMethod::Manual);
+    }
+
+    #[test]
+    fn picks_the_installer_of_the_install_method() {
+        let assets: Vec<ReleaseAsset> = [
+            "agent-studio-v1-linux-x86_64.AppImage",
+            "agent-studio-v1-linux-x86_64.deb",
+            "agent-studio-v1-linux-x86_64.deb.sha256",
+            "agent-studio-v1-macos-aarch64.dmg",
+            "agent-studio-v1-windows-x86_64.msi",
+        ]
+        .iter()
+        .map(|n| ReleaseAsset {
+            name: (*n).into(),
+            url: format!("https://dl/{n}"),
+        })
+        .collect();
+        let pick = |os, arch, m| select_asset(&assets, os, arch, m).map(|a| a.name.as_str());
         assert_eq!(
-            detect_install_method(Some(&exe), Some(&PathBuf::from("/data/cargo"))),
-            InstallMethod::Cargo
+            pick("linux", "x86_64", InstallMethod::AppImage),
+            Some("agent-studio-v1-linux-x86_64.AppImage")
         );
         assert_eq!(
-            detect_install_method(Some(&exe), None),
-            InstallMethod::Direct
+            pick("linux", "x86_64", InstallMethod::Deb),
+            Some("agent-studio-v1-linux-x86_64.deb")
         );
+        assert_eq!(
+            pick("macos", "aarch64", InstallMethod::MacApp),
+            Some("agent-studio-v1-macos-aarch64.dmg")
+        );
+        assert_eq!(
+            pick("windows", "x86_64", InstallMethod::Msi),
+            Some("agent-studio-v1-windows-x86_64.msi")
+        );
+        // A manual/dev build gets the default installer of its OS.
+        assert_eq!(
+            pick("linux", "x86_64", InstallMethod::Manual),
+            Some("agent-studio-v1-linux-x86_64.AppImage")
+        );
+        assert_eq!(
+            pick("windows", "x86_64", InstallMethod::Manual),
+            Some("agent-studio-v1-windows-x86_64.msi")
+        );
+        assert_eq!(pick("macos", "x86_64", InstallMethod::MacApp), None);
     }
 
     #[test]
     fn hints_match_the_install_method() {
-        assert!(upgrade_hint(InstallMethod::Homebrew, None).contains("brew upgrade agent-studio"));
-        assert!(upgrade_hint(InstallMethod::Cargo, None).contains("cargo install"));
-        assert!(upgrade_hint(InstallMethod::Scoop, None).contains("scoop update"));
-        assert!(upgrade_hint(InstallMethod::Unknown, None).contains(RELEASES_PAGE));
+        let hint = |m| upgrade_hint(m, None);
+        assert!(hint(InstallMethod::AppImage).contains("replace your AppImage"));
+        assert!(hint(InstallMethod::Deb).contains("sudo apt install"));
+        assert!(hint(InstallMethod::MacApp).contains("Applications"));
+        assert!(hint(InstallMethod::Msi).contains("run the installer"));
+        assert!(hint(InstallMethod::Manual).contains(RELEASES_PAGE));
+        assert!(!hint(InstallMethod::Manual).contains("cargo"));
     }
 
     #[test]
@@ -738,7 +790,7 @@ mod tests {
         let (svc, mock) = service(
             "0.1.0",
             vec![ok(200, &release_json("v0.2.0", false, false))],
-            InstallMethod::Direct,
+            InstallMethod::Manual,
         );
         let state = svc.check();
         assert_eq!(state.status, CheckStatus::Available);
@@ -765,7 +817,7 @@ mod tests {
                 ok(200, &release_json("v0.2.0", false, false)),
                 ok(200, &release_json("v0.1.0", false, false)),
             ],
-            InstallMethod::Cargo,
+            InstallMethod::Manual,
         );
         assert_eq!(svc.check().status, CheckStatus::UpToDate);
         let s = svc.check();
@@ -786,7 +838,7 @@ mod tests {
                 ok(200, "garbage"),
                 ok(200, &release_json("v9.0.0", false, true)),
             ],
-            InstallMethod::Direct,
+            InstallMethod::Manual,
         );
         let statuses: Vec<_> = (0..7).map(|_| svc.check().status).collect();
         assert_eq!(
@@ -811,7 +863,7 @@ mod tests {
                 ok(200, &release_json("v0.2.0", false, false)),
                 Err(HttpError),
             ],
-            InstallMethod::Direct,
+            InstallMethod::Manual,
         );
         svc.check();
         let s = svc.check();
@@ -825,7 +877,7 @@ mod tests {
 
     #[test]
     fn summary_lines() {
-        let (svc, _) = service("0.1.0", vec![ok(404, "")], InstallMethod::Direct);
+        let (svc, _) = service("0.1.0", vec![ok(404, "")], InstallMethod::Manual);
         assert!(svc.state().summary().contains("not checked"));
         assert!(svc.check().summary().contains("no release published"));
     }

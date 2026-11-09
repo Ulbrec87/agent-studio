@@ -123,7 +123,7 @@ pub struct UsageStoreStatus {
 }
 
 /// What is known about a file that is still on disk.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct FileEntry {
     provider: UsageProvider,
@@ -148,7 +148,7 @@ struct SeenEntry {
     ts: i64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct CacheContribution {
     path: String,
@@ -157,7 +157,7 @@ struct CacheContribution {
     limits: Option<CodexParsedLimits>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct CacheShape {
     version: u32,

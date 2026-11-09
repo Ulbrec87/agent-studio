@@ -15,7 +15,7 @@ use crate::types::ProviderId;
 const ENABLED_FILE: &str = "SKILL.md";
 const DISABLED_FILE: &str = "SKILL.md.disabled";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillInfo {
     /// Directory name (Codex, user skills) — the toggle key of a Claude plugin is its `group`.
@@ -32,7 +32,7 @@ pub struct SkillInfo {
     pub config_dir: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillScan {
     pub claude: Vec<SkillInfo>,
@@ -40,7 +40,7 @@ pub struct SkillScan {
     pub opencode: Vec<SkillInfo>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillToggle {
     pub provider: ProviderId,

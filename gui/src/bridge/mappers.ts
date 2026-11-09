@@ -1,6 +1,7 @@
 // Pure shape adapters between the daemon's JSON and Hydra's TypeScript types (`gui/shared/types.ts`). Most shapes already
 // match (camelCase domain structs); these are the ones that do not.
 import { DEFAULT_CONFIG, type AppConfig, type HydraNotification, type McpServerStatus, type NotificationType, type PreflightResult, type ProviderId } from '@shared/types'
+import type { ProviderPreflight as ProtoPreflight, StudioNotification as ProtoNotification } from './generated'
 import type { ProtoResponse } from './protocol'
 
 /** Unwrap `{ type, payload }`, failing loudly when the daemon answered another variant. */
@@ -16,26 +17,12 @@ export function compact<T extends Record<string, unknown>>(value: T): Partial<T>
   return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<T>
 }
 
-interface ProtoPreflight {
-  provider: ProviderId
-  result: { ok: boolean; path: string | null; version: string | null; error: string | null }
-}
-
 /** `Preflight` answers one entry per provider with `path`; Hydra wants one result with `claudePath`. */
 export function mapPreflight(entries: ProtoPreflight[], provider?: ProviderId): PreflightResult {
   const wanted = provider ?? 'claude'
   const found = entries.find((e) => e.provider === wanted) ?? entries[0]
   if (!found) return { ok: false, claudePath: null, version: null, error: 'Preflight returned no result' }
   return { ok: found.result.ok, claudePath: found.result.path ?? null, version: found.result.version ?? null, error: found.result.error ?? null }
-}
-
-interface ProtoNotification {
-  id: string
-  kind: NotificationType
-  title: string
-  body: string
-  agent_id?: string | null
-  timestamp: string
 }
 
 /** `StudioNotification` (snake_case, `kind`) -> Hydra's `HydraNotification` (`type`, `agentId`). */

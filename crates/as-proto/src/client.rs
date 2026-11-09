@@ -231,13 +231,6 @@ impl DaemonClient {
         .await
     }
 
-    pub async fn remove_agent(&self, agent_id: &str) -> Result<bool> {
-        self.expect_flag(Request::RemoveAgent {
-            agent_id: agent_id.into(),
-        })
-        .await
-    }
-
     pub async fn restart_agent(&self, agent_id: &str) -> Result<Option<AgentState>> {
         self.expect_agent(Request::RestartAgent {
             agent_id: agent_id.into(),
@@ -333,13 +326,6 @@ impl DaemonClient {
             agent_id: agent_id.into(),
         })
         .await
-    }
-
-    pub async fn get_config(&self) -> Result<AppConfig> {
-        match self.request(Request::GetConfig).await? {
-            Response::Config(c) => Ok(*c),
-            other => unexpected(other),
-        }
     }
 
     pub async fn update_config(&self, patch: Value) -> Result<AppConfig> {

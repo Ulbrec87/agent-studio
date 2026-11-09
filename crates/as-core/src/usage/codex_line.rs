@@ -19,7 +19,7 @@ const MAX_TURN_MODELS: usize = 256;
 type Obj = Map<String, Value>;
 
 /// A remote compaction no `token_count` has carried (yet).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingCompaction {
     /// Counters of the compaction request, in `COUNTER_FIELDS` order.
@@ -34,7 +34,7 @@ pub struct PendingCompaction {
 }
 
 /// The parts of a `token_usage_record` a compaction needs.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct CompactionRecord {
     response_id: Option<String>,
@@ -44,7 +44,7 @@ pub struct CompactionRecord {
 }
 
 /// Parser state for one rollout file.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CodexFileState {
     /// The file's own session id (first `session_meta`).
@@ -78,7 +78,7 @@ pub struct CodexParsedUsage {
     pub dedupe_key: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexParsedLimits {
     /// Epoch ms of the line.

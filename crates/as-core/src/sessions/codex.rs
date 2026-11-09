@@ -160,10 +160,6 @@ impl CodexSessionCatalog {
         filter_and_sort(&snapshot, options, hidden)
     }
 
-    pub fn invalidate_cache(&self) {
-        self.state.lock().snapshot = None;
-    }
-
     fn snapshot(&self, force: bool) -> Arc<Vec<SessionSummary>> {
         let mut state = self.state.lock();
         if !force

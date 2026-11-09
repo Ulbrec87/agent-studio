@@ -9,6 +9,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
 anyhow = "1.0.104"
 as-core = { version = "0.1.0", path = "../as-core" }
 base64 = "0.23.1"
@@ -18,7 +19,6 @@ futures-util = { version = "0.3.34", features = ["sink"] }
 interprocess = { version = "2.4.7", features = ["tokio"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-util = { version = "0.7.20", features = ["codec"] }
 tracing = "0.1.44"

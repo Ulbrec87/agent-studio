@@ -35,14 +35,14 @@ pub const PROTOCOL_VERSION: u32 = 1;
 pub type AgentState = as_core::AgentState;
 
 /// client -> daemon.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum ClientMsg {
     Request { id: u64, req: Request },
 }
 
 /// daemon -> client.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 #[allow(clippy::large_enum_variant)] // short-lived values, boxing would only clutter the API
 pub enum ServerMsg {
@@ -55,7 +55,7 @@ pub enum ServerMsg {
     Event(Event),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum Request {
     /// First request of a connection.
@@ -86,6 +86,7 @@ pub enum Request {
     SendRaw {
         agent_id: String,
         #[serde(with = "crate::b64")]
+        #[ts(type = "string")]
         data: Vec<u8>,
     },
     Resize {
@@ -358,6 +359,7 @@ pub enum Request {
     TerminalInput {
         terminal_id: String,
         #[serde(with = "crate::b64")]
+        #[ts(type = "string")]
         data: Vec<u8>,
     },
     TerminalResize {
@@ -444,7 +446,7 @@ pub enum Request {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 #[allow(clippy::large_enum_variant)] // short-lived values, boxing would only clutter the API
 pub enum Response {
@@ -457,6 +459,7 @@ pub enum Response {
     Ids(Vec<String>),
     Buffer {
         #[serde(with = "crate::b64")]
+        #[ts(type = "string")]
         data: Vec<u8>,
     },
     Config(Box<AppConfig>),
@@ -503,7 +506,7 @@ pub enum Response {
 }
 
 /// The MCP server of the daemon (Hydra `McpServerStatus`).
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ts_rs::TS)]
 pub struct McpStatus {
     pub running: bool,
     pub port: Option<u16>,
@@ -512,20 +515,20 @@ pub struct McpStatus {
     pub manager_workspace: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct HelloInfo {
     pub daemon_version: String,
     pub protocol: u32,
     pub pid: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct ProviderPreflight {
     pub provider: ProviderId,
     pub result: PreflightResult,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct DaemonStatus {
     pub pid: u32,
     pub version: String,
@@ -537,13 +540,14 @@ pub struct DaemonStatus {
     pub clients: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum Event {
     /// PTY bytes; only sent to connections subscribed to `agent_id`.
     AgentOutput {
         agent_id: String,
         #[serde(with = "crate::b64")]
+        #[ts(type = "string")]
         data: Vec<u8>,
     },
     AgentStatus {
@@ -585,6 +589,7 @@ pub enum Event {
     TerminalOutput {
         terminal_id: String,
         #[serde(with = "crate::b64")]
+        #[ts(type = "string")]
         data: Vec<u8>,
     },
     /// A free terminal's process ended (it is already gone from the layout).
@@ -603,7 +608,7 @@ pub enum Event {
 }
 
 /// Hydra `NotificationType` (agent part).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationKind {
     /// The agent is waiting for input (needs you).
@@ -621,7 +626,7 @@ pub enum NotificationKind {
 }
 
 /// Hydra `HydraNotification`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct StudioNotification {
     pub id: String,
     pub kind: NotificationKind,

@@ -11,6 +11,7 @@ unchanged. Layers:
 | `daemonApi.ts` | **the mapping layer**: Hydra method -> `as-proto` request, daemon event -> Hydra `on*` channel; unwired methods fall through to the mock |
 | `mappers.ts` | pure shape adapters (preflight, notification, MCP status, config defaults + GUI-only keys) |
 | `streams.ts` | per-agent (and per-free-terminal) output streams: `Subscribe`/`SubscribeTerminal`, held live chunks, de-duplication, streaming `TextDecoder` |
+| `generated/` | **generated, do not edit**: TypeScript types of the wire protocol (`Request`, `Response`, `Event` and every as-core payload type) written by `ts-rs`; regenerate with `UPDATE_TS_BINDINGS=1 cargo test -p as-proto --test ts_bindings` (a plain `cargo test` fails when they drift). `protocol.ts` keeps the loose `{ type, payload }` envelopes the transports and mocks use; the mappers import the payload types from here |
 | `context.ts` | `BridgeContext` (typed `call`/`send`/`emit`) and `MethodGroup`, what the groups below get from `daemonApi.ts` |
 | `gitApi.ts` | G2a: git methods + shape mappers |
 | `filesApi.ts` | G2a: files/editor methods, shape mappers and the polling file watcher |

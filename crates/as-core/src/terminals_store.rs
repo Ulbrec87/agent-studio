@@ -20,7 +20,7 @@ use crate::util::write_atomic;
 
 const SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedPane {
     pub id: String,
@@ -29,7 +29,7 @@ pub struct PersistedPane {
     pub cwd: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedGroup {
     pub id: String,
@@ -38,7 +38,7 @@ pub struct PersistedGroup {
     pub tree: FreeTerminalNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedProject {
     pub groups: Vec<PersistedGroup>,
@@ -51,7 +51,7 @@ pub struct PersistedProject {
     pub next_label: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedTerminals {
     pub projects: BTreeMap<String, PersistedProject>,

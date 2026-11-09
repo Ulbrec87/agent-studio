@@ -4,11 +4,11 @@ import { combineFileContents, mapGitBranches, mapGitLog, mapGitStatus, pathsToSt
 import { makeBridge } from './testKit'
 import type { DaemonTransport } from './daemonApi'
 
-const file = (path: string, f: Partial<{ staged: boolean; unstaged: boolean; untracked: boolean; conflicted: boolean }>) => ({
-  path, staged: false, unstaged: false, untracked: false, conflicted: false, ...f
+const file = (path: string, f: Partial<{ staged: boolean; unstaged: boolean; untracked: boolean; conflicted: boolean }>): ProtoGitStatus['files'][number] => ({
+  path, origPath: null, kind: 'M', index: null, worktree: null, staged: false, unstaged: false, untracked: false, conflicted: false, ...f
 })
 const STATUS: ProtoGitStatus = {
-  isRepo: true, branch: 'main', detached: false, ahead: 2, behind: 1,
+  isRepo: true, branch: 'main', detached: false, head: null, upstream: null, ahead: 2, behind: 1,
   files: [
     file('a.txt', { staged: true }),
     file('b.txt', { unstaged: true }),

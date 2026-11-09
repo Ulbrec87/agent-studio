@@ -32,7 +32,7 @@
    of CLI archives (this is the old G4).
 6. Docs: CLAUDE.md, README, architecture, porting-map, releasing, CONTRIBUTING.
 
-### C. `refactor/cleanup` — refactors made possible by B
+### C. `refactor/cleanup` — refactors made possible by B (DONE, branch committed locally; PR pending)
 1. Dead code in `as-core`/`as-proto`/`as-daemon` used only by the TUI/CLI (find with clippy `dead_code` once `pub` items lose callers;
    e.g. `terminal_tree` split tree, one-shot status formatting, install-method detection for `cargo install`).
 2. Generate the TypeScript protocol types from Rust (`ts-rs`) instead of hand-written copies in `gui/src/bridge` — removes drift.

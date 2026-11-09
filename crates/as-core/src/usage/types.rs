@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use super::codex_line::CodexParsedLimits;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum UsageProvider {
     Claude,
@@ -29,7 +31,7 @@ impl UsageProvider {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum UsagePeriod {
     Today,
@@ -37,11 +39,8 @@ pub enum UsagePeriod {
     Month,
 }
 
-pub const USAGE_PERIODS: [UsagePeriod; 3] =
-    [UsagePeriod::Today, UsagePeriod::Week, UsagePeriod::Month];
-
 /// Token counts of one or more model calls. `input` is fresh (uncached) input only.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TokenCounts {
     pub input: u64,
@@ -81,7 +80,7 @@ pub struct UsageRecord {
 }
 
 /// Aggregate of records in one UTC hour for one (provider, model, project).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageBucket {
     /// Epoch ms at the start of the UTC hour.
@@ -97,7 +96,7 @@ pub struct UsageBucket {
     pub unpriced_messages: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderUsage {
     pub provider: UsageProvider,
@@ -108,7 +107,7 @@ pub struct ProviderUsage {
     pub cost_partial: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelUsage {
     pub model: String,
@@ -118,7 +117,7 @@ pub struct ModelUsage {
 }
 
 /// One chart slot (an hour, a day) with its tokens per provider (`USAGE_PROVIDERS` order).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSlot {
     pub start: i64,
@@ -126,21 +125,21 @@ pub struct UsageSlot {
     pub tokens_by_provider: [u64; 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeRange {
     pub start: i64,
     pub end: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviousUsage {
     pub total_tokens: u64,
     pub cost_usd: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSummary {
     pub period: UsagePeriod,
@@ -161,7 +160,7 @@ pub struct UsageSummary {
     pub tokens_change_pct: Option<f64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum LimitWindowKind {
     Session,
@@ -171,7 +170,7 @@ pub enum LimitWindowKind {
 }
 
 /// One plan-limit window (5-hour session, weekly, weekly for one model).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct LimitWindow {
     pub provider: UsageProvider,
@@ -188,7 +187,7 @@ pub struct LimitWindow {
     pub resets_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProfileStatus {
     Ok,
@@ -201,7 +200,7 @@ pub enum ProfileStatus {
 }
 
 /// Plan limits of one Claude profile. Only percentages, times and labels: never a credential.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeProfileLimits {
     /// Profile label (`default`, `work`, ...).
@@ -217,7 +216,7 @@ pub struct ClaudeProfileLimits {
     pub checked_at: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageScanProgress {
     pub files_done: u64,
@@ -226,7 +225,7 @@ pub struct UsageScanProgress {
     pub bytes_total: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexingState {
     pub indexing: bool,
@@ -235,7 +234,7 @@ pub struct IndexingState {
 }
 
 /// What the TUI shows of the usage service; pushed on change.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageState {
     pub claude: Vec<ClaudeProfileLimits>,
@@ -245,17 +244,4 @@ pub struct UsageState {
     /// Bumps whenever the store's data changed; clients refetch summaries when it changes.
     pub data_version: u64,
     pub updated_at: i64,
-}
-
-/// Percent of the first-index progress (`None` when not indexing or unknown).
-pub fn indexing_percent(indexing: &IndexingState) -> Option<u32> {
-    let p = indexing.progress?;
-    if !indexing.indexing || p.bytes_total == 0 {
-        return None;
-    }
-    Some(
-        ((p.bytes_done as f64 / p.bytes_total as f64) * 100.0)
-            .round()
-            .min(100.0) as u32,
-    )
 }

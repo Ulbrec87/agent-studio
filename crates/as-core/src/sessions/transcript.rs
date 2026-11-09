@@ -9,11 +9,10 @@ use super::profiles::discover_projects_dirs_from_env;
 use super::{codex::default_sessions_dir, extract_text_from_content};
 use crate::types::ProviderId;
 
-pub const MAX_MESSAGES: usize = 50;
 /// A transcript is never read past this many bytes.
 const MAX_TRANSCRIPT_BYTES: usize = 64 * 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct TranscriptMessage {
     /// `user` or `assistant`.
     pub role: String,

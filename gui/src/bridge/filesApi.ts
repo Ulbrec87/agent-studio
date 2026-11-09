@@ -2,6 +2,7 @@
 // plus a polling replacement for Hydra's recursive `fs.watch` (the daemon has no watcher, only `FsMtime`).
 import type { FsDirEntry, FsReadFileResult, FsSearchResult, FsWatchEventPayload } from '@shared/types'
 import type { BridgeContext, MethodGroup } from './context'
+import type { FileContent as ProtoFileContent, FsEntry as ProtoFsEntry, SearchHit as ProtoSearchHit } from './generated'
 
 /** Names Hydra's tree never shows (`IGNORED_NAMES` in Hydra's FileSystemService). */
 const IGNORED_NAMES = new Set([
@@ -15,22 +16,7 @@ const BINARY_EXTENSIONS = new Set([
   '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.sqlite', '.db'
 ])
 
-export interface ProtoFsEntry {
-  name: string
-  path: string
-  isDir: boolean
-}
-
-export type ProtoFileContent =
-  | { kind: 'text'; text: string; truncated: boolean; size: number; mtimeMs: number }
-  | { kind: 'binary'; size: number }
-  | { kind: 'tooLarge'; size: number }
-
-export interface ProtoSearchHit {
-  path: string
-  name: string
-  score: number
-}
+export type { ProtoFsEntry, ProtoFileContent, ProtoSearchHit }
 
 function isBinaryName(name: string): boolean {
   const dot = name.lastIndexOf('.')

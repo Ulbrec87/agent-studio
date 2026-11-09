@@ -36,7 +36,7 @@ use tokio::sync::broadcast;
 use super::env::{EnvOverrides, build_agent_env_from_process, claude_profile_env};
 use super::model_detect::{detect_latest_model_from_terminal_output, strip_ansi};
 use super::output::{AltScreenFilter, OutputBuffer};
-use super::providers::{PreflightResult, get_all_providers, get_provider};
+use super::providers::{PreflightResult, get_provider};
 use super::pty::{NativePtyBackend, PtyBackend, PtyControl, PtySpawnRequest};
 use super::shell::{ShellConfig, SpawnSpec, wrap_with_shell_current};
 use super::startup::{GateState, StartupOptions, TrustGate};
@@ -1069,34 +1069,6 @@ impl AgentManager {
             tracing::warn!(%provider, error = ?result.error, "preflight failed");
         }
         result
-    }
-
-    /// Check every provider; ok when at least one CLI is installed (the first one found is returned).
-    pub async fn preflight_any(&self) -> PreflightResult {
-        let mut results = Vec::new();
-        for provider in get_all_providers() {
-            results.push((provider.id, provider.preflight().await));
-        }
-        {
-            let mut inner = self.shared.inner.lock();
-            for (id, r) in &results {
-                if let (true, Some(path)) = (r.ok, &r.path) {
-                    inner.provider_paths.insert(*id, path.clone());
-                }
-            }
-        }
-        if let Some((_, first)) = results.into_iter().find(|(_, r)| r.ok && r.path.is_some()) {
-            return first;
-        }
-        PreflightResult {
-            ok: false,
-            path: None,
-            version: None,
-            error: Some(
-                "No supported CLI found. Install Claude (https://claude.ai/download), Codex (npm install -g @openai/codex), or OpenCode (https://opencode.ai)."
-                    .into(),
-            ),
-        }
     }
 
     // ── lifecycle ───────────────────────────────────────────────────────────

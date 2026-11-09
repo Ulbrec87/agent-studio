@@ -26,7 +26,7 @@ use crate::terminal_tree::{FreeTerminalNode, SplitDir};
 use crate::terminals_store::{PersistedGroup, PersistedPane, PersistedProject, PersistedTerminals};
 use crate::types::{AppConfig, FreeTerminalLifecyclePolicy, TerminalShellMode};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FreeTerminalPane {
     pub id: String,
@@ -34,7 +34,7 @@ pub struct FreeTerminalPane {
     pub exited: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FreeTerminalGroup {
     pub id: String,
@@ -62,7 +62,7 @@ impl FreeTerminalGroup {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FreeTerminalLayout {
     pub project_dir: String,
@@ -71,7 +71,7 @@ pub struct FreeTerminalLayout {
     pub panes: Vec<FreeTerminalPane>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalInfo {
     pub terminal_id: String,
@@ -81,7 +81,7 @@ pub struct TerminalInfo {
     pub last_input_at: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SpawnedTerminal {
     pub terminal_id: String,

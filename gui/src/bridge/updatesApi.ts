@@ -1,23 +1,16 @@
 // App updates. Agent Studio never replaces itself: the daemon asks GitHub Releases (`GetUpdateState`, `CheckForUpdates`, event
 // `UpdateAvailable`) and knows how the app was installed. Hydra's `AppUpdateState` is filled from the daemon's `UpdateState` with
-// `canAutoInstall: false`, so the UI offers "Download" (opens the release asset) or the brew hint instead of "Install & Restart".
+// `canAutoInstall: false`, so the UI offers "Download" (opens the release asset) or the upgrade hint instead of "Install & Restart".
 import type { AppUpdateState, UpdateInstallMethod } from '@shared/types'
+import type { UpdateState } from './generated'
 import type { BridgeContext, MethodGroup } from './context'
 import { isOpenableUrl, tauriOpenUrl } from './nativeApi'
 
 export const UPDATE_METHODS = ['getUpdateState', 'checkForUpdates', 'downloadUpdate', 'installUpdateAndRestart', 'runBrewUpgrade', 'openUpdateDownload'] as const
 export const UPDATE_CHANNELS = ['onUpdateStateChange'] as const
 
-/** The daemon's `UpdateState` (Rust `as_core::updates`, camelCase; `status` and `installMethod` are snake_case words). */
-export interface DaemonUpdateState {
-  enabled: boolean
-  currentVersion: string
-  status: 'idle' | 'up_to_date' | 'available' | 'no_releases' | 'offline' | 'rate_limited' | 'failed'
-  checkedAtMs: number | null
-  latest: { version: string; tag: string; url: string; notes: string; assetUrl: string | null } | null
-  installMethod: 'cargo' | 'homebrew' | 'winget' | 'scoop' | 'chocolatey' | 'direct' | 'unknown'
-  hint: string
-}
+/** The daemon's `UpdateState` (generated from Rust `as_core::updates`). */
+export type DaemonUpdateState = UpdateState
 
 const STATUS_ERRORS: Partial<Record<DaemonUpdateState['status'], string>> = {
   offline: 'Could not reach GitHub (offline?)',
@@ -25,9 +18,9 @@ const STATUS_ERRORS: Partial<Record<DaemonUpdateState['status'], string>> = {
   failed: 'Update check failed'
 }
 
-/** Hydra knows `brew`, `direct` and `unknown`; the other package managers only differ in the hint text. */
+/** Hydra knows `brew`, `direct` and `unknown`: an installed bundle (AppImage, deb, app bundle, msi) is `direct`, a manual/dev build `unknown`. The bundles only differ in the hint text. */
 export function mapInstallMethod(method: DaemonUpdateState['installMethod']): UpdateInstallMethod {
-  return method === 'homebrew' ? 'brew' : method === 'direct' ? 'direct' : 'unknown'
+  return method === 'manual' ? 'unknown' : 'direct'
 }
 
 export function mapUpdateState(state: DaemonUpdateState, platform: string, checking = false): AppUpdateState {

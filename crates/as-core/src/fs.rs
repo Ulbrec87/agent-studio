@@ -33,7 +33,7 @@ pub enum FsError {
 /// Largest content `write_file` accepts (what the editor can hold; far below the protocol's frame limit).
 pub const MAX_WRITE_BYTES: usize = 5 * 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FsEntry {
     pub name: String,
@@ -44,7 +44,7 @@ pub struct FsEntry {
     pub size: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum FileContent {
     #[serde(rename_all = "camelCase")]
@@ -60,7 +60,7 @@ pub enum FileContent {
     TooLarge { size: u64 },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
     pub path: String,
@@ -236,7 +236,7 @@ pub fn write_file(root: &Path, rel: &str, content: &str) -> Result<(), FsError> 
 }
 
 /// A folder suggestion for the "new agent" dialog (Hydra `DirSuggestion`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct DirSuggestion {
     pub path: String,

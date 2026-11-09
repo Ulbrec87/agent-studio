@@ -10,7 +10,8 @@ export default [
     ignores: [
       '**/out/**',
       '**/dist/**',
-      '**/node_modules/**'
+      '**/node_modules/**',
+      'src/bridge/generated/**'
     ]
   },
   js.configs.recommended,

@@ -15,7 +15,7 @@ use super::transcript::find_claude_transcript_file;
 use crate::paths::home_dir;
 
 /// A Claude config dir the user can pick.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ClaudeProfile {
     pub config_dir: String,

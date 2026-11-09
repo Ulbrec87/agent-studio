@@ -26,7 +26,7 @@ use super::transcript_tail::{
 };
 use super::types::{
     AgentDetails, HistoryAgent, HistoryPoint, HistoryResponse, OverviewEvent, OverviewSession,
-    OverviewSnapshot, OverviewStatus, WaitLedgerData,
+    OverviewSnapshot, OverviewStatus,
 };
 use crate::agents::{AgentActivity, AgentManager};
 use crate::types::{AgentState, ProviderId};
@@ -425,10 +425,6 @@ impl OverviewTracker {
 /// The history store and the tracker share a store; these helpers keep the daemon code short.
 pub fn history_query(store: &Arc<Mutex<HistoryStore>>, since_ms: i64) -> HistoryResponse {
     store.lock().query(since_ms)
-}
-
-pub fn history_waits(store: &Arc<Mutex<HistoryStore>>) -> WaitLedgerData {
-    store.lock().waits()
 }
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ use crate::usage_settings::UsageSettings;
 
 // ── Agent ───────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentStatus {
     Running,
@@ -22,7 +22,7 @@ pub enum AgentStatus {
     Starting,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkMode {
     #[default]
@@ -35,7 +35,18 @@ pub enum WorkMode {
 pub type ModelId = String;
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Default,
+    Serialize,
+    Deserialize,
+    ts_rs::TS,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderId {
@@ -72,7 +83,7 @@ impl std::fmt::Display for ProviderId {
 }
 
 /// Static part of an agent (what the user asked for).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AgentConfig {
     pub id: String,
@@ -115,7 +126,7 @@ impl Default for AgentConfig {
 
 /// `AgentConfig` plus runtime fields. Derefs to the config so
 /// `state.provider`, `state.yolo`, ... work directly.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AgentState {
     #[serde(flatten)]
@@ -157,7 +168,7 @@ impl DerefMut for AgentState {
 
 // ── Providers ───────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProviderModelOption {
     pub id: ModelId,
@@ -225,8 +236,6 @@ pub fn provider_model_ids(provider: ProviderId) -> impl Iterator<Item = &'static
     static_models(provider).iter().map(|(id, _, _)| *id)
 }
 
-pub const CODEX_REASONING_LEVELS: [&str; 6] = ["none", "minimal", "low", "medium", "high", "xhigh"];
-
 pub fn get_default_model_for_provider(provider: ProviderId) -> ModelId {
     static_models(provider)[0].0.to_string()
 }
@@ -244,7 +253,7 @@ pub fn is_valid_model_for_provider(provider: ProviderId, model: &str) -> bool {
 
 // ── Editors ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum EditorId {
     #[default]
@@ -312,7 +321,7 @@ pub const EDITOR_REGISTRY: &[EditorDefinition] = &[
 
 // ── Config enums ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeId {
     Light,
@@ -321,7 +330,7 @@ pub enum ThemeId {
     Midnight,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum ViewMode {
     Grid,
@@ -331,7 +340,8 @@ pub enum ViewMode {
 }
 
 /// `'auto' | 2 | 3` in JSON.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, ts_rs::TS)]
+#[ts(type = "'auto' | 2 | 3")]
 pub enum GridColumns {
     #[default]
     Auto,
@@ -375,7 +385,7 @@ impl<'de> Deserialize<'de> for GridColumns {
 /// * `login` — spawn through the user's login shell so rc files set PATH.
 /// * `custom` — use `terminalShellPath` + `terminalShellArgs` verbatim.
 /// * `auto` — `login` on macOS/Linux, `direct` on Windows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalShellMode {
     #[default]
@@ -385,7 +395,7 @@ pub enum TerminalShellMode {
     Custom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalCursorStyle {
     Block,
@@ -395,7 +405,7 @@ pub enum TerminalCursorStyle {
 }
 
 /// How background free terminals are managed across project switches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum FreeTerminalLifecyclePolicy {
     /// Keep all running until the user closes them.
@@ -408,7 +418,7 @@ pub enum FreeTerminalLifecyclePolicy {
 }
 
 /// Presentation of an auxiliary panel (Git, Files).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum PanelDisplayMode {
     #[default]
@@ -416,39 +426,16 @@ pub enum PanelDisplayMode {
     Split,
 }
 
-/// Layout of the Git panel's diff viewer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DiffLayout {
-    /// One column: removed lines, then added lines.
-    #[default]
-    Unified,
-    /// Two columns: old file on the left, new file on the right.
-    Split,
-}
-
-impl DiffLayout {
-    pub fn toggled(self) -> Self {
-        match self {
-            DiffLayout::Unified => DiffLayout::Split,
-            DiffLayout::Split => DiffLayout::Unified,
-        }
-    }
-}
-
 pub const MAX_CONCURRENT_AGENTS_HARD_LIMIT: usize = 10;
-
-pub const DEFAULT_PREFIX_KEY: &str = "ctrl+a";
 
 /// Hydra's default for `terminalFontFamily`.
 pub const DEFAULT_TERMINAL_FONT_FAMILY: &str = "\"SF Mono\", \"Menlo\", \"Monaco\", monospace";
 /// The Settings panel of the desktop app clamps the font size to this range (Hydra: 8-32).
 pub const TERMINAL_FONT_SIZE_RANGE: std::ops::RangeInclusive<u32> = 8..=32;
 
-/// Application config (`config.json`). Hydra `AppConfig` plus `prefixKey`, `checkForUpdates` and `mouse`.
-/// The terminal rendering keys (`terminalFontFamily`, `terminalFontSize`, `terminalEnableWebgl`) are used by the desktop
-/// app only; the TUI ignores them.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Application config (`config.json`). Hydra `AppConfig` plus `checkForUpdates`.
+/// Keys of old config files that no longer exist (`prefixKey`, `mouse`, `diffLayout`) are ignored on load.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
     pub schema_version: u32,
@@ -501,22 +488,15 @@ pub struct AppConfig {
     pub free_terminal_max_count: u32,
     pub free_terminal_idle_timeout_minutes: u32,
     pub free_terminal_scrollback_lines: u32,
-    // Panels. In the TUI `overlay` is a floating popup and `split` a side column.
+    // Panels: `overlay` is a floating popup, `split` a side column.
     pub git_panel_display_mode: PanelDisplayMode,
     pub editor_panel_display_mode: PanelDisplayMode,
-    /// Diff viewer of the Git panel: `unified` or `split` (side by side; needs a wide panel).
-    pub diff_layout: DiffLayout,
     /// Claude profile (`CLAUDE_CONFIG_DIR`) per project directory. Subfolders
     /// inherit; the longest matching path wins. `""` forces the default profile.
     pub claude_profile_by_project: BTreeMap<String, String>,
     pub usage: UsageSettings,
-    /// TUI prefix key (tmux style), e.g. `ctrl+a`.
-    pub prefix_key: String,
     /// The daemon asks GitHub Releases for a newer version (at start and every 6 h).
     pub check_for_updates: bool,
-    /// Capture the mouse in the TUI (clicks on tabs and the sidebar, wheel scrolling). Off by
-    /// default: capturing the mouse disables the terminal's own text selection (use Shift+drag).
-    pub mouse: bool,
 }
 
 impl Default for AppConfig {
@@ -560,18 +540,15 @@ impl Default for AppConfig {
             free_terminal_scrollback_lines: 5000,
             git_panel_display_mode: PanelDisplayMode::Overlay,
             editor_panel_display_mode: PanelDisplayMode::Overlay,
-            diff_layout: DiffLayout::Unified,
             claude_profile_by_project: BTreeMap::new(),
             usage: UsageSettings::default(),
-            prefix_key: DEFAULT_PREFIX_KEY.into(),
             check_for_updates: true,
-            mouse: false,
         }
     }
 }
 
 /// Create-agent request (Hydra `CreateAgentPayload`).
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CreateAgentPayload {
     pub name: String,
@@ -598,7 +575,6 @@ mod tests {
         assert_eq!(c.theme, ThemeId::Midnight);
         assert_eq!(c.max_agents, 8);
         assert_eq!(c.remote_session_timeout_minutes, 480);
-        assert_eq!(c.prefix_key, "ctrl+a");
         let v = serde_json::to_value(&c).unwrap();
         assert_eq!(v["gridColumns"], json!("auto"));
         assert_eq!(v["defaultViewMode"], json!("chat"));
