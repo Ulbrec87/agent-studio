@@ -116,13 +116,30 @@ pub struct ModelUsage {
     pub cost_usd: f64,
 }
 
-/// One chart slot (an hour, a day) with its tokens per provider (`USAGE_PROVIDERS` order).
+/// Tokens per provider. Serialized as an object keyed by provider (`{"claude": n, "codex": n}`), Hydra's
+/// `Record<UsageProvider, number>`: the charts read `tokensByProvider.claude`, an array would draw nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+pub struct ProviderTokens {
+    pub claude: u64,
+    pub codex: u64,
+}
+
+impl ProviderTokens {
+    pub fn add(&mut self, provider: UsageProvider, tokens: u64) {
+        match provider {
+            UsageProvider::Claude => self.claude += tokens,
+            UsageProvider::Codex => self.codex += tokens,
+        }
+    }
+}
+
+/// One chart slot (an hour, a day) with its tokens per provider.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSlot {
     pub start: i64,
     pub label: String,
-    pub tokens_by_provider: [u64; 2],
+    pub tokens_by_provider: ProviderTokens,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ts_rs::TS)]

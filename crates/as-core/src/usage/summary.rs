@@ -6,8 +6,8 @@ use chrono::{DateTime, TimeZone};
 
 use super::periods::{period_range, period_slots, previous_range};
 use super::types::{
-    ModelUsage, PreviousUsage, ProviderUsage, TokenCounts, USAGE_PROVIDERS, UsageBucket,
-    UsagePeriod, UsageProvider, UsageSlot, UsageSummary,
+    ModelUsage, PreviousUsage, ProviderTokens, ProviderUsage, TokenCounts, USAGE_PROVIDERS,
+    UsageBucket, UsagePeriod, UsageProvider, UsageSlot, UsageSummary,
 };
 
 /// Buckets are one hour wide, so a bucket is in a range when its hour start is (hour granularity
@@ -48,7 +48,7 @@ pub fn summarize<Tz: TimeZone>(
         .map(|s| UsageSlot {
             start: s.start,
             label: s.label.clone(),
-            tokens_by_provider: [0; 2],
+            tokens_by_provider: ProviderTokens::default(),
         })
         .collect();
     let mut models: HashMap<(UsageProvider, String), ModelUsage> = HashMap::new();
@@ -85,7 +85,7 @@ pub fn summarize<Tz: TimeZone>(
             .iter()
             .position(|s| b.hour >= s.start && b.hour < s.end)
         {
-            slots[i].tokens_by_provider[b.provider.index()] += tokens;
+            slots[i].tokens_by_provider.add(b.provider, tokens);
         }
     }
 
@@ -284,21 +284,35 @@ mod tests {
         assert_eq!(s.total_tokens, 300);
     }
 
+    fn pt(claude: u64, codex: u64) -> ProviderTokens {
+        ProviderTokens { claude, codex }
+    }
+
+    #[test]
+    fn slots_serialize_tokens_as_an_object_keyed_by_provider() {
+        let s = sum(&[bucket(hour(2026, 10, 22, 9))], UsagePeriod::Today);
+        let v = serde_json::to_value(&s.slots[9]).unwrap();
+        assert_eq!(
+            v["tokensByProvider"],
+            serde_json::json!({ "claude": 150, "codex": 0 })
+        );
+    }
+
     #[test]
     fn puts_tokens_in_the_right_slots() {
         let mut codex = bucket(hour(2026, 10, 22, 9));
         codex.provider = UsageProvider::Codex;
         codex.tokens = tok(7, 0);
         let s = sum(&[bucket(hour(2026, 10, 22, 9)), codex], UsagePeriod::Today);
-        assert_eq!(s.slots[9].tokens_by_provider, [150, 7]);
-        assert_eq!(s.slots[8].tokens_by_provider, [0, 0]);
+        assert_eq!(s.slots[9].tokens_by_provider, pt(150, 7));
+        assert_eq!(s.slots[8].tokens_by_provider, pt(0, 0));
         let week = sum(&[bucket(hour(2026, 10, 20, 12))], UsagePeriod::Week);
         assert_eq!(
             (
                 week.slots[1].label.as_str(),
                 week.slots[1].tokens_by_provider
             ),
-            ("Tue", [150, 0])
+            ("Tue", pt(150, 0))
         );
     }
 
