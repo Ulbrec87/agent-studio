@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 
 use super::*;
@@ -14,7 +14,8 @@ struct FakeHttp {
     calls: Mutex<Vec<HttpRequest>>,
     queue: Mutex<VecDeque<Responder>>,
     default: Mutex<Responder>,
-    delay_ms: AtomicUsize,
+    /// While set, `get` blocks (after recording the call), so a test controls when a request finishes.
+    hold: AtomicBool,
 }
 
 impl FakeHttp {
@@ -23,7 +24,7 @@ impl FakeHttp {
             calls: Mutex::new(Vec::new()),
             queue: Mutex::new(VecDeque::new()),
             default: Mutex::new(Box::new(|_| Ok(resp(200, BODY)))),
-            delay_ms: AtomicUsize::new(0),
+            hold: AtomicBool::new(false),
         })
     }
     fn set_default(
@@ -46,9 +47,8 @@ impl FakeHttp {
 impl HttpClient for FakeHttp {
     fn get(&self, request: &HttpRequest) -> Result<HttpResponse, HttpError> {
         self.calls.lock().push(request.clone());
-        let delay = self.delay_ms.load(Ordering::SeqCst);
-        if delay > 0 {
-            thread::sleep(Duration::from_millis(delay as u64));
+        while self.hold.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(1));
         }
         let next = self.queue.lock().pop_front();
         match next {
@@ -287,12 +287,23 @@ fn unavailable_when_the_body_has_no_windows() {
 #[test]
 fn coalesces_concurrent_refreshes() {
     let rig = simple();
-    rig.http.delay_ms.store(100, Ordering::SeqCst);
+    // Deterministic order: the first refresh is held inside its request (so it owns the refresh lock) until the second
+    // one has had ample time to find the lock taken. A fixed sleep race made this flaky on slow macOS runners.
+    rig.http.hold.store(true, Ordering::SeqCst);
     let (a, b) = {
         let (c1, c2) = (rig.client.clone(), rig.client.clone());
         let a = thread::spawn(move || c1.refresh());
-        thread::sleep(Duration::from_millis(30));
+        let started = std::time::Instant::now();
+        while rig.http.count() == 0 {
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "the first refresh never sent its request"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
         let b = thread::spawn(move || c2.refresh());
+        thread::sleep(Duration::from_millis(300));
+        rig.http.hold.store(false, Ordering::SeqCst);
         (a.join().unwrap(), b.join().unwrap())
     };
     assert_eq!(rig.http.count(), 1);

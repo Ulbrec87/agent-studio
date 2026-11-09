@@ -69,8 +69,9 @@ jobs:
         if: github.ref_type == 'tag'
         shell: bash
         run: |
-          crate_version=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml | head -n 1)
-          conf_version=$(sed -n 's/^  "version": "\(.*\)",/\1/p' crates/as-gui/tauri.conf.json | head -n 1)
+          # awk, not sed: BSD sed (macOS runners) rejects GNU-style `{s/…/p}` blocks.
+          crate_version=$(awk -F'"' '/^\[workspace\.package\]/ {f = 1; next} /^\[/ {f = 0} f && /^version *=/ {print $2; exit}' Cargo.toml)
+          conf_version=$(awk -F'"' '/^  "version":/ {print $4; exit}' crates/as-gui/tauri.conf.json)
           tag_version="${GITHUB_REF_NAME#v}"
           if [ "$crate_version" != "$tag_version" ] || [ "$conf_version" != "$tag_version" ]; then
             echo "::error::tag $GITHUB_REF_NAME does not match the workspace version $crate_version / tauri.conf.json version $conf_version"
