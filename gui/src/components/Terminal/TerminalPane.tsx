@@ -8,6 +8,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { useTerminalConfig } from '../../hooks/useTerminalConfig'
 import { installMiddleClickPasteGuard } from './middleClickPasteGuard'
+import { createFitScheduler, hasUsableBox, isUsableGrid, shouldNotify } from './terminalFit'
 
 interface TerminalPaneProps {
   rawOutput: string
@@ -71,7 +72,7 @@ export function TerminalPane({
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const fitAndNotifyRef = useRef<(() => void) | null>(null)
+  const fitAndNotifyRef = useRef<((force?: boolean) => void) | null>(null)
   const onDataRef = useRef(onData)
   const onResizeRef = useRef(onResize)
   const writtenLengthRef = useRef(0)
@@ -141,32 +142,57 @@ export function TerminalPane({
       }
     }
 
-    const fitAndNotify = () => {
+    // `force` = pane just (re)mounted / became visible: tell the PTY our size even if it equals our last one, because another pane
+    // (grid tile vs chat) may have resized the shared PTY in between.
+    const runFit = (force: boolean) => {
+      const container = containerRef.current
+      // Hidden / mid-layout / 0x0: never fit or send a tiny size to the PTY. A later trigger will retry.
+      if (!container || !hasUsableBox(container.clientWidth, container.clientHeight)) return
+      const proposed = (fitAddon as { proposeDimensions?: () => { cols: number; rows: number } | undefined }).proposeDimensions?.()
+      if (proposed !== undefined && !isUsableGrid(proposed)) return
       try {
         fitAddon.fit()
       } catch {
-        // Container may not be visible yet
         return
       }
 
-      const cols = terminal.cols
-      const rows = terminal.rows
-      const lastSize = lastSizeRef.current
-      if (!lastSize || lastSize.cols !== cols || lastSize.rows !== rows) {
-        lastSizeRef.current = { cols, rows }
-        onResizeRef.current?.(cols, rows)
+      const next = { cols: terminal.cols, rows: terminal.rows }
+      if (!isUsableGrid(next)) return
+      if (shouldNotify(lastSizeRef.current, next, force)) {
+        lastSizeRef.current = next
+        onResizeRef.current?.(next.cols, next.rows)
       }
     }
+    const scheduler = createFitScheduler(runFit)
+    const fitAndNotify = (force = false) => scheduler.schedule(force)
     fitAndNotifyRef.current = fitAndNotify
 
-    // Fit after a microtask to allow layout, then optionally focus.
-    requestAnimationFrame(() => {
-      fitAndNotify()
-      if (autoFocus) {
-        terminal.focus()
-      }
+    // Fit once layout has settled (double rAF), then again after late layout/font changes. The first one is forced.
+    let settleRaf = 0
+    settleRaf = requestAnimationFrame(() => {
+      settleRaf = requestAnimationFrame(() => {
+        fitAndNotify(true)
+        if (autoFocus) {
+          terminal.focus()
+        }
+      })
     })
-    const fitTimers = [80, 180].map((delay) => setTimeout(fitAndNotify, delay))
+    const fitTimers = [80, 180, 500].map((delay) => setTimeout(() => fitAndNotify(false), delay))
+
+    // Fonts finishing to load change the cell size without changing the container size: remeasure and refit.
+    const onFontsDone = () => {
+      terminal.clearTextureAtlas?.()
+      fitAndNotify(false)
+    }
+    const fontSet = typeof document !== 'undefined' ? document.fonts : undefined
+    fontSet?.ready?.then(onFontsDone, () => {})
+    fontSet?.addEventListener?.('loadingdone', onFontsDone)
+    const onWindowChange = () => fitAndNotify(false)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') fitAndNotify(true)
+    }
+    window.addEventListener('resize', onWindowChange)
+    document.addEventListener('visibilitychange', onVisibilityChange)
 
     // Shift+Enter → send newline instead of carriage return
     terminal.attachCustomKeyEventHandler((e) => {
@@ -202,9 +228,10 @@ export function TerminalPane({
 
     // Handle resize
     const observer = new ResizeObserver(() => {
-      fitAndNotify()
+      fitAndNotify(false)
     })
     observer.observe(containerRef.current)
+    if (wrapperRef.current) observer.observe(wrapperRef.current)
 
     // Re-apply terminal theme when data-theme attribute changes
     const themeObserver = new MutationObserver(() => {
@@ -312,6 +339,11 @@ export function TerminalPane({
       for (const timer of fitTimers) {
         clearTimeout(timer)
       }
+      cancelAnimationFrame(settleRaf)
+      scheduler.dispose()
+      fontSet?.removeEventListener?.('loadingdone', onFontsDone)
+      window.removeEventListener('resize', onWindowChange)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
       scrollDisposable.dispose()
       observer.disconnect()
       themeObserver.disconnect()
@@ -339,12 +371,20 @@ export function TerminalPane({
 
   useEffect(() => {
     if (!isVisible) return
-    requestAnimationFrame(() => {
-      fitAndNotifyRef.current?.()
-      if (autoFocus) {
-        terminalRef.current?.focus()
-      }
+    // Double rAF: let the layout of the newly shown view settle before measuring.
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        fitAndNotifyRef.current?.(true)
+        if (autoFocus) {
+          terminalRef.current?.focus()
+        }
+      })
     })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
   }, [autoFocus, isVisible])
 
   // Write new output incrementally
@@ -387,18 +427,22 @@ export function TerminalPane({
       ref={wrapperRef}
       className={className}
       onMouseDown={() => terminalRef.current?.focus()}
+      // Wheel scrolling used to be what "repaired" a stale fit: keep a cheap deduped refit on it as a safety net.
+      onWheel={() => fitAndNotifyRef.current?.(false)}
       style={{
         width: '100%',
         height: '100%',
         background: 'var(--color-terminal-bg)',
         borderRadius: 'inherit',
         overflow: 'hidden',
-        position: 'relative'
+        position: 'relative',
+        minWidth: 0,
+        minHeight: 0
       }}
     >
       <div
         ref={containerRef}
-        style={{ width: '100%', height: '100%' }}
+        style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}
       />
       {isScrolledUp && (
         <button

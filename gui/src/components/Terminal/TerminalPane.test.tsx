@@ -84,6 +84,10 @@ describe('TerminalPane', () => {
       cb(0)
       return 1
     }
+    globalThis.cancelAnimationFrame = () => {}
+    // jsdom has no layout: give every element a real box so the zero-size guard lets fits through.
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 })
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 600 })
   })
 
   it('writes output incrementally and resets when output shrinks', () => {
@@ -152,6 +156,21 @@ describe('TerminalPane', () => {
     const onResize = vi.fn()
     render(<TerminalPane rawOutput="" onResize={onResize} />)
     expect(onResize).toHaveBeenCalledWith(80, 24)
+  })
+
+  it('re-notifies the PTY size when the pane becomes visible again, even if unchanged (shared PTY may have been resized)', () => {
+    const onResize = vi.fn()
+    const { rerender } = render(<TerminalPane rawOutput="" onResize={onResize} isVisible={false} />)
+    onResize.mockClear()
+    rerender(<TerminalPane rawOutput="" onResize={onResize} isVisible />)
+    expect(onResize).toHaveBeenCalledWith(80, 24)
+  })
+
+  it('never notifies the PTY while the container has no box', () => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 0 })
+    const onResize = vi.fn()
+    render(<TerminalPane rawOutput="" onResize={onResize} />)
+    expect(onResize).not.toHaveBeenCalled()
   })
 
   it('does not autofocus when disabled', () => {
