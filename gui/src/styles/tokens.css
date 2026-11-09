@@ -2,6 +2,9 @@
 /* Claude-inspired warm palette with terracotta accents                       */
 
 :root {
+  /* Native widgets (select popups, scrollbars, form controls) follow this, not our CSS, in WebKit. */
+  color-scheme: light;
+
   /* Typography */
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: 'SF Mono', 'Menlo', 'Monaco', 'Cascadia Code', 'Courier New', monospace;
@@ -71,6 +74,7 @@
 /* ── Light Theme ────────────────────────────────────────────────────────── */
 
 [data-theme='light'] {
+  color-scheme: light;
   --color-bg: #FAF6F1;
   --color-surface: #FFFFFF;
   --color-surface-raised: #FFFFFF;
@@ -126,6 +130,7 @@
 /* ── Dark Theme (Terracotta) ───────────────────────────────────────────── */
 
 [data-theme='dark'] {
+  color-scheme: dark;
   --color-bg: #262624;
   --color-surface: #30302e;
   --color-surface-raised: #3b3b38;
@@ -181,6 +186,7 @@
 /* ── Midnight Theme ─────────────────────────────────────────────────────── */
 
 [data-theme='midnight'] {
+  color-scheme: dark;
   --color-bg: #191919;
   --color-surface: #191919;
   --color-surface-raised: #212121;

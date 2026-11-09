@@ -18,6 +18,8 @@ const EVENT_STATUS: &str = "daemon-status";
 const EVENT_CONFIRM_QUIT: &str = "confirm-quit";
 /// How long a close request waits for the daemon's status before it just closes.
 const STATUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+/// How long closing an idle app waits for the daemon to acknowledge its shutdown.
+const SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[tauri::command]
 fn app_info(paths: tauri::State<'_, Paths>) -> AppInfo {
@@ -88,7 +90,16 @@ async fn on_close_requested(window: tauri::Window) {
         };
     match quit::decide_close(&answer) {
         CloseDecision::Close => {
-            tracing::info!("closing the window (nothing is running)");
+            tracing::info!("closing the window (the daemon could not be asked)");
+            window.app_handle().exit(0);
+        }
+        CloseDecision::CloseAndStopDaemon => {
+            tracing::info!("closing the window (nothing is running): stopping the daemon");
+            // Best effort: a slow or dead daemon never keeps the window open.
+            let request = link.request(quit::shutdown_request(false));
+            if let Err(err) = tokio::time::timeout(SHUTDOWN_TIMEOUT, request).await {
+                tracing::warn!(%err, "the daemon did not confirm its shutdown in time");
+            }
             window.app_handle().exit(0);
         }
         CloseDecision::Confirm { running } => {
@@ -102,7 +113,7 @@ async fn on_close_requested(window: tauri::Window) {
     }
 }
 
-/// Open the desktop window and block until it is closed. Closing the window never stops the daemon or its agents.
+/// Open the desktop window and block until it is closed. Closing the window stops an idle daemon; with agents running the daemon and its agents live on.
 pub fn run_gui(home: Option<PathBuf>) -> Result<()> {
     let paths = resolve_paths(home)?;
     let _guard = logging::init(&paths, logging::GUI_LOG_PREFIX, false);

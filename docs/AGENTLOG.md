@@ -457,3 +457,14 @@ included, so a test reading "the next frame" can get an event instead of its res
 - **Claude user skills cannot be toggled** (`group: "user"`): Claude Code has no per-skill switch, the daemon's `toggle` refuses it and the panel snaps the checkbox back (Hydra wrote a meaningless entry into `enabledPlugins`).
 - **Update hint vs Hydra's install methods**: Hydra's `UpdateInstallMethod` is `brew | direct | unknown`; cargo/winget/scoop/chocolatey map to `unknown` (the "Download" button) and the real instruction travels in the
   extension field `upgradeHint`, which `UpdateBanner`/`UpdatePanel` show. Mock server check: `AGENT_STUDIO_UPDATE_URL=http://127.0.0.1:PORT/latest` (the daemon reads it at start).
+
+## systemd / launcher PATH and WebKit selects (step A of the GUI-only plan)
+
+- **"No Supported CLI Found" although `claude --version` works in a terminal**: a daemon started by a systemd user unit (or an app started from a desktop launcher/Dock) has a minimal `PATH` without `~/.local/bin`, nvm, bun,
+  npm-global. Do not rely on the inherited `PATH`: `as_core::shell_env::fix_path()` asks `$SHELL -ilc` for the login `PATH` (marker-delimited, 5 s timeout, rc files may print junk), merges it and appends the usual install dirs. It must run
+  first thing in `main` (edition 2024 `set_var` is unsafe, single-threaded start only): `src/main.rs` daemon command and `crates/as-gui/src/main.rs`. Set `AGENT_STUDIO_NO_FIX_PATH=1` to skip it (tests with a fake `PATH`).
+  In e2e scripts with a fake `claude` first in `PATH`, the login shell's entries now come *first*, so a real `claude` in `~/.local/bin` can win: set `AGENT_STUDIO_NO_FIX_PATH=1` there.
+- **Native `<select>` popup white on white in dark themes (WebKitGTK/WKWebView)**: the popup follows the OS `color-scheme`, not our CSS (Chromium/Electron inherits the select's colors). Declare `color-scheme: light|dark` per theme in
+  `tokens.css` and give `select option, select optgroup` the input background/text tokens in `global.css`.
+- **Daemon version policy is exact**: `ensure_daemon` replaces an *idle* daemon whose version (full string, no longer only major.minor) or protocol differs; a daemon with running agents is kept and the link reports
+  `DaemonStatus.warning`, which the daemon banner shows. Closing the window with 0 running agents sends `Shutdown { stop_agents: false }` (like Hydra's `window-all-closed`).

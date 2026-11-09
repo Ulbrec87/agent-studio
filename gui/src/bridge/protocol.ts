@@ -23,6 +23,8 @@ export interface ProtoEvent {
 export interface DaemonStatus {
   connected: boolean
   error?: string
+  /** Connected, but the user should know something (e.g. an older daemon was kept because agents run). */
+  warning?: string
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {

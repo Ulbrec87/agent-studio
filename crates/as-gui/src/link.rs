@@ -23,6 +23,9 @@ pub struct DaemonStatus {
     pub connected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Connected, but something needs the user's attention (e.g. an older daemon keeps running because agents are running).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 impl DaemonStatus {
@@ -30,12 +33,21 @@ impl DaemonStatus {
         Self {
             connected: true,
             error: None,
+            warning: None,
+        }
+    }
+    pub fn connected_with_warning(warning: impl Into<String>) -> Self {
+        Self {
+            connected: true,
+            error: None,
+            warning: Some(warning.into()),
         }
     }
     pub fn disconnected(error: impl Into<String>) -> Self {
         Self {
             connected: false,
             error: Some(error.into()),
+            warning: None,
         }
     }
 }
@@ -59,6 +71,25 @@ pub fn ensure_connector(paths: Paths) -> Connector {
         let paths = paths.clone();
         async move { as_proto::lifecycle::ensure_daemon(&paths).await }.boxed()
     })
+}
+
+/// A connected daemon of another version/protocol than this app. `ensure_daemon` already replaced an *idle* one (nothing running),
+/// so what reaches the link is a daemon that was kept because agents run: say so, plainly. `None` when it matches the app.
+pub fn version_notice(status: &as_proto::DaemonStatus) -> Option<String> {
+    let ours = as_core::VERSION;
+    if status.version == ours && status.protocol == as_proto::PROTOCOL_VERSION {
+        return None;
+    }
+    let running = if status.running_count == 1 {
+        "1 agent is running".to_string()
+    } else {
+        format!("{} agents are running", status.running_count)
+    };
+    Some(format!(
+        "The background daemon is v{} but this app is v{ours}. It was kept because {running}; \
+         quit all agents and restart the app to update it.",
+        status.version
+    ))
 }
 
 pub struct DaemonLink {
@@ -130,9 +161,20 @@ impl DaemonLink {
                         tokio::time::sleep(backoff).await;
                         continue;
                     };
+                    let connected =
+                        match tokio::time::timeout(Duration::from_secs(3), client.status()).await {
+                            Ok(Ok(status)) => match version_notice(&status) {
+                                Some(warning) => {
+                                    tracing::warn!(%warning, "daemon version mismatch");
+                                    DaemonStatus::connected_with_warning(warning)
+                                }
+                                None => DaemonStatus::connected(),
+                            },
+                            _ => DaemonStatus::connected(),
+                        };
                     self.set_client(Some(client));
-                    self.set_status(DaemonStatus::connected());
-                    sink(Outbound::Status(DaemonStatus::connected()));
+                    self.set_status(connected.clone());
+                    sink(Outbound::Status(connected));
                     tracing::info!("connected to the daemon");
                     while let Some(event) = events.recv().await {
                         match serde_json::to_value(&event) {
@@ -160,5 +202,48 @@ impl DaemonLink {
             tokio::time::sleep(backoff).await;
             backoff = (backoff * 2).min(BACKOFF_MAX);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn status(version: &str, protocol: u32, running: usize) -> as_proto::DaemonStatus {
+        as_proto::DaemonStatus {
+            pid: 1,
+            version: version.into(),
+            protocol,
+            uptime_secs: 1,
+            agent_count: running,
+            running_count: running,
+            clients: 1,
+        }
+    }
+
+    #[test]
+    fn matching_daemon_has_no_notice() {
+        let ok = status(as_core::VERSION, as_proto::PROTOCOL_VERSION, 2);
+        assert_eq!(version_notice(&ok), None);
+    }
+
+    #[test]
+    fn other_version_or_protocol_is_reported_with_the_agent_count() {
+        let old = version_notice(&status("0.0.1", as_proto::PROTOCOL_VERSION, 1)).unwrap();
+        assert!(
+            old.contains("v0.0.1") && old.contains("1 agent is running"),
+            "{old}"
+        );
+        let other =
+            version_notice(&status(as_core::VERSION, as_proto::PROTOCOL_VERSION + 1, 3)).unwrap();
+        assert!(other.contains("3 agents are running"), "{other}");
+    }
+
+    #[test]
+    fn warning_travels_with_a_connected_status() {
+        let json = serde_json::to_value(DaemonStatus::connected_with_warning("w")).unwrap();
+        assert_eq!(json, serde_json::json!({"connected": true, "warning": "w"}));
+        let json = serde_json::to_value(DaemonStatus::connected()).unwrap();
+        assert_eq!(json, serde_json::json!({"connected": true}));
     }
 }

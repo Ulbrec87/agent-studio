@@ -3,7 +3,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DaemonBanner } from './DaemonBanner'
 
-type Status = { connected: boolean; error?: string }
+type Status = { connected: boolean; error?: string; warning?: string }
 
 function setup(initial: Status) {
   let listener: ((s: Status) => void) | null = null
@@ -38,5 +38,11 @@ describe('DaemonBanner', () => {
     await push({ connected: true })
     expect(reload).not.toHaveBeenCalled()
     expect(view.queryByTestId('daemon-banner')).toBeNull()
+  })
+
+  it('shows the version warning of a connected daemon', async () => {
+    const { view } = setup({ connected: true, warning: 'The background daemon is v0.0.1 but this app is v0.1.0.' })
+    await act(async () => undefined)
+    expect(view.getByTestId('daemon-banner').textContent).toContain('v0.0.1')
   })
 })

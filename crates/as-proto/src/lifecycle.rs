@@ -5,7 +5,7 @@
 //! 2. nothing alive -> spawn `current_exe daemon --home <root>` fully detached and retry
 //!    connecting with backoff for up to [`STARTUP_TIMEOUT`];
 //! 3. `Hello` handshake. **Version policy** (Hydra has none; we add a safe one): when the daemon's
-//!    `major.minor` or protocol differs from ours, an *idle* daemon (no running agent) is asked to
+//!    version or protocol differs from ours, an *idle* daemon (no running agent) is asked to
 //!    `Shutdown { stop_agents: false }` and replaced by a fresh one; a daemon with running agents
 //!    is **never** restarted automatically, we keep talking to it (warning logged) as long as the
 //!    protocol version matches, and fail with an actionable error when it does not.
@@ -69,13 +69,7 @@ pub async fn ensure_daemon_with(
 }
 
 fn compatible(hello: &HelloInfo) -> bool {
-    hello.protocol == PROTOCOL_VERSION
-        && major_minor(&hello.daemon_version) == major_minor(as_core::VERSION)
-}
-
-fn major_minor(version: &str) -> (&str, &str) {
-    let mut parts = version.split('.');
-    (parts.next().unwrap_or(""), parts.next().unwrap_or(""))
+    hello.protocol == PROTOCOL_VERSION && hello.daemon_version == as_core::VERSION
 }
 
 async fn connect_or_spawn(

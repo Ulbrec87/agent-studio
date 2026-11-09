@@ -116,6 +116,8 @@ fn main() -> Result<()> {
     paths.ensure()?;
     match cli.command {
         Some(Command::Daemon { foreground }) => {
+            // First thing, before the daemon starts its runtime: a systemd/launcher PATH lacks ~/.local/bin etc.
+            as_core::shell_env::fix_path();
             let _guard = logging::init(&paths, "daemon", foreground);
             tracing::info!(foreground, "starting daemon");
             as_daemon::run(paths, foreground)

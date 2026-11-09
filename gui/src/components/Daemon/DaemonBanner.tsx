@@ -4,6 +4,7 @@ import styles from './DaemonBanner.module.css'
 interface DaemonStatus {
   connected: boolean
   error?: string
+  warning?: string
 }
 
 /**
@@ -42,6 +43,16 @@ export function DaemonBanner() {
     }
   }, [])
 
+  if (status?.connected && status.warning) {
+    return (
+      <div className={`${styles.banner} ${styles.error}`} role="status" aria-live="polite" data-testid="daemon-banner">
+        <div>
+          <strong>Daemon version mismatch</strong>
+          <div className={styles.detail}>{status.warning}</div>
+        </div>
+      </div>
+    )
+  }
   if (!status || status.connected) return null
   const connecting = !status.error || /^connecting/i.test(status.error)
   return (

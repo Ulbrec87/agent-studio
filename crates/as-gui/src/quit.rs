@@ -1,6 +1,7 @@
 //! The quit flow's decisions, without Tauri (see `shell.rs` for the glue).
 //!
-//! Closing the window never stops the daemon by itself. When agents are running the window stays open and asks the front end
+//! Like Hydra (`window-all-closed`), closing the window with **nothing running** also stops the daemon, so no orphan process stays
+//! behind. When agents are running the window stays open and asks the front end
 //! (`confirm-quit` event with the number of running agents): **Quit All** (`quit_app { stopAgents: true }`: stop every agent, stop
 //! the daemon, exit), **Keep Running** (`quit_app { stopAgents: false }`: exit the window only, the daemon and the agents live on)
 //! or **Cancel** (the front end just closes its dialog). With nothing running the window closes right away.
@@ -10,8 +11,10 @@ use serde_json::{Value, json};
 /// What a close request of the main window leads to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloseDecision {
-    /// Close the window (and exit the app) now.
+    /// Close the window (and exit the app) now; the daemon could not be asked, so it is left alone.
     Close,
+    /// Nothing runs: stop the (idle) daemon, best effort and quickly, then close.
+    CloseAndStopDaemon,
     /// Keep the window and ask the user what to do with the `running` agents.
     Confirm { running: usize },
 }
@@ -40,7 +43,8 @@ pub fn running_agents(answer: &Result<Value, String>) -> Option<usize> {
 pub fn decide_close(answer: &Result<Value, String>) -> CloseDecision {
     match running_agents(answer) {
         Some(running) if running > 0 => CloseDecision::Confirm { running },
-        _ => CloseDecision::Close,
+        Some(_) => CloseDecision::CloseAndStopDaemon,
+        None => CloseDecision::Close,
     }
 }
 
@@ -91,8 +95,20 @@ mod tests {
     }
 
     #[test]
-    fn nothing_running_or_no_daemon_closes() {
-        assert_eq!(decide_close(&status_answer(0)), CloseDecision::Close);
+    fn nothing_running_stops_the_daemon() {
+        assert_eq!(
+            decide_close(&status_answer(0)),
+            CloseDecision::CloseAndStopDaemon
+        );
+        // Stopping without killing agents: there are none, and a race must not kill a freshly started one.
+        assert_eq!(
+            shutdown_request(false)["payload"]["stop_agents"],
+            json!(false)
+        );
+    }
+
+    #[test]
+    fn no_daemon_or_garbage_just_closes() {
         assert_eq!(
             decide_close(&Err("daemon not connected".into())),
             CloseDecision::Close

@@ -15,6 +15,7 @@ pub mod open_in;
 pub mod overview;
 pub mod paths;
 pub mod sessions;
+pub mod shell_env;
 pub mod skills;
 pub mod terminal_tree;
 pub mod terminals;

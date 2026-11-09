@@ -9,6 +9,9 @@ use anyhow::Result;
 use as_gui::{Mode, parse_args, run_daemon, run_dev_bridge};
 
 fn main() -> Result<()> {
+    // First thing, while the process is single-threaded: a launcher/systemd PATH lacks ~/.local/bin, nvm, bun... (the GUI
+    // process and the daemon it hosts both need to find `claude`, editors, `gh`).
+    as_core::shell_env::fix_path();
     match parse_args(std::env::args_os().skip(1))? {
         Mode::Daemon { home, foreground } => run_daemon(home, foreground),
         Mode::DevBridge { home } => run_dev_bridge(home),
