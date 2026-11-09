@@ -3,19 +3,19 @@
 ## Processes
 
 ```
- ┌──────────── agent-studio (TUI client) ────────────┐   local socket    ┌──────── agent-studio daemon ────────┐
- │ ratatui views · keymap · vt100 emulator per agent │◄────────────────►│ owns every PTY (portable-pty)        │
- │ connects; spawns the daemon if it isn't running   │ framed JSON      │ AgentManager · Config · Workspace    │
- │ quitting = detach, or stop agents + daemon        │ req/resp+events  │ Sessions · Overview · Usage · MCP    │
- └───────────────────────────────────────────────────┘                  │ Headless · Notifications · Git       │
-                                                                         └──────────────────────────────────────┘
- agent-studio ls | send | kill …  → one-shot clients of the same socket (scripting)
+ ┌──────────── agent-studio (desktop app, Tauri) ───────────┐  local socket  ┌──────── agent-studio daemon ────────┐
+ │ webview: React UI (gui/) · xterm.js per agent             │◄─────────────►│ owns every PTY (portable-pty)        │
+ │ Rust shell: connects; spawns the daemon if not running    │ framed JSON   │ AgentManager · Config · Workspace    │
+ │ closing = stop an idle daemon, or leave it with agents    │ req/resp+evts │ Sessions · Overview · Usage · MCP    │
+ └───────────────────────────────────────────────────────────┘               │ Headless · Notifications · Git       │
+                                                                              └──────────────────────────────────────┘
 ```
 
-* The daemon is the **only** owner of state. The TUI holds view state only (selection, focus, scroll)
-  plus a local terminal emulator per attached agent, fed by output events.
-* The daemon keeps running after the TUI quits (detach). It stops when asked (`Shutdown`, or quitting the
-  TUI with "stop agents").
+The daemon is the same binary as the app (`agent-studio daemon --home <dir>`, hidden). There is no terminal UI and no CLI.
+
+* The daemon is the **only** owner of state. The app holds view state only (selection, focus, scroll)
+  plus a terminal emulator per attached agent, fed by output events.
+* The daemon keeps running while agents run after the app closes. It stops when asked (`Shutdown`), or with the app when nothing runs.
 * Single instance: `daemon.lock` (pid + version + socket name) in the data root. A client that finds a
   stale lock (dead pid) or a version mismatch restarts the daemon (Hydra: `electron/daemon/lifecycle.ts`).
 
@@ -51,9 +51,9 @@
     `OverviewSnapshot`, `OverviewEvents` (P6), `UsageChanged(UsageState)` (P7), `UpdateAvailable(UpdateState)` (P10), `HeadlessRunEvent { run_id, data }`
     (one output line), `HeadlessRunChanged(HeadlessRun)` (started / session id captured / finished) (P8),
     `AgentRestarted { agent_id }` (G2b: a new process replaced the agent's old one; sent by `AgentManager::restart` right after the output buffer was
-    cleared and before the new process writes. The GUI drops its copy of the screen, the TUI blanks the agent's emulator. It is not part of the buffer and
+    cleared and before the new process writes. The GUI drops its copy of the screen. It is not part of the buffer and
     not repeated to a new subscriber). New phases add variants only. A client that talks to an older daemon
-    gets an error for the Overview and Usage requests; the TUI then shows "The overview is not available" and keeps working.
+    gets an error for the Overview and Usage requests; the app then shows "The overview is not available" and keeps working.
 * **Sessions (P4)**: `ListSessions` returns `SessionSummary`s (camelCase like Hydra's `ClaudeSessionSummary`, plus
   `provider` and `hidden`) newest first; the daemon scans off the async runtime (`spawn_blocking`) and adds the config's
   `hiddenSessionIds` (hidden sessions are left out unless `includeHidden`). Filters: provider, `limit`, `maxAgeDays`,
@@ -113,7 +113,7 @@
     `usage-alerts.json` (pruned when the window resets / the day ends) so a restart repeats nothing. Delivery is the normal
     notification path: `Event::Notification` with `NotificationKind::UsageLimit` (toast + OS notification when no client is focused).
     Alerts are re-evaluated on every usage change and when the config changes.
-  * *Client*: the TUI holds `state` (pushed by `UsageChanged`), summaries per (period, project) and reports per provider, and asks
+  * *Client*: the app holds `state` (pushed by `UsageChanged`), summaries per (period, project) and reports per provider, and asks
     again only when `data_version` moved; old values stay on screen meanwhile.
 * **MCP server (P8, `as-daemon::mcp`)**: started with the daemon (`DaemonOptions::mcp`) on `127.0.0.1:<random port>` with
   `rmcp` 3.8 (streamable HTTP, sessions, mounted at `/mcp` of an `axum` router). Tools (Hydra's `hydra_*` renamed, same parameters
@@ -165,45 +165,19 @@
     Codex: `SKILL.md` <-> `SKILL.md.disabled`, only for files the scan lists).
   * *open-in*: `ListOpenTargets` (editors found on PATH or as macOS app bundles, file manager, terminal, `$EDITOR`), `OpenIn`.
   * *Hydra import*: `PreviewHydraImport`/`ApplyHydraImport` (`as_core::hydra_import`; Hydra's files are only read; unknown config keys
-    ignored, bad values skipped per key, agents merged by id and session id, only `prefix ...` keybindings are taken), also the CLI
-    `agent-studio import-hydra [--dir D] [-y]`. `ExportDiagnostics` writes `<root>/diagnostics/<timestamp>/{snapshot.json, logs/}`
+    ignored, bad values skipped per key, agents merged by id and session id; Hydra's keybindings are not imported). `ExportDiagnostics` writes `<root>/diagnostics/<timestamp>/{snapshot.json, logs/}`
     (last 5 logs, 1 MiB each; keys named token/secret/password/credential/apikey/authorization are redacted).
   * *worktree mode*: `CreateAgent { work_mode: worktree }` creates `<repo>/.worktrees/<branch>` on branch `studio/<name>-<id>`
     before the spawn; the agent's `project_dir` is the worktree. Removing the agent deletes the worktree and branch only when clean.
-* **TUI panels (P9)**: `Modal::{Git, Files, Settings, OpenIn}` take all keys (`Esc`/`q` closes); the free terminals are a panel
-  (`FreeTerms`) at the bottom (45 %) or full screen: while it is open every key goes to the active shell except the prefix and the
-  direct bindings. Panel state lives in `as_tui::panels::*` and talks to the daemon only through the generic `Effect::Req { key, req }`
-  -> `Msg::Reply { key, result }` (keys `git:*`, `fs:*`, `term:*`, `set:*`, `open:*`, `diag:*`), so each panel is unit-tested without a daemon.
-  The pane tree of the active tab is laid out in the client (`panels::terminals::tree_rects`: a one-cell separator per split, `neighbor` finds
-  the pane in a direction); resizes are applied locally at once and confirmed by the daemon's layout.
-* **Diff viewer and syntax highlighting (`as_tui::panels::diff_view`, `as_tui::highlight`)**: `DiffView` keeps the unified rows (from
-  `as_core::git::parse_unified_diff`) and a derived side-by-side form (`pair_rows`: the n-th removed line of a run meets the n-th added one,
-  the shorter side is padded, headers span both columns). The renderer switches layout from `diffLayout` (`unified` | `split`, `s` in the Git
-  panel) and the panel width (split needs a 100-column body, else a note and the unified view). Highlighting is behind the cargo feature
-  `highlight` (default for the binary; `as-tui` alone builds without it): `syntect` with `default-features = false` and
-  `default-syntaxes`, `default-themes`, `regex-fancy` (pure-Rust regex engine, no `onig`), themes `InspiredGitHub` (light) and
-  `base16-eighties.dark` / `base16-ocean.dark` (dark / midnight), foreground colors only. Lines are highlighted lazily (visible window + 60 lines,
-  at most 30 ms per frame, the rest on the next frames), per (path, mtime, theme) for the Files preview (4 files cached), files over 512 KB stay plain; diffs
-  keep two parser states (old and new side) restarted at every hunk.
-* **Modals and the prefix (P10)**: the panel modals (Help, Usage, Git, Files, Settings, Open in, Headless) let the prefix through:
-  `prefix` + one of *terminals toggle*, *palette*, *help*, *close-dialogs* (keys from the keymap, so overrides apply) closes the
-  panel and runs the command; any other key after the prefix is dropped. Forms (new agent, rename, resume, profile, palette, quit,
-  confirmations) and panels that currently take typed text (a git prompt, the file search, a Settings value, the headless filter) keep
-  `Ctrl+A` for themselves. The footer shows `PREFIX` and the four allowed keys.
-* **Mouse (P10)**: off by default (`mouse` in `config.json`, `--mouse`, `AGENT_STUDIO_MOUSE=1`; read once at start). With it on, a click on
-  the header tabs (Chat/Grid/Overview, `ui::header::tab_at`) switches the view, a click on a sidebar row selects/folds, a click on a
-  tile focuses it, the wheel scrolls the Chat scrollback. The terminal's own selection needs `Shift`+drag while the mouse is captured.
 * **Updates (P10, `as_core::updates`)**: `GetUpdateState` (no network) / `CheckForUpdates` (asks now, also with `checkForUpdates: false`)
   answer `Response::UpdateState`; `Event::UpdateAvailable(UpdateState)` is pushed once per newly found version. The daemon checks 10 s
   after start and every 6 h when `checkForUpdates` is on: one `GET https://api.github.com/repos/kawashita86/agent-studio/releases/latest`
   through the `HttpClient` seam of the usage limits (empty bearer = no `Authorization` header). `404` = no release yet, network errors /
   rate limits only change `UpdateState.status` (`offline`, `rate_limited`, `failed`), drafts and prereleases are ignored, versions are
   compared as semver. The state carries the install method guessed from `current_exe()` (cargo, Homebrew, winget, scoop, chocolatey,
-  direct, unknown) and a one-sentence upgrade `hint`; for a direct install the hint is the download URL of the archive for this OS and CPU
-  (`agent-studio-<tag>-<target triple>.tar.gz|zip`). The binary is never replaced. `AGENT_STUDIO_UPDATE_URL` overrides the API URL (tests,
-  manual checks). The TUI shows a dismissible banner (stacked with the toasts; `prefix Esc` dismisses it for that version, remembered in
-  `tui-state.json` as `dismissedUpdate`), the palette command *Check for Updates* (`prefix U`) and a line in Settings > About. The CLI
-  `agent-studio update-check` runs the same check in-process, without a daemon.
+  direct, unknown) and a one-sentence upgrade `hint`; for a direct install the hint is the download URL of the installer for this OS and CPU
+  (`agent-studio-<tag>-<os>-<arch>.AppImage|dmg|msi`, named by the release workflow). The binary is never replaced. `AGENT_STUDIO_UPDATE_URL` overrides the API URL (tests,
+  manual checks). The app shows a banner and a *Check for Updates* action in Settings > About.
 * **Overview history (`<root>/overview-history/v1-YYYY-MM-DD.jsonl`, mode 600, folder 700)**: one writer (the daemon).
   Lines: `{"start":<ms>}` (each daemon start; time between the last point and the next one is *unmeasured*),
   `{"point":[at,needsYou,working,idle,total,{agentId:status}]}` every 5 s (a trailing `1` marks a delta line: only the
@@ -226,7 +200,7 @@
   Version policy (`as_proto::lifecycle::ensure_daemon`): on a `major.minor` or protocol mismatch an **idle** daemon
   (no running agent) is shut down (`Shutdown { stop_agents: false }`) and replaced; a daemon with running agents is
   never restarted automatically: the client keeps using it (warning) when the protocol matches and fails with an
-  actionable error (`agent-studio stop --force`) when it does not.
+  actionable error when it does not.
 * Notifications (P3, `as-daemon::notifications`, rules of Hydra's `DaemonNotificationService`): `agent_waiting` ("Agent Finished" / "<name> is waiting for input"), `agent_idle` ("Agent Completed"), `agent_errored` ("Agent Error"), `agent_started` ("Agent Started"); status notifications are de-duplicated per agent. Every notification is broadcast as `Event::Notification`; an OS notification (`notify-rust`, cargo feature `desktop-notifications`, default on) is shown only while no client reported `ClientFocus(true)`.
 * Output streaming: `Subscribe { agent_id }` returns the buffered output (<= 2 MB raw bytes) and from then on
   `Event::AgentOutput` chunks are pushed to **that connection only**. Subscriptions belong to the connection: after a
@@ -234,8 +208,7 @@
   queue overflows (8192 messages) is disconnected instead of silently losing PTY bytes.
 * PTY output is **bytes** (`Vec<u8>`), not `String`: a chunk can split a UTF-8 sequence.
 * Shutdown: `Shutdown { stop_agents: true }` kills all agents (waits up to 5 s), saves the workspace, broadcasts
-  `DaemonShuttingDown`, exits. `stop_agents: false` is refused while any agent is active (the TUI's "Detach" simply
-  disconnects). SIGTERM/Ctrl+C behave like `stop_agents: true`; SIGHUP is ignored.
+  `DaemonShuttingDown`, exits. `stop_agents: false` is refused while any agent is active ("leave running" simply disconnects). SIGTERM/Ctrl+C behave like `stop_agents: true`; SIGHUP is ignored.
 * Lock file `daemon.lock`: `{ pid, version, socket, started_at }`, written after the socket is bound. A daemon counts as
   alive only if the pid exists **and** the socket accepts a connection; otherwise lock + socket file are removed.
 * Spawning (`spawn_daemon`): `current_exe daemon --home <root>`, stdio null; Unix: own process group; Windows:
@@ -243,16 +216,16 @@
 
 ## GUI client (Tauri)
 
-`crates/as-gui` (own Cargo workspace, `agent-studio-gui` binary) is a second client next to the TUI. It hosts `gui/` (Hydra's React
+`crates/as-gui` (member of the root workspace, `agent-studio` binary) is the only client. It hosts `gui/` (Hydra's React
 renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`; see its README for the method table.
 
 * **Shell (Rust, generic).** `as_gui::link::DaemonLink` owns one shared `DaemonClient`. Commands: `app_info`, `daemon_request`
   (JSON of `Request` in, JSON of `Response` out, daemon errors as the rejection text, no per-method code) and `daemon_status`. At
   start, in the background (never blocking the window), it runs `ensure_daemon` (the GUI binary hosts the daemon: `current_exe daemon
   --home <root>`), forwards every `Event` as `daemon-event` and announces `daemon-status` `{ connected, error? }`. When the connection
-  drops it reconnects with backoff (0.5 s doubling to 5 s) through `ensure_daemon` (so a stopped daemon is started again, like the TUI)
+  drops it reconnects with backoff (0.5 s doubling to 5 s) through `ensure_daemon` (so a stopped daemon is started again)
   and announces `connected: true`, which is the front end's cue to re-subscribe. Data dir: `AGENT_STUDIO_HOME` or `--home <dir>`.
-  Closing the window never stops the daemon or its agents.
+  Closing the window stops the daemon only when no agent runs (see the quit flow).
 * **Subscriptions** live in the TypeScript layer (`daemonApi.ts` / `streams.ts`): the GUI subscribes every non-idle agent (the daemon
   pushes output only to subscribed connections), serves `getAgentBuffer` from `Subscribe`'s buffer, forgets removed agents and resubscribes
   after a reconnect. It reports window focus with `ClientFocus`, so OS notifications appear only while the GUI is unfocused.
@@ -269,16 +242,16 @@ renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`
   * *Quit flow.* The main window's `CloseRequested` is held (`prevent_close`), the shell asks the daemon for `Status` (2 s timeout) and `quit::decide_close`
     decides: no agents running or no answer -> exit at once; otherwise emit `confirm-quit` (running count) and keep the window. The renderer's dialog calls
     `quit_app { stopAgents }`: `true` sends `Shutdown { stop_agents: true }` (the daemon stops its agents and exits) and exits the app, `false` exits the app
-    only (the daemon is a separate detached process and keeps the agents alive). Cancel is renderer-only. Closing the window never stops the daemon otherwise.
+    only (the daemon is a separate detached process and keeps the agents alive). Cancel is renderer-only. With nothing running the daemon is stopped on close.
     Not covered yet: Cmd+Q / app menu / tray (G3).
   * *Open-in* runs in this process (`as_core::open_in`), not in the daemon: a daemon started by systemd/launchd has no display. The dev bridge keeps the daemon route.
   * *Renderer log.* `window.hydra.logEvent` -> `log_event` -> `gui_log::record` -> `tracing` target `renderer` -> `<root>/logs/agent-studio-gui.<date>`
     (JSON lines, same daily rotation as the daemon's `daemon.<date>`; the dev bridge writes the same file). Credentials are redacted and sizes capped before writing.
     `ExportDiagnostics` takes the newest logs of that folder, so the bundle contains the GUI log.
-  * *`gui-keybindings.json`.* The desktop app's `mod+x` rules (Hydra syntax, `gui/shared/keybindings.ts`); **separate from the TUI's `keybindings.json`**. The daemon
+  * *`gui-keybindings.json`.* The desktop app's `mod+x` rules (Hydra syntax, `gui/shared/keybindings.ts`). The daemon
     reads the raw file (`as_core::gui_keybindings::read`, tolerant) and creates a template on request (atomic, never replaces); TypeScript merges and validates; changes are
     found by polling `GetGuiKeybindings`' `stamp` once a second.
-* **Dev bridge** (`agent-studio-gui --dev-bridge [--home DIR]`, dev/test tool): no window, the same plumbing behind a WebSocket on
+* **Dev bridge** (`agent-studio --dev-bridge [--home DIR]`, dev/test tool): no window, the same plumbing behind a WebSocket on
   `127.0.0.1:<random port>`; connections need `?token=<random token>`; one line `DEV_BRIDGE ws://127.0.0.1:<port> token=<token>` goes
   to stdout. Frames: `{id, request}` -> `{id, result|error}`, pushes `{event}` / `{status}`. It lets the Vite UI run in a normal browser
   (`?bridge=...&token=...`) against a real daemon in a temp home, for browser automation and screenshots. Several tabs share the shell's
@@ -296,12 +269,10 @@ renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`
 |------|---------|
 | `config.json` | `AppConfig` (Hydra `shared/types.ts` `AppConfig`, camelCase keys, defaults filled in) |
 | `gui-keybindings.json` | the **desktop app's** key overrides `[{ "command": "...", "keys": "mod+x" }]` (Hydra syntax, merged with the defaults by the front end; created when the user opens it from Settings > Shortcuts) |
-| `keybindings.json` | user overrides `[{ "command": "...", "keys": "..." }]`, keys in TUI syntax (see `docs/tui-keys.md`); polled by the TUI every second |
-| `tui-state.json` | UI state of the TUI: last view, selected agent, sidebar width/sort/status chip, grid tab, expanded tile, tile order, running-only toggle (written by the TUI only, tolerant load) |
 | `workspace.json` | persisted agents, restored at daemon start |
 | `terminals.json` | free-terminal layout per project (tabs, split trees, pane labels and folders); shells are respawned lazily after a restart |
 | `daemon.lock`, `daemon.sock` | daemon single instance + socket |
-| `logs/` | `tracing` JSONL logs, daily rotation: `daemon.<date>` (daemon), `agent-studio.<date>` (CLI/TUI), `agent-studio-gui.<date>` (desktop app + renderer events; also the dev bridge) |
+| `logs/` | `tracing` JSONL logs, daily rotation: `daemon.<date>` (daemon), `agent-studio-gui.<date>` (desktop app + renderer events; also the dev bridge) |
 | `headless-runs/` | `<id>.jsonl` log + `<id>.meta.json` index entry per headless run |
 | `overview-history/` | overview events and samples (8 days, ≤ 20 MB) |
 | `usage-cache.json` | usage store: file offsets, hourly buckets, dedupe keys, newest Codex limits (mode 600) |
@@ -320,7 +291,7 @@ renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`
 
 ## Network access
 
-Only two outgoing requests exist, both from the daemon (or the one-shot CLI) with a short timeout: the Claude plan limits
+Only two outgoing requests exist, both from the daemon with a short timeout: the Claude plan limits
 (`api.anthropic.com/api/oauth/usage`, with the user's own OAuth token, opt-out `usage.*`) and the update check
 (`api.github.com/.../releases/latest`, no credential, opt-out `checkForUpdates: false`). Agents talk to their providers on their own.
 
@@ -337,6 +308,4 @@ the agent's output: folder trust, project MCP server approval, custom API key. T
 | `as-core` | all domain services, synchronous or tokio-based, no UI, no socket (`agents::{manager, startup, model_catalog}`, `sessions::{claude, codex, transcript, profiles, locator}`) |
 | `as-proto` | `Request`/`Response`/`Event` enums and frame codec helpers |
 | `as-daemon` | socket server, client registry, event fan-out, lock/lifecycle, MCP server, OS notifications |
-| `as-tui` | daemon client, app state, views, widgets, keymap, theme |
-| bin `agent-studio` | clap entry point, logging init, dispatch |
-| `as-gui` (separate workspace) | Tauri shell: argv dispatch (`daemon` or window), `app_info`, `daemon_request` seam, quit flow, open-in, renderer log; front end in `gui/` |
+| `as-gui` (bin `agent-studio`) | Tauri shell: argv dispatch (`daemon` or window), `app_info`, `daemon_request` seam, quit flow, open-in, renderer log; front end in `gui/` |

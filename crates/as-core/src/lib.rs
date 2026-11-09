@@ -10,7 +10,6 @@ pub mod git;
 pub mod gui_keybindings;
 pub mod headless;
 pub mod hydra_import;
-pub mod keybindings;
 pub mod open_in;
 pub mod overview;
 pub mod paths;

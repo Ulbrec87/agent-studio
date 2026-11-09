@@ -1,18 +1,17 @@
 [package]
 name = "as-gui"
-version = "0.1.0"
-edition = "2024"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "Agent Studio desktop app (Tauri shell around the React front end in gui/)"
-repository = "https://github.com/kawashita86/agent-studio"
+repository.workspace = true
 publish = false
 
-# Its own workspace: the root `cargo build/test --workspace` must never need the WebKit system libraries.
-# The root Cargo.toml lists this directory under `workspace.exclude`.
-[workspace]
+[lints]
+workspace = true
 
 [[bin]]
-name = "agent-studio-gui"
+name = "agent-studio"
 path = "src/main.rs"
 # Never build/run a test harness for the binary: a test exe linking Tauri does not start on Windows.
 test = false
@@ -46,11 +45,3 @@ uuid = { version = "1.29.0", features = ["v4"] }
 bytes = "1.12.1"
 tempfile = "3.27.0"
 tokio-util = "0.7.20"
-
-[profile.release]
-opt-level = 3
-lto = "thin"
-codegen-units = 1
-strip = true
-# The daemon (hosted by this binary) relies on catching panics of background tasks.
-panic = "unwind"

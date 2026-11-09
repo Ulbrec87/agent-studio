@@ -22,7 +22,7 @@
 3. Daemon lifecycle like Hydra: on window close with **0 running agents → shutdown the daemon** (no orphan process); on connect,
    if the daemon's version/protocol differs from the app and nothing runs → restart it, else show the banner.
 
-### B. `refactor/gui-only` — remove the terminal app
+### B. `refactor/gui-only` — remove the terminal app (DONE, branch committed locally; PR pending)
 1. Delete `crates/as-tui`, root `src/` (CLI) and the root package; root `Cargo.toml` becomes a pure workspace.
 2. `crates/as-gui` joins the root workspace (one `Cargo.lock`, one target dir); its binary becomes **`agent-studio`**
    (hosts the daemon with `agent-studio daemon`, hidden). Keep `--dev-bridge`.

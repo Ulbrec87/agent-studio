@@ -3,7 +3,7 @@ import type { RawTransport, ShellBridge } from './transport'
 
 /**
  * Browser dev mode: `?bridge=ws://127.0.0.1:PORT&token=T` selects this transport. The WebSocket is served by
- * `agent-studio-gui --dev-bridge` (a dev/test tool, see `crates/as-gui/src/devbridge.rs`): one JSON text frame per message,
+ * `agent-studio --dev-bridge` (a dev/test tool, see `crates/as-gui/src/devbridge.rs`): one JSON text frame per message,
  * `{ id, request }` -> `{ id, result | error }`, pushes `{ event }` and `{ status }`.
  */
 export function wsBridgeParams(search: string = typeof window !== 'undefined' ? window.location.search : ''): { url: string; token: string } | null {

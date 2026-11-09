@@ -1,7 +1,6 @@
 //! `gui-keybindings.json`: the desktop app's key bindings (Hydra's `mod+x` accelerators).
 //!
-//! Not the TUI's `keybindings.json` (prefix-key catalog, see [`crate::keybindings`]): the two files have different formats
-//! and never mix. The daemon only *reads and creates* the file; merging with the defaults and validating command ids
+//! The daemon only *reads and creates* the file; merging with the defaults and validating command ids
 //! stays in the front end (`gui/shared/keybindings.ts`), which owns the defaults. Reading is tolerant: a missing or corrupt
 //! file is reported, never an error that breaks the app.
 

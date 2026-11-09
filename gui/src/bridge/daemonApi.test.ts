@@ -7,7 +7,7 @@ import { createHydraApi, type HydraAPI } from './hydraApi'
 import { createMockTransport } from './mockTransport'
 import { base64ToBytes, type ProtoResponse } from './protocol'
 
-// JSON recorded from a real daemon (agent-studio-gui --dev-bridge, 2026-11-05).
+// JSON recorded from a real daemon (agent-studio --dev-bridge, 2026-11-05).
 const PREFLIGHT = [
   { provider: 'claude', result: { error: null, ok: true, path: '/home/u/.local/bin/claude', version: '2.1.318 (Claude Code)' } },
   { provider: 'codex', result: { error: 'Codex CLI not found.', ok: false, path: null, version: null } }

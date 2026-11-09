@@ -462,9 +462,17 @@ included, so a test reading "the next frame" can get an event instead of its res
 
 - **"No Supported CLI Found" although `claude --version` works in a terminal**: a daemon started by a systemd user unit (or an app started from a desktop launcher/Dock) has a minimal `PATH` without `~/.local/bin`, nvm, bun,
   npm-global. Do not rely on the inherited `PATH`: `as_core::shell_env::fix_path()` asks `$SHELL -ilc` for the login `PATH` (marker-delimited, 5 s timeout, rc files may print junk), merges it and appends the usual install dirs. It must run
-  first thing in `main` (edition 2024 `set_var` is unsafe, single-threaded start only): `src/main.rs` daemon command and `crates/as-gui/src/main.rs`. Set `AGENT_STUDIO_NO_FIX_PATH=1` to skip it (tests with a fake `PATH`).
+  first thing in `main` (edition 2024 `set_var` is unsafe, single-threaded start only): `crates/as-gui/src/main.rs` (the daemon runs in the same binary). Set `AGENT_STUDIO_NO_FIX_PATH=1` to skip it (tests with a fake `PATH`).
   In e2e scripts with a fake `claude` first in `PATH`, the login shell's entries now come *first*, so a real `claude` in `~/.local/bin` can win: set `AGENT_STUDIO_NO_FIX_PATH=1` there.
 - **Native `<select>` popup white on white in dark themes (WebKitGTK/WKWebView)**: the popup follows the OS `color-scheme`, not our CSS (Chromium/Electron inherits the select's colors). Declare `color-scheme: light|dark` per theme in
   `tokens.css` and give `select option, select optgroup` the input background/text tokens in `global.css`.
 - **Daemon version policy is exact**: `ensure_daemon` replaces an *idle* daemon whose version (full string, no longer only major.minor) or protocol differs; a daemon with running agents is kept and the link reports
   `DaemonStatus.warning`, which the daemon banner shows. Closing the window with 0 running agents sends `Shutdown { stop_agents: false }` (like Hydra's `window-all-closed`).
+
+## GUI-only workspace (step B of the GUI-only plan)
+
+- **Every Rust command now needs the WebKit libraries and `gui/dist`**: `as-gui` is a normal workspace member, so `cargo clippy/test --workspace` compile Tauri, whose `generate_context!` fails when
+  `frontendDist` (`gui/dist`) does not exist. Build the front end first (`cd gui && npm ci && npm run build`); CI does it before cargo.
+- **One target dir**: `tauri build` from `crates/as-gui` writes to the workspace `target/` (`target/release/agent-studio`, bundles in `target/release/bundle/<kind>/`), not to `crates/as-gui/target`.
+- **Release asset names are an interface**: the update check picks `agent-studio-<tag>-<os>-<arch>.{AppImage,dmg,msi}`; Tauri's own file names contain spaces (`Agent Studio_...`), so the release workflow renames them.
+- **Hydra's `keybindings.json` is no longer imported** (the TUI prefix catalog was its only target); Hydra's `mod+x` shortcuts are not converted into `gui-keybindings.json` yet.

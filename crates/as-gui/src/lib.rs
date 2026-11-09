@@ -110,7 +110,7 @@ pub fn run_daemon(home: Option<PathBuf>, foreground: bool) -> Result<()> {
     as_daemon::run(paths, foreground)
 }
 
-/// `agent-studio-gui --dev-bridge`: serve the daemon plumbing over a localhost WebSocket until Ctrl+C. Prints one line
+/// `agent-studio --dev-bridge`: serve the daemon plumbing over a localhost WebSocket until Ctrl+C. Prints one line
 /// `DEV_BRIDGE ws://127.0.0.1:<port> token=<token>` on stdout. Dev/test tool only.
 pub fn run_dev_bridge(home: Option<PathBuf>) -> Result<()> {
     use std::io::Write;

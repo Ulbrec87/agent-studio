@@ -309,11 +309,9 @@ pub async fn handle(daemon: &Arc<Daemon>, client: u64, req: Request) -> Reply {
             // The workspace file mirrors the live agents, so write the current state first.
             daemon.persist(false);
             let d = daemon.clone();
-            let report = blocking(move || {
-                hydra_import::apply(&dir, &d.config, &d.workspace, &d.paths.keybindings_file())
-            })
-            .await?
-            .map_err(|e| e.to_string())?;
+            let report = blocking(move || hydra_import::apply(&dir, &d.config, &d.workspace))
+                .await?
+                .map_err(|e| e.to_string())?;
             if !report.agents_added.is_empty() {
                 daemon
                     .manager

@@ -434,7 +434,7 @@ pub enum Request {
     /// Ask GitHub Releases now (even with `checkForUpdates` off); answers `UpdateState`.
     CheckForUpdates,
 
-    // ── G2b: desktop app key bindings (`gui-keybindings.json`, not the TUI's `keybindings.json`) ──
+    // ── G2b: desktop app key bindings (`gui-keybindings.json`) ──
     /// The raw rules of `gui-keybindings.json` and its path; tolerant of a missing or corrupt file; answers `GuiKeybindings`.
     /// Clients poll it (the `stamp` tells whether anything changed).
     GetGuiKeybindings,

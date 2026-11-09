@@ -1,9 +1,10 @@
 # Agent Studio — Project Instructions
 
-Rust terminal UI that runs **Claude Code**, **Codex** and **OpenCode** CLI agents in parallel,
-each in its own PTY, with a background daemon that keeps them alive when the TUI closes.
+Desktop app (Rust + **Tauri 2**, React front end in `gui/`) that runs **Claude Code**, **Codex** and **OpenCode** CLI agents in
+parallel, each in its own PTY, with a background daemon (hosted by the same binary) that keeps them alive when the window closes.
 It is a port of **Hydra** (Electron, `~/PhpstormProjects/hydra`, MIT © jpdlr) — when in doubt about
-behavior, read the Hydra source: it is the reference implementation.
+behavior, read the Hydra source: it is the reference implementation. There is **no terminal UI and no CLI**: the product is the
+desktop app only (the TUI and CLI were removed, see `docs/plans/2026-11-09-gui-only-plan.md`).
 
 ## Read first
 
@@ -15,57 +16,48 @@ behavior, read the Hydra source: it is the reference implementation.
 
 ## Commands
 
-```bash
-cargo build                         # debug build
-cargo run -- <args>                 # run the binary (default: TUI)
-cargo run -- daemon --foreground    # run the daemon in the foreground (dev)
-cargo test --workspace              # all tests
-cargo fmt --all --check             # formatting
-cargo clippy --workspace --all-targets -- -D warnings   # lints, must be clean
-cargo build --release               # release profile (thin LTO, stripped), what release.yml builds
-cargo run -- import-hydra [--dir D] [-y]   # import Hydra config/agents/keybindings (read-only on Hydra's files)
-cargo run -- update-check           # ask GitHub Releases for a newer version (no daemon needed)
-```
-
-A phase/step is done only when **fmt, clippy (-D warnings) and tests** all pass.
-
-Desktop app (Node 22 via nvm; always `source ~/.nvm/nvm.sh && nvm use 22` first):
+Node 22 via nvm; always `source ~/.nvm/nvm.sh && nvm use 22` first. Linux needs the WebKit dev libraries
+(`libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev`) for **every** Rust command,
+and `gui/dist` must exist (`cd gui && npm ci && npm run build`) because Tauri embeds it at compile time.
 
 ```bash
 cd gui && npm ci && npm run dev         # browser only, mock bridge, http://localhost:1420
-cd crates/as-gui && cargo run -- --dev-bridge --home /tmp/as-dev   # no window: prints `DEV_BRIDGE ws://127.0.0.1:PORT token=TOKEN`
-#   then open http://localhost:1420/?bridge=ws://127.0.0.1:PORT&token=TOKEN (npm run dev running) = the UI against a real daemon
 cd gui && npm run typecheck && npm run lint && npm test && npm run build
-cd crates/as-gui && ../../gui/node_modules/.bin/tauri dev   # native window (needs gui/node_modules; gui/dist for plain cargo build)
-cd crates/as-gui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test   # after gui build
+cargo build                             # whole workspace (debug)
+cargo fmt --all --check                 # formatting
+cargo clippy --workspace --all-targets -- -D warnings   # lints, must be clean
+cargo test --workspace                  # all tests
+cd crates/as-gui && ../../gui/node_modules/.bin/tauri dev            # native window (starts Vite itself)
+cd crates/as-gui && ../../gui/node_modules/.bin/tauri build --no-bundle   # release binary: target/release/agent-studio
+cd crates/as-gui && ../../gui/node_modules/.bin/tauri build --bundles deb # installers (appimage, deb, dmg, msi)
+cargo run -p as-gui -- --dev-bridge --home /tmp/as-dev   # no window: prints `DEV_BRIDGE ws://127.0.0.1:PORT token=TOKEN`
+#   then open http://localhost:1420/?bridge=ws://127.0.0.1:PORT&token=TOKEN (npm run dev running) = the UI against a real daemon
 ```
 
 The Tauri CLI is the `@tauri-apps/cli` devDependency of `gui` (no `cargo install tauri-cli`). Run it from `crates/as-gui`
 (the CLI finds `tauri.conf.json` from the working directory; `npm run tauri` from `gui/` does not).
+A change is done only when **front-end checks, fmt, clippy (-D warnings) and tests** all pass (CI runs exactly this on 3 OSes).
 
-For dev, isolate state with `AGENT_STUDIO_HOME=/tmp/as-dev cargo run -- …` so you never touch the
-real daemon/config in `~/.config/agent-studio`.
+For dev, isolate state with `--home /tmp/as-dev` or `AGENT_STUDIO_HOME=/tmp/as-dev` so you never touch the real
+daemon/config in `~/.config/agent-studio`.
 
 ## Layout
 
 ```
 gui/                   Vite + React 18 + TS front end (Hydra renderer, adapted); gui/src/bridge = window.hydra shim
-crates/as-gui/         Tauri 2 shell, its OWN Cargo workspace (needs WebKit libs; excluded from the root workspace)
-src/main.rs            bin `agent-studio` — clap: (default) tui | daemon | ls | new | send | kill | rm | restart |
-                       status | stop | import-hydra | update-check | version; `oneshot.rs` runs the one-shot
-                       commands, `out.rs` prints without panicking on a closed pipe, `logging.rs` sets up tracing
+crates/as-gui/         Tauri 2 shell, bin `agent-studio` (workspace member): window, `daemon` subcommand (hidden, hosts the
+                       daemon), `--dev-bridge`, quit flow, native glue; `tauri.conf.json` (bundles)
 crates/as-core/        domain logic, NO UI and NO socket code (agents/PTY, providers, config,
                        workspace, sessions, profiles, overview, usage, headless, git, fs, skills, open_in,
-                       terminals (free shells), hydra_import, keybindings catalog, updates)
-crates/as-proto/       serde types for daemon <-> client messages (requests, responses, events)
+                       terminals (free shells), hydra_import, gui_keybindings, updates, shell_env)
+crates/as-proto/       serde types for daemon <-> client messages (requests, responses, events), client + lifecycle
 crates/as-daemon/      local-socket server, lock file, lifecycle, MCP server (rmcp), notifications, update loop
-crates/as-tui/         ratatui app: views, widgets, keymap, daemon client
-docs/                  index (README.md), plans, architecture, key bindings, porting map, releasing, agent log
-.github/workflows/     ci.yml (fmt, clippy, tests on 3 OSes), release.yml (tag `v*` / manual dry run)
+docs/                  index (README.md), plans, architecture, porting map, releasing, agent log
+.github/workflows/     ci.yml (front end + fmt, clippy, tests on 3 OSes), release.yml (tag `v*` / manual dry run: Tauri bundles)
 ```
 
-Dependency direction: `as-tui → as-proto → as-core`, `as-daemon → as-proto → as-core`.
-`as-tui` must never depend on `as-daemon` internals (only on the protocol).
+Dependency direction: `as-gui → as-daemon → as-proto → as-core` (the shell talks to the daemon through the protocol, and also
+hosts it). The root `Cargo.toml` is a virtual workspace (shared package metadata, lints, `[profile.release]`).
 
 ## Rules
 
@@ -79,27 +71,19 @@ Dependency direction: `as-tui → as-proto → as-core`, `as-daemon → as-proto
   unknown/missing fields never panic or fail the whole scan.
 - No `unwrap()`/`expect()` in non-test code except for true invariants (comment why).
   Errors: `anyhow` in binaries/daemon glue, `thiserror` for typed errors in `as-core`.
-- Logging with `tracing` only (no `println!` in the daemon; the TUI must never print to stdout
-  while the alternate screen is active; one-shot CLI output uses `outln!`/`out!` from `src/out.rs`, never bare
-  `println!`, so a closed pipe does not panic).
+- Logging with `tracing` only (no `println!` in the daemon or the app; the only stdout line is the `--dev-bridge` announcement).
 - Pure logic ported from Hydra's `shared/` comes **with its tests**: port the `*.test.ts` cases.
-- UI rendering tests use ratatui's `TestBackend` (+ `insta` snapshots where useful).
+- Front-end tests are Vitest (`gui/`); shell logic that can be tested without linking Tauri lives in the `as_gui` library part.
 - Keep modules small and focused; prefer one module per Hydra service.
 - User-facing text in English. Names: tools exposed by the MCP server are `studio_*`.
 - Config/workspace are **our own** files (fresh start). Hydra data is only read by the manual
   "Import from Hydra" action.
-
-## Keys (TUI)
-
-Prefix key **`Ctrl+A`** (configurable) like tmux. While a terminal is focused every other key goes to
-the agent PTY; app commands are `prefix <key>`. Quitting with running agents asks:
-*Quit + stop N agents / Detach (keep running) / Cancel*.
 
 ## Git workflow
 
 - **The initial port (phases P0–P10 of the plan) is complete.** History note: it was committed and pushed
   directly to `origin/main`, one commit per phase. **From now on everything goes through feature branches and
   pull requests** (`feat/<name>`, `fix/<name>`, `docs/<name>`), never a direct push to `main`.
-- Conventional Commits (`feat(core): …`, `fix(tui): …`, `docs: …`). CI must be green on Linux, macOS and Windows.
+- Conventional Commits (`feat(core): …`, `fix(gui): …`, `docs: …`). CI must be green on Linux, macOS and Windows.
 - When you port or change something from Hydra, update `docs/porting-map.md` in the same commit; releases follow
   `docs/releasing.md` (P11, remote control, stays deferred). See `CONTRIBUTING.md` for the full workflow.

@@ -52,16 +52,9 @@ impl Paths {
     pub fn config_file(&self) -> PathBuf {
         self.root.join("config.json")
     }
-    pub fn keybindings_file(&self) -> PathBuf {
-        self.root.join("keybindings.json")
-    }
-    /// Key bindings of the desktop app (`mod+x` accelerators); the TUI never reads it.
+    /// Key bindings of the desktop app (`mod+x` accelerators).
     pub fn gui_keybindings_file(&self) -> PathBuf {
         self.root.join("gui-keybindings.json")
-    }
-    /// View state of the TUI (last view, selection, sidebar width, grid tab, ...).
-    pub fn tui_state_file(&self) -> PathBuf {
-        self.root.join("tui-state.json")
     }
     pub fn workspace_file(&self) -> PathBuf {
         self.root.join("workspace.json")

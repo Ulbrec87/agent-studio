@@ -27,8 +27,8 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all",
+    "active": true,
+    "targets": ["appimage", "deb", "dmg", "msi"],
     "category": "DeveloperTool",
     "shortDescription": "Orchestrate Claude Code, Codex and OpenCode agents in parallel",
     "icon": [

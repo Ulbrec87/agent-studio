@@ -1,19 +1,5 @@
-[package]
-name = "agent-studio"
-version = "0.1.0"
-edition.workspace = true
-license.workspace = true
-description = "Orchestrate Claude Code, Codex and OpenCode agents in parallel from your terminal"
-repository.workspace = true
-
-[[bin]]
-name = "agent-studio"
-path = "src/main.rs"
-
 [workspace]
 members = ["crates/*"]
-# The Tauri shell needs the WebKit system libraries and has its own workspace (see its Cargo.toml).
-exclude = ["crates/as-gui"]
 resolver = "3"
 
 [workspace.package]
@@ -27,7 +13,7 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = true
-# Keep unwinding: the daemon relies on catching panics of background tasks.
+# Keep unwinding: the daemon (hosted by the desktop binary) relies on catching panics of background tasks.
 panic = "unwind"
 
 [workspace.lints.rust]
@@ -35,25 +21,3 @@ unsafe_code = "warn"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
-
-[lints]
-workspace = true
-
-[features]
-default = ["highlight"]
-# Syntax highlighting of the Files preview and diffs (syntect, pure Rust). Build without it with
-# `--no-default-features` for a smaller binary.
-highlight = ["as-tui/highlight"]
-
-[dependencies]
-anyhow = "1.0.104"
-as-core = { version = "0.1.0", path = "crates/as-core" }
-as-daemon = { version = "0.1.0", path = "crates/as-daemon" }
-as-proto = { version = "0.1.0", path = "crates/as-proto" }
-as-tui = { version = "0.1.0", path = "crates/as-tui", default-features = false }
-clap = { version = "4.6.7", features = ["derive"] }
-serde_json = "1.0.154"
-tokio = { version = "1.54.1", features = ["full"] }
-tracing = "0.1.44"
-tracing-appender = "0.2.5"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }

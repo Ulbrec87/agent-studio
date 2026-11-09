@@ -1,9 +1,9 @@
 name: Release
 
-# Tag `vX.Y.Z` (the tag must match the version in Cargo.toml): build binaries for every platform,
-# package them, publish a GitHub Release with generated notes and SHA256SUMS.
-# Manual run (workflow_dispatch): the same build and packaging, uploaded as workflow artifacts only,
-# nothing is published (dry run).
+# Tag `vX.Y.Z` (the tag must match the version in Cargo.toml): build the desktop installers for every platform
+# (Linux AppImage + deb, macOS dmg for Apple Silicon and Intel, Windows msi; unsigned), publish a GitHub Release
+# with generated notes and SHA256SUMS.
+# Manual run (workflow_dispatch): the same build, uploaded as workflow artifacts only, nothing is published (dry run).
 on:
   push:
     tags: ['v*']
@@ -17,26 +17,45 @@ env:
 
 jobs:
   build:
-    name: build ${{ matrix.target }}
+    name: build ${{ matrix.label }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - label: linux-x86_64
             os: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-24.04-arm
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
           # Both macOS targets build on the Apple Silicon runner (x86_64 is a cross build).
-          - target: x86_64-apple-darwin
+          - label: macos-aarch64
             os: macos-latest
-          - target: aarch64-apple-darwin
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - label: macos-x86_64
             os: macos-latest
-          - target: x86_64-pc-windows-msvc
+            target: x86_64-apple-darwin
+            bundles: dmg
+          - label: windows-x86_64
             os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: msi
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+
+      - name: Tauri system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+            libsoup-3.0-dev libjavascriptcoregtk-4.1-dev build-essential pkg-config libssl-dev file
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -50,28 +69,28 @@ jobs:
         if: github.ref_type == 'tag'
         shell: bash
         run: |
-          crate_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          crate_version=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml | head -n 1)
+          conf_version=$(sed -n 's/^  "version": "\(.*\)",/\1/p' crates/as-gui/tauri.conf.json | head -n 1)
           tag_version="${GITHUB_REF_NAME#v}"
-          if [ "$crate_version" != "$tag_version" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match the crate version $crate_version"
+          if [ "$crate_version" != "$tag_version" ] || [ "$conf_version" != "$tag_version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the workspace version $crate_version / tauri.conf.json version $conf_version"
             exit 1
           fi
 
-      - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Front end dependencies
+        working-directory: gui
+        run: npm ci
 
-      - name: Smoke test
-        # The x86_64 macOS binary is built on an arm runner: skip running it.
-        if: matrix.target != 'x86_64-apple-darwin'
+      # `beforeBuildCommand` of tauri.conf.json builds the front end; the CLI is the devDependency of gui (no cargo install).
+      - name: Build bundles
+        working-directory: crates/as-gui
         shell: bash
-        run: |
-          exe=target/${{ matrix.target }}/release/agent-studio
-          [ "$RUNNER_OS" = Windows ] && exe="$exe.exe"
-          "$exe" --version
+        run: ../../gui/node_modules/.bin/tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
-      - name: Package
+      - name: Collect installers
         shell: bash
         env:
+          LABEL: ${{ matrix.label }}
           TARGET: ${{ matrix.target }}
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
@@ -79,35 +98,27 @@ jobs:
           else
             version="dry-run-${GITHUB_SHA::7}"
           fi
-          name="agent-studio-${version}-${TARGET}"
-          exe=agent-studio
-          [ "$RUNNER_OS" = Windows ] && exe=agent-studio.exe
-          mkdir -p "dist/$name"
-          cp "target/${TARGET}/release/${exe}" README.md LICENSE "dist/$name/"
-          cd dist
-          if [ "$RUNNER_OS" = Windows ]; then
-            archive="$name.zip"
-            7z a -tzip "$archive" "$name" > /dev/null
-          else
-            archive="$name.tar.gz"
-            tar -czf "$archive" "$name"
-          fi
-          rm -rf "$name"
-          if command -v sha256sum > /dev/null; then
-            sha256sum "$archive" > "$archive.sha256"
-          else
-            shasum -a 256 "$archive" > "$archive.sha256"
-          fi
-          ls -l
-          cat "$archive.sha256"
+          mkdir -p dist
+          # Stable, space-free names: the in-app update check picks the installer by `<label>` and extension.
+          for ext in AppImage deb dmg msi; do
+            for f in target/"$TARGET"/release/bundle/*/*."$ext"; do
+              [ -f "$f" ] || continue
+              out="dist/agent-studio-${version}-${LABEL}.${ext}"
+              cp "$f" "$out"
+              if command -v sha256sum > /dev/null; then
+                (cd dist && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
+              else
+                (cd dist && shasum -a 256 "$(basename "$out")" > "$(basename "$out").sha256")
+              fi
+            done
+          done
+          ls -l dist
+          cat dist/*.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.target }}
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/*.sha256
+          name: dist-${{ matrix.label }}
+          path: dist/*
           if-no-files-found: error
           retention-days: 14
 
@@ -138,8 +149,10 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.tar.gz
-            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.dmg
+            dist/*.msi
             dist/SHA256SUMS
           generate_release_notes: true
           # `v0.2.0-rc.1` style tags are published as prereleases (the update check ignores them).

@@ -36,7 +36,7 @@ export function waitForDaemon(raw: RawTransport, timeoutMs: number): Promise<boo
 
 /**
  * Install `window.hydra` before the first render. In the desktop app (or a browser opened with `?bridge=...&token=...` against
- * `agent-studio-gui --dev-bridge`) the methods are answered by the daemon through the mapping layer (./daemonApi.ts); in a plain
+ * `agent-studio --dev-bridge`) the methods are answered by the daemon through the mapping layer (./daemonApi.ts); in a plain
  * browser and in tests an in-memory mock answers. The G2 methods still fall through to the mock.
  */
 export async function installHydra(raw: RawTransport | null = selectRawTransport()): Promise<HydraAPI> {

@@ -195,30 +195,34 @@ pub fn parse_release(body: &str) -> Result<Option<Release>, NotARelease> {
     }))
 }
 
-/// The Rust target triple of release binaries for an OS (`std::env::consts::OS`) and CPU
-/// (`std::env::consts::ARCH`); `None` where we publish nothing.
-pub fn target_triple(os: &str, arch: &str) -> Option<&'static str> {
+/// The platform label in the names of release assets (`agent-studio-<tag>-<label>.<ext>`) for an OS
+/// (`std::env::consts::OS`) and CPU (`std::env::consts::ARCH`); `None` where we publish nothing.
+pub fn platform_label(os: &str, arch: &str) -> Option<&'static str> {
     Some(match (os, arch) {
-        ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
-        ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
-        ("macos", "x86_64") => "x86_64-apple-darwin",
-        ("macos", "aarch64") => "aarch64-apple-darwin",
-        ("windows", "x86_64") => "x86_64-pc-windows-msvc",
+        ("linux", "x86_64") => "linux-x86_64",
+        ("macos", "x86_64") => "macos-x86_64",
+        ("macos", "aarch64") => "macos-aarch64",
+        ("windows", "x86_64") => "windows-x86_64",
         _ => return None,
     })
 }
 
-/// The archive of a release for this platform (`agent-studio-<tag>-<triple>.tar.gz` / `.zip`).
+/// The installer of a release for this platform: `.AppImage` (Linux), `.dmg` (macOS) or `.msi` (Windows), named
+/// `agent-studio-<tag>-<label>.<ext>` by the release workflow.
 pub fn select_asset<'a>(
     assets: &'a [ReleaseAsset],
     os: &str,
     arch: &str,
 ) -> Option<&'a ReleaseAsset> {
-    let triple = target_triple(os, arch)?;
-    let ext = if os == "windows" { ".zip" } else { ".tar.gz" };
+    let label = platform_label(os, arch)?;
+    let ext = match os {
+        "windows" => ".msi",
+        "macos" => ".dmg",
+        _ => ".AppImage",
+    };
     assets
         .iter()
-        .find(|a| a.name.contains(triple) && a.name.ends_with(ext))
+        .find(|a| a.name.contains(label) && a.name.ends_with(ext))
 }
 
 // ── install method ──────────────────────────────────────────────────────────
@@ -567,10 +571,10 @@ mod tests {
             "html_url": format!("https://github.com/x/y/releases/tag/{tag}"),
             "body": "notes",
             "assets": [
-                {"name": format!("agent-studio-{tag}-x86_64-unknown-linux-gnu.tar.gz"),
-                 "browser_download_url": "https://dl/linux-x64.tar.gz"},
-                {"name": format!("agent-studio-{tag}-x86_64-pc-windows-msvc.zip"),
-                 "browser_download_url": "https://dl/win.zip"},
+                {"name": format!("agent-studio-{tag}-linux-x86_64.AppImage"),
+                 "browser_download_url": "https://dl/linux-x64.AppImage"},
+                {"name": format!("agent-studio-{tag}-windows-x86_64.msi"),
+                 "browser_download_url": "https://dl/win.msi"},
                 {"name": "SHA256SUMS", "browser_download_url": "https://dl/sums"},
                 {"broken": true}
             ]
@@ -663,19 +667,16 @@ mod tests {
             .expect("json")
             .expect("release");
         let pick = |os, arch| select_asset(&r.assets, os, arch).map(|a| a.url.as_str());
-        assert_eq!(pick("linux", "x86_64"), Some("https://dl/linux-x64.tar.gz"));
-        assert_eq!(pick("windows", "x86_64"), Some("https://dl/win.zip"));
+        assert_eq!(
+            pick("linux", "x86_64"),
+            Some("https://dl/linux-x64.AppImage")
+        );
+        assert_eq!(pick("windows", "x86_64"), Some("https://dl/win.msi"));
         assert_eq!(pick("linux", "aarch64"), None, "not in this release");
         assert_eq!(pick("freebsd", "x86_64"), None);
-        assert_eq!(
-            target_triple("macos", "aarch64"),
-            Some("aarch64-apple-darwin")
-        );
-        assert_eq!(
-            target_triple("macos", "x86_64"),
-            Some("x86_64-apple-darwin")
-        );
-        assert_eq!(target_triple("linux", "riscv64"), None);
+        assert_eq!(platform_label("macos", "aarch64"), Some("macos-aarch64"));
+        assert_eq!(platform_label("macos", "x86_64"), Some("macos-x86_64"));
+        assert_eq!(platform_label("linux", "riscv64"), None);
     }
 
     #[test]
@@ -745,9 +746,9 @@ mod tests {
         assert_eq!(info.version, "0.2.0");
         assert_eq!(
             info.asset_url.as_deref(),
-            Some("https://dl/linux-x64.tar.gz")
+            Some("https://dl/linux-x64.AppImage")
         );
-        assert!(state.hint.contains("https://dl/linux-x64.tar.gz"));
+        assert!(state.hint.contains("https://dl/linux-x64.AppImage"));
         assert!(state.checked_at_ms.is_some());
         // The credential-less request carries the GitHub headers and an empty bearer.
         let req = mock.1.lock()[0].clone();

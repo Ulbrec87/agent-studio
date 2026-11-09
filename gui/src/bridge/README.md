@@ -7,7 +7,7 @@ unchanged. Layers:
 |------|------|
 | `transport.ts` | `Transport { request, onEvent }` (Hydra level) and `RawTransport` (protocol level + `onStatus`/`status`), `selectRawTransport()` / `selectTransport()` |
 | `tauriTransport.ts` | desktop raw transport: `invoke('app_info')`, `invoke('daemon_request', { request })`, `daemon-event`, `daemon-status`, `daemon_status`, plus `shell` (below) |
-| `wsTransport.ts` | browser dev raw transport: `?bridge=ws://127.0.0.1:PORT&token=T` -> the `agent-studio-gui --dev-bridge` WebSocket; its `shell` only offers `log_event` |
+| `wsTransport.ts` | browser dev raw transport: `?bridge=ws://127.0.0.1:PORT&token=T` -> the `agent-studio --dev-bridge` WebSocket; its `shell` only offers `log_event` |
 | `daemonApi.ts` | **the mapping layer**: Hydra method -> `as-proto` request, daemon event -> Hydra `on*` channel; unwired methods fall through to the mock |
 | `mappers.ts` | pure shape adapters (preflight, notification, MCP status, config defaults + GUI-only keys) |
 | `streams.ts` | per-agent (and per-free-terminal) output streams: `Subscribe`/`SubscribeTerminal`, held live chunks, de-duplication, streaming `TextDecoder` |

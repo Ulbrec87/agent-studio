@@ -1,4 +1,4 @@
-//! "Import from Hydra": merge Hydra's `config.json`, `workspace.json` and `keybindings.json` into ours.
+//! "Import from Hydra": merge Hydra's `config.json` and `workspace.json` into ours.
 //!
 //! Hydra's files are only ever read. Config keys that do not exist in our [`AppConfig`] are ignored,
 //! bad values are skipped per key by [`ConfigStore::update`]. Workspace agents are merged by id and
@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::config::ConfigStore;
-use crate::keybindings::{KeybindingRule, is_command_id, parse_rules};
 use crate::types::AppConfig;
 use crate::workspace::{PersistedWorkspaceAgent, WorkspaceStore};
 
@@ -38,8 +37,6 @@ pub struct ImportPreview {
     pub config_changes: Vec<ConfigChange>,
     pub agents_total: usize,
     pub agents_new: usize,
-    pub keybindings_total: usize,
-    pub keybindings_importable: usize,
     pub warnings: Vec<String>,
 }
 
@@ -48,7 +45,6 @@ pub struct ImportPreview {
 pub struct ImportReport {
     pub config_keys_applied: usize,
     pub agents_added: Vec<PersistedWorkspaceAgent>,
-    pub keybindings_added: usize,
     pub warnings: Vec<String>,
 }
 
@@ -149,30 +145,6 @@ fn new_agents(
     out
 }
 
-fn keybinding_rules(dir: &Path) -> (usize, Vec<KeybindingRule>, Vec<String>) {
-    let path = dir.join("keybindings.json");
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return (0, Vec::new(), Vec::new());
-    };
-    let total = serde_json::from_str::<Value>(&text)
-        .ok()
-        .and_then(|v| v.as_array().map(Vec::len))
-        .unwrap_or(0);
-    let parsed = parse_rules(&text);
-    let (ok, skipped): (Vec<_>, Vec<_>) = parsed
-        .rules
-        .into_iter()
-        .partition(|r| r.keys.starts_with("prefix ") && is_command_id(&r.command));
-    let mut warnings = Vec::new();
-    if !skipped.is_empty() {
-        warnings.push(format!(
-            "{} Hydra shortcut(s) use mod+ keys that have no equivalent in the prefix scheme and were skipped",
-            skipped.len()
-        ));
-    }
-    (total, ok, warnings)
-}
-
 pub fn preview(
     dir: &Path,
     current: &AppConfig,
@@ -209,20 +181,14 @@ pub fn preview(
             p.agents_total - p.agents_new
         ));
     }
-    let (total, rules, warnings) = keybinding_rules(dir);
-    p.keybindings_total = total;
-    p.keybindings_importable = rules.len();
-    p.warnings.extend(warnings);
     Ok(p)
 }
 
-/// Merge into our stores. `keybindings_file` is our `keybindings.json` (existing overrides are kept,
-/// imported rules replace rules of the same command).
+/// Merge into our stores (Hydra's own files are never modified).
 pub fn apply(
     dir: &Path,
     config: &ConfigStore,
     workspace: &WorkspaceStore,
-    keybindings_file: &Path,
 ) -> Result<ImportReport, ImportError> {
     let fail = |e: anyhow::Error| ImportError::Failed(format!("{e:#}"));
     let mut report = ImportReport::default();
@@ -244,22 +210,6 @@ pub fn apply(
         workspace.set_agents(all).map_err(fail)?;
     }
     report.agents_added = added;
-    let (_, rules, warnings) = keybinding_rules(dir);
-    report.warnings = warnings;
-    if !rules.is_empty() {
-        let mut current: Vec<KeybindingRule> = std::fs::read_to_string(keybindings_file)
-            .map(|t| parse_rules(&t).rules)
-            .unwrap_or_default();
-        for r in &rules {
-            current.retain(|c| c.command != r.command);
-            current.push(r.clone());
-        }
-        let mut text = serde_json::to_string_pretty(&current)
-            .map_err(|e| ImportError::Failed(e.to_string()))?;
-        text.push('\n');
-        std::fs::write(keybindings_file, text).map_err(|e| ImportError::Failed(e.to_string()))?;
-        report.keybindings_added = rules.len();
-    }
     Ok(report)
 }
 
@@ -300,13 +250,6 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        std::fs::write(
-            hydra.join("keybindings.json"),
-            json!([{"command": "new-agent", "keys": "mod+n"}, {"command": "git-panel", "keys": "prefix x"},
-                   {"command": "nope", "keys": "prefix y"}])
-            .to_string(),
-        )
-        .unwrap();
         Fx { _d: d, hydra, ours }
     }
 
@@ -318,7 +261,6 @@ mod tests {
         assert!(keys.contains(&"theme") && keys.contains(&"maxAgents"));
         assert!(!keys.contains(&"electronOnlyThing"));
         assert_eq!((p.agents_total, p.agents_new), (3, 2));
-        assert_eq!((p.keybindings_total, p.keybindings_importable), (3, 1));
         assert!(!p.warnings.is_empty());
         assert!(matches!(
             preview(&fx.ours, &AppConfig::default(), &[]),
@@ -332,8 +274,7 @@ mod tests {
         let before = std::fs::read(fx.hydra.join("config.json")).unwrap();
         let config = ConfigStore::at(fx.ours.join("config.json"));
         let ws = WorkspaceStore::at(fx.ours.join("workspace.json"));
-        let kb = fx.ours.join("keybindings.json");
-        let report = apply(&fx.hydra, &config, &ws, &kb).unwrap();
+        let report = apply(&fx.hydra, &config, &ws).unwrap();
         let c = config.get();
         assert_eq!(c.max_agents, 5);
         assert!(report.config_keys_applied >= 2);
@@ -348,18 +289,9 @@ mod tests {
                 .as_deref(),
             Some("hydra/x")
         );
-        assert_eq!(report.keybindings_added, 1);
-        let rules = parse_rules(&std::fs::read_to_string(&kb).unwrap()).rules;
-        assert_eq!(
-            rules,
-            vec![KeybindingRule {
-                command: "git-panel".into(),
-                keys: "prefix x".into()
-            }]
-        );
         assert_eq!(std::fs::read(fx.hydra.join("config.json")).unwrap(), before);
         // Second run adds no agents.
-        let again = apply(&fx.hydra, &config, &ws, &kb).unwrap();
+        let again = apply(&fx.hydra, &config, &ws).unwrap();
         assert!(again.agents_added.is_empty());
         assert_eq!(ws.get_agents().len(), 2);
     }
