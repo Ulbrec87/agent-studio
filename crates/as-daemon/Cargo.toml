@@ -10,8 +10,8 @@ workspace = true
 
 [dependencies]
 anyhow = "1.0.104"
-as-core = { version = "0.1.0", path = "../as-core" }
-as-proto = { version = "0.1.0", path = "../as-proto" }
+as-core = { version = "0.1.1", path = "../as-core" }
+as-proto = { version = "0.1.1", path = "../as-proto" }
 axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"] }
 bytes = "1.12.1"
 chrono = "0.4.45"
