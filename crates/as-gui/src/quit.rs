@@ -6,7 +6,38 @@
 //! the daemon, exit), **Keep Running** (`quit_app { stopAgents: false }`: exit the window only, the daemon and the agents live on)
 //! or **Cancel** (the front end just closes its dialog). With nothing running the window closes right away.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use serde_json::{Value, json};
+
+/// Lets the app's own exit through `RunEvent::ExitRequested` while catching every other request.
+///
+/// A quit that did not come from our flow (macOS Cmd+Q, the app menu's Quit, the Dock's Quit, a session end) must go through
+/// [`decide_close`] like closing the window does. The flow ends in `AppHandle::exit`, which raises `ExitRequested` again (with
+/// an exit code): that second request must pass, or the app would never exit.
+#[derive(Debug, Default)]
+pub struct ExitGate {
+    exiting: AtomicBool,
+}
+
+impl ExitGate {
+    pub const fn new() -> Self {
+        Self {
+            exiting: AtomicBool::new(false),
+        }
+    }
+
+    /// The flow decided to quit: its `exit` call is not intercepted.
+    pub fn begin_exit(&self) {
+        self.exiting.store(true, Ordering::SeqCst);
+    }
+
+    /// `true` when an `ExitRequested` (`code`: the requested exit code, `None` for an implicit request such as Cmd+Q) has to run
+    /// the quit flow instead of exiting right away.
+    pub fn intercepts(&self, code: Option<i32>) -> bool {
+        code.is_none() && !self.exiting.load(Ordering::SeqCst)
+    }
+}
 
 /// What a close request of the main window leads to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +95,20 @@ mod tests {
             clients: 1,
         };
         Ok(serde_json::to_value(Response::Status(status)).unwrap())
+    }
+
+    #[test]
+    fn exit_gate_catches_implicit_requests_until_the_flow_exits() {
+        let gate = ExitGate::new();
+        // Cmd+Q / app menu / Dock: no exit code -> the quit flow runs.
+        assert!(gate.intercepts(None));
+        // An explicit exit code (the flow's own `exit(0)`, a restart) is never held back.
+        assert!(!gate.intercepts(Some(0)));
+        assert!(gate.intercepts(None));
+        // Once the flow chose to exit, nothing is intercepted any more (no loop).
+        gate.begin_exit();
+        assert!(!gate.intercepts(None));
+        assert!(!gate.intercepts(Some(0)));
     }
 
     #[test]

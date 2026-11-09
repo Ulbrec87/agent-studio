@@ -132,7 +132,8 @@ palette starts a Claude agent in the manager workspace that can use them to orch
 
 ### Import from Hydra
 
-Settings > Data previews and merges Hydra's config and agents into Agent Studio's. Hydra's files are only read.
+Settings > Import from Hydra previews (settings that would change, agents that would be added; Hydra's data folder can be chosen) and, after you
+confirm, merges Hydra's config and agents into Agent Studio's. Hydra's files are only read.
 
 ## Updates
 

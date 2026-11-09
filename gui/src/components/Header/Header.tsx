@@ -49,12 +49,12 @@ export function Header({
 }: HeaderProps) {
   const isMac = navigator.platform.toLowerCase().includes('mac')
   return (
-    <header className={`${styles.header} ${isMac ? styles.macHeader : ''} titlebar-drag`}>
-      <div className={styles.left}>
-        <div className={styles.logoMark}>
+    <header className={`${styles.header} ${isMac ? styles.macHeader : ''} titlebar-drag`} data-tauri-drag-region>
+      <div className={styles.left} data-tauri-drag-region>
+        <div className={styles.logoMark} data-tauri-drag-region>
           <AgentStudioLogo />
         </div>
-        <span className={styles.logo}>AGENT STUDIO</span>
+        <span className={styles.logo} data-tauri-drag-region>AGENT STUDIO</span>
         {viewMode === 'grid' && selectedProjectName && (
           <>
             <button
@@ -64,7 +64,7 @@ export function Header({
             >
               <PlusIcon />
             </button>
-            <span className={styles.projectName}>{selectedProjectName}</span>
+            <span className={styles.projectName} data-tauri-drag-region>{selectedProjectName}</span>
           </>
         )}
       </div>

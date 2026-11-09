@@ -11,6 +11,8 @@ describe('bridge README', () => {
     const implemented = new Set<string>([...WIRED_METHODS, ...WIRED_CHANNELS])
     // Agent Studio extensions are documented below the table, not in it.
     implemented.delete('getDaemonStatus')
+    implemented.delete('previewHydraImport')
+    implemented.delete('applyHydraImport')
     expect([...wired].sort()).toEqual([...implemented].sort())
     // After G2b only the deferred remote-control methods (P11) are stubs.
     const stubs = rows.filter((r) => r[4] === 'stub').map((r) => r[1]).sort()

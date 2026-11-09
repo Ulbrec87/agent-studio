@@ -23,7 +23,7 @@ unchanged. Layers:
 | `protocol.ts` | protocol envelope types, base64 helpers, `toError` |
 | `mockTransport.ts` + `fixtures.ts` | in-memory answers for plain browsers, tests and every method that is not wired yet; `emit()` for tests |
 | `bridge.ts` | `call` / `send` / `subscribe` over a Hydra-level transport; fans events out by channel |
-| `hydraApi.ts` | generated method table: every method calls the bridge with its own name (+ 3 Agent Studio extensions, below) |
+| `hydraApi.ts` | generated method table: every method calls the bridge with its own name (+ the Agent Studio extensions, below) |
 | `index.ts` | `installHydra()`: loads `app_info`, waits up to 4 s for the daemon, builds and installs `window.hydra` before the first render |
 
 Two wire formats:
@@ -169,6 +169,7 @@ before the new process writes; `useAgents` drops its copy of the screen, so the 
 | Method | Meaning |
 |--------|---------|
 | `getDaemonStatus()` / `onDaemonStatus(cb)` | `{ connected, error? }`; drives the "Connecting to the daemon..." / "Daemon not reachable" banner (`components/Daemon`) |
+| `previewHydraImport(dir?)` / `applyHydraImport(dir?)` | `PreviewHydraImport` / `ApplyHydraImport` (`hydraImportApi.ts`): what importing Hydra's config and agents would change, then the merge; `dir` overrides Hydra's data folder. Used by Settings > Import from Hydra |
 | `onAgentsChanged(cb)` | the agent list changed elsewhere (CLI/TUI/MCP) or the connection came back: `useAgents` reloads the list |
 | `onAgentRestarted(cb)` | `{ agentId }`: a new process replaced the agent's old one; `useAgents` clears the agent's output (G2b) |
 | `AppUpdateState.upgradeHint` | field, not a method: the daemon's "how to upgrade" sentence (G2b) |

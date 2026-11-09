@@ -16,6 +16,7 @@ import { TERMINAL_METHODS, createTerminalMethods } from './terminalsApi'
 import { NATIVE_METHODS, createNativeMethods, type NativeDeps } from './nativeApi'
 import { HEADLESS_CHANNELS, HEADLESS_METHODS, createHeadlessMethods } from './headlessApi'
 import { SKILL_METHODS, createSkillMethods } from './skillsApi'
+import { HYDRA_IMPORT_METHODS, createHydraImportMethods } from './hydraImportApi'
 import { UPDATE_CHANNELS, UPDATE_METHODS, createUpdateMethods } from './updatesApi'
 import { DIAGNOSTICS_METHODS, createDiagnosticsMethods } from './diagnosticsApi'
 import { KEYBINDINGS_FILE, KEYBINDING_CHANNELS, KEYBINDING_METHODS, createKeybindingMethods } from './keybindingsApi'
@@ -54,7 +55,7 @@ export const WIRED_METHODS = [
   'refreshUsage', 'setUsageVisible', 'getConfig', 'setConfig', 'getKeybindingsPath', 'getConfigPath',
   'toggleGlobalYolo', 'listClaudeProfiles', 'listClaudeSessions', 'listProviderModels', 'getMcpServerStatus',
   'dismissNotification', 'getDaemonStatus', ...GIT_METHODS, ...FILE_METHODS, ...TERMINAL_METHODS, ...NATIVE_METHODS,
-  ...HEADLESS_METHODS, ...SKILL_METHODS, ...UPDATE_METHODS, ...DIAGNOSTICS_METHODS, ...KEYBINDING_METHODS, ...QUIT_METHODS
+  ...HEADLESS_METHODS, ...SKILL_METHODS, ...UPDATE_METHODS, ...DIAGNOSTICS_METHODS, ...KEYBINDING_METHODS, ...QUIT_METHODS, ...HYDRA_IMPORT_METHODS
 ] as const
 
 /** The `on*` channels this layer emits from daemon events (the remaining `on*` channels are the P11 remote-control ones and never fire). */
@@ -125,7 +126,8 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
     createUpdateMethods({ ctx, openUrl: options.openUrl }),
     createDiagnosticsMethods({ ctx, reveal: (path) => Promise.resolve(native.methods.openPath(path as never)) }),
     keybindings,
-    createQuitMethods(ctx)
+    createQuitMethods(ctx),
+    createHydraImportMethods(ctx)
   ]
 
   const streams = createAgentStreams({

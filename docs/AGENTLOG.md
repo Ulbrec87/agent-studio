@@ -491,3 +491,13 @@ included, so a test reading "the next frame" can get an event instead of its res
 - **Removed config keys still load**: `AppConfig` has `#[serde(default)]` and no `deny_unknown_fields`, so `prefixKey`, `mouse` and `diffLayout` in an old `config.json` are ignored (and dropped at the next write).
 - **Install method = how the bundle was installed**: `as_core::updates::detect_install_method` is path based (`$APPIMAGE`, `/usr/{bin,lib}`, `*.app/Contents/MacOS`, `Program Files` / `AppData/Local/Programs`); an AppImage's
   mounted path (`/tmp/.mount_*/usr/bin`) looks like a deb, so the env var is checked first. Anything else, and every `target/{debug,release}` build, is `manual`.
+
+## Polish (step D of the GUI-only plan)
+
+- **`-webkit-app-region` does nothing in Tauri**: drag areas need the `data-tauri-drag-region` attribute on the element that is clicked (children do not inherit it) plus the capabilities
+  `core:window:allow-start-dragging` (and `allow-internal-toggle-maximize` for double click). Needed for the macOS overlay title bar; the `titlebar-drag` class stays for Hydra parity.
+- **Quit paths**: in Tauri 2 `AppHandle::exit(code)` itself raises `RunEvent::ExitRequested { code: Some(_) }`. Intercept only `code: None` (Cmd+Q, Dock, menu) and set a flag before calling `exit`
+  (`quit::ExitGate`); `prevent_exit()` on every request would loop forever.
+- **`tauri-plugin-window-state` and a hidden window**: with the default flags the plugin shows the window itself after restoring (`StateFlags::VISIBLE`). We drop VISIBLE from the flags and
+  show the window from `on_page_load` (plus a timer fallback) so the first paint is not white. The state file is written at `RunEvent::Exit`; a SIGKILL loses the last change.
+- **`tauri-plugin-window-state` 3.x is an alpha**: depend on `"2"`.

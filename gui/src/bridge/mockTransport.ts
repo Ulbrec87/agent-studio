@@ -86,6 +86,14 @@ export function createMockTransport(options: { appInfo?: AppInfo } = {}): MockTr
 
     // Connection state (always connected: there is no daemon)
     getDaemonStatus: () => ({ connected: true }),
+    previewHydraImport: () => ({
+      dir: '~/.config/Hydra',
+      configChanges: [{ key: 'theme', current: 'dark', incoming: 'midnight' }],
+      agentsTotal: 3,
+      agentsNew: 2,
+      warnings: ['1 agent(s) already exist or could not be read and will be skipped']
+    }),
+    applyHydraImport: () => ({ configKeysApplied: 1, agentsAdded: [], warnings: [] }),
 
     // Overview
     getOverview: () => overviewSnapshot(agents),

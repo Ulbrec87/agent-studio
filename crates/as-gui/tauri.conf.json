@@ -15,11 +15,19 @@
       {
         "label": "main",
         "title": "Agent Studio",
-        "width": 1280,
+        "width": 1200,
         "height": 800,
-        "minWidth": 900,
+        "minWidth": 800,
         "minHeight": 600,
-        "resizable": true
+        "resizable": true,
+        "visible": false,
+        "backgroundColor": "#262624",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 14
+        }
       }
     ],
     "security": {
@@ -28,7 +36,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage", "deb", "dmg", "msi"],
+    "targets": [
+      "appimage",
+      "deb",
+      "dmg",
+      "msi"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "Orchestrate Claude Code, Codex and OpenCode agents in parallel",
     "icon": [

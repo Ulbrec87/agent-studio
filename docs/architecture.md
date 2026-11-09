@@ -244,7 +244,16 @@ renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`
     decides: no agents running or no answer -> exit at once; otherwise emit `confirm-quit` (running count) and keep the window. The renderer's dialog calls
     `quit_app { stopAgents }`: `true` sends `Shutdown { stop_agents: true }` (the daemon stops its agents and exits) and exits the app, `false` exits the app
     only (the daemon is a separate detached process and keeps the agents alive). Cancel is renderer-only. With nothing running the daemon is stopped on close.
-    Not covered yet: Cmd+Q / app menu / tray (G3).
+    The same flow runs for quits that are not a window close (macOS Cmd+Q, the app menu's Quit, the Dock's Quit): `shell.rs` handles
+    `RunEvent::ExitRequested`, and when `quit::ExitGate::intercepts(code)` (implicit request: `code` is `None`) it calls `prevent_exit` and spawns the flow. Every
+    decision to exit goes through `exit_now` -> `ExitGate::begin_exit` -> `AppHandle::exit(0)`, whose own `ExitRequested` (with a code) is let through, so there is no loop.
+    A `Confirm` shows, unminimizes and focuses the window first. There is no tray icon (Hydra has none).
+  * *Window.* Created from `tauri.conf.json` like Hydra's `createWindow`: 1200x800, minimum 800x600, `backgroundColor` `#262624`, `visible: false` until the page
+    finished loading (`on_page_load`; a 4 s fallback shows it anyway). On macOS `titleBarStyle: Overlay` + `hiddenTitle` + `trafficLightPosition` 16,14 (the other OSes
+    ignore these keys); the header leaves 80 px for the traffic lights and is the drag area through `data-tauri-drag-region` (`-webkit-app-region` does not work in
+    Tauri; capabilities `core:window:allow-start-dragging` / `allow-internal-toggle-maximize`). Size, position and maximized state are kept in `<config dir of the app
+    identifier>/.window-state.json` by `tauri-plugin-window-state` (flags SIZE | POSITION | MAXIMIZED; the saved position is only used when it intersects a connected
+    monitor). Tauri's default app menu on macOS gives Cmd+C/V/Q.
   * *Open-in* runs in this process (`as_core::open_in`), not in the daemon: a daemon started by systemd/launchd has no display. The dev bridge keeps the daemon route.
   * *Renderer log.* `window.hydra.logEvent` -> `log_event` -> `gui_log::record` -> `tracing` target `renderer` -> `<root>/logs/agent-studio-gui.<date>`
     (JSON lines, same daily rotation as the daemon's `daemon.<date>`; the dev bridge writes the same file). Credentials are redacted and sizes capped before writing.

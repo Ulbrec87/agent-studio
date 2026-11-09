@@ -38,7 +38,13 @@
 2. Generate the TypeScript protocol types from Rust (`ts-rs`) instead of hand-written copies in `gui/src/bridge` — removes drift.
 3. Updates: detect "installed from a bundle" (AppImage/deb/dmg/msi) instead of cargo/archives; Tauri updater later.
 
-### D. G3 polish (unchanged scope)
-Window state, tray, native menus/Cmd+Q through the quit flow, visual pass against Hydra.
+### D. `feat/gui-polish` — G3 polish (DONE, branch committed locally)
+1. Settings > Import from Hydra (preview with optional folder, confirm, apply).
+2. Window like Hydra's `createWindow` (size, minimum, `#262624`, hidden until loaded, macOS overlay title bar).
+3. Window size/position/maximized remembered (`tauri-plugin-window-state`).
+4. Cmd+Q / app menu / Dock Quit go through the quit flow (`RunEvent::ExitRequested`); Tauri's default macOS menu.
+5. No tray: Hydra has none, so there is nothing to port (dropped from the scope).
+
+macOS-only paths (overlay title bar, traffic lights, Cmd+Q) are written to the Tauri docs but not run on the Linux dev machine.
 
 Not tagging v0.1.0 until the user says so.

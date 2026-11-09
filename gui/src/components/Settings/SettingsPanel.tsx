@@ -27,6 +27,7 @@ import {
 import { fuzzyScoreAny } from '../../lib/fuzzy'
 import { ShortcutsTab } from './ShortcutsTab'
 import { SkillsTab } from './SkillsTab'
+import { HydraImportTab } from './HydraImportTab'
 import claudeIcon from '../../assets/icons/claude.svg'
 import codexIcon from '../../assets/icons/codex.svg'
 import opencodeIcon from '../../assets/icons/opencode.svg'
@@ -44,6 +45,7 @@ type SectionId =
   | 'usage'
   | 'shortcuts'
   | 'skills'
+  | 'import'
 
 const SECTIONS: Array<{ id: SectionId; label: string; keywords: string[] }> = [
   { id: 'appearance', label: 'Appearance', keywords: ['appearance', 'theme', 'color', 'view', 'chat', 'grid', 'sound', 'dark', 'light', 'midnight', 'terracotta', 'overlay', 'split', 'git panel', 'editor panel', 'side loader'] },
@@ -54,7 +56,8 @@ const SECTIONS: Array<{ id: SectionId; label: string; keywords: string[] }> = [
   { id: 'observability', label: 'Observability', keywords: ['observability', 'error', 'reporting', 'diagnostics', 'sensitive', 'endpoint'] },
   { id: 'usage', label: 'Usage', keywords: ['usage', 'limit', 'limits', 'quota', 'plan', 'alert', 'notify', 'notification', 'cost', 'chip', 'session', 'weekly', 'tokens'] },
   { id: 'shortcuts', label: 'Shortcuts', keywords: ['shortcut', 'keybinding', 'hotkey', 'keys'] },
-  { id: 'skills', label: 'Skills', keywords: ['skill', 'prompt'] }
+  { id: 'skills', label: 'Skills', keywords: ['skill', 'prompt'] },
+  { id: 'import', label: 'Import from Hydra', keywords: ['import', 'hydra', 'migrate', 'agents', 'config', 'settings'] }
 ]
 
 const PROVIDERS: ProviderId[] = ['claude', 'codex', 'opencode']
@@ -892,6 +895,13 @@ export function SettingsPanel({
             <div className={styles.section}>
               <h3 className={styles.sectionTitle}>Skills</h3>
               <SkillsTab />
+            </div>
+          )}
+
+          {isVisible('import') && (
+            <div className={styles.section}>
+              <h3 className={styles.sectionTitle}>Import from Hydra</h3>
+              <HydraImportTab />
             </div>
           )}
             </div>
