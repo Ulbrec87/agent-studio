@@ -120,6 +120,19 @@ describe('TerminalPane', () => {
     expect(second.write).toHaveBeenCalledWith('hello world', expect.any(Function))
   })
 
+  it('replays saved output only after the first fit, so it is not laid out at the default 80x24', () => {
+    // No box yet (hidden / mid view switch): fits are skipped, so nothing may be written.
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 0 })
+    const { rerender } = render(<TerminalPane rawOutput="frame" isVisible={false} />)
+    const term = terminalState.instances[0]
+    expect(term.write).not.toHaveBeenCalled()
+
+    // The pane gets its real size and becomes visible: the fit runs, then the output is replayed.
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 })
+    rerender(<TerminalPane rawOutput="frame" isVisible />)
+    expect(term.write).toHaveBeenCalledWith('frame', expect.any(Function))
+  })
+
   it('queues later output until the active xterm write finishes', () => {
     const { rerender } = render(<TerminalPane rawOutput="hello" />)
     const term = terminalState.instances[0]

@@ -80,6 +80,10 @@ export function TerminalPane({
   const writeInFlightRef = useRef(false)
   // Writes whatever output the current xterm has not seen yet (set by the output effect below).
   const flushOutputRef = useRef<() => void>(() => undefined)
+  // False until the new xterm has been fitted once. The saved output is only replayed at the real size: written into xterm's
+  // default 80x24 it wraps, the fit then reflows it into garbage, and the agent never redraws because its PTY size did not
+  // change (no SIGWINCH). That is the "terminal looks resized" bug after Overview -> Chat (WebKit lost the race more often).
+  const outputReadyRef = useRef(false)
   const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const dragCounterRef = useRef(0)
@@ -142,6 +146,13 @@ export function TerminalPane({
       }
     }
 
+    // A new xterm (mount, font, cursor or renderer setting changed) starts empty: the output we already have is replayed by the
+    // first successful fit (see `outputReadyRef`), so it is laid out at the real size. Set before any fit can run.
+    terminalRef.current = terminal
+    writtenLengthRef.current = 0
+    writeInFlightRef.current = false
+    outputReadyRef.current = false
+
     // `force` = pane just (re)mounted / became visible: tell the PTY our size even if it equals our last one, because another pane
     // (grid tile vs chat) may have resized the shared PTY in between.
     const runFit = (force: boolean) => {
@@ -161,6 +172,10 @@ export function TerminalPane({
       if (shouldNotify(lastSizeRef.current, next, force)) {
         lastSizeRef.current = next
         onResizeRef.current?.(next.cols, next.rows)
+      }
+      if (!outputReadyRef.current) {
+        outputReadyRef.current = true
+        flushOutputRef.current()
       }
     }
     const scheduler = createFitScheduler(runFit)
@@ -219,12 +234,6 @@ export function TerminalPane({
     }
     const scrollDisposable = terminal.onScroll(checkScrollPosition)
 
-    terminalRef.current = terminal
-    writtenLengthRef.current = 0
-    writeInFlightRef.current = false
-    // A new xterm (font, cursor or renderer setting changed) starts empty: replay the output we already have instead of showing a
-    // blank terminal until the next chunk arrives.
-    flushOutputRef.current()
 
     // Handle resize
     const observer = new ResizeObserver(() => {
@@ -393,7 +402,7 @@ export function TerminalPane({
 
     const flushPendingOutput = () => {
       const terminal = terminalRef.current
-      if (!terminal || writeInFlightRef.current) return
+      if (!terminal || !outputReadyRef.current || writeInFlightRef.current) return
 
       const targetOutput = targetOutputRef.current
       if (targetOutput.length < writtenLengthRef.current) {

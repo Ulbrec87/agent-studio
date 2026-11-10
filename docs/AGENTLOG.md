@@ -501,3 +501,15 @@ included, so a test reading "the next frame" can get an event instead of its res
 - **`tauri-plugin-window-state` and a hidden window**: with the default flags the plugin shows the window itself after restoring (`StateFlags::VISIBLE`). We drop VISIBLE from the flags and
   show the window from `on_page_load` (plus a timer fallback) so the first paint is not white. The state file is written at `RunEvent::Exit`; a SIGKILL loses the last change.
 - **`tauri-plugin-window-state` 3.x is an alpha**: depend on `"2"`.
+
+## Terminal replay after view switches (2026-11-10)
+
+- **Replay saved output only after the first fit**: every view switch mounts a new xterm, which starts at 80x24. Writing the agent's saved output
+  (`rawOutput`) right away lays it out at 80 columns; the fit then reflows it into garbage (short lines, missing borders, extra rows), and the agent never
+  redraws because its PTY size did not change (no SIGWINCH). `TerminalPane` now writes nothing until the first successful fit (`outputReadyRef`). Chromium
+  usually fitted before parsing the write, WebKitGTK often did not: the bug only showed in the desktop app.
+- **Live-testing the real WebKit window**: run the app with `WEBKIT_INSPECTOR_HTTP_SERVER=127.0.0.1:9226` (Xvfb is fine). The page is at
+  `ws://127.0.0.1:9226/socket/1/1/WebPage` (WebKit inspector protocol: wait for `Target.targetCreated` of type `page`, then wrap every command in
+  `Target.sendMessageToTarget`; `Runtime.evaluate` for clicks/measurements, `Page.snapshotRect` for screenshots). Only one connection at a time. A debug
+  build loads `devUrl` (`http://localhost:1420`), so run Vite there. For terminal sizing, a fake `claude` script on `PATH` (with
+  `AGENT_STUDIO_NO_FIX_PATH=1`) that draws a frame of `tput cols`x`tput lines` and redraws on `SIGWINCH` shows both the PTY size and what xterm renders.
