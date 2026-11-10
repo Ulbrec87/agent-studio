@@ -513,3 +513,12 @@ included, so a test reading "the next frame" can get an event instead of its res
   `Target.sendMessageToTarget`; `Runtime.evaluate` for clicks/measurements, `Page.snapshotRect` for screenshots). Only one connection at a time. A debug
   build loads `devUrl` (`http://localhost:1420`), so run Vite there. For terminal sizing, a fake `claude` script on `PATH` (with
   `AGENT_STUDIO_NO_FIX_PATH=1`) that draws a frame of `tput cols`x`tput lines` and redraws on `SIGWINCH` shows both the PTY size and what xterm renders.
+
+## Windows: background commands flashing console windows (2026-11-10)
+
+- **Piped or null stdio does not suppress a Windows console.** Git/gh, provider version checks and model discovery
+  must use `as_core::process::{background_command, background_tokio_command}`, which set `CREATE_NO_WINDOW`.
+  Headless launches and the `taskkill` cleanup helpers use the same constructors. Keep PTY/ConPTY and explicit
+  "Open in Terminal" launches on their existing paths; the detached daemon keeps its own lifecycle flags.
+- **Verify the child has no console, not just captured output.** The Windows-only process tests ask a PowerShell
+  child for `GetConsoleWindow()` and require a null handle while checking both stdout and stderr still work.
