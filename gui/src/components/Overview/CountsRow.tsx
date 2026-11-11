@@ -41,7 +41,7 @@ export function CountsRow({ counts, onOpenChart, openChart }: CountsRowProps) {
     <dl className={styles.row} aria-label="Counts">
       <div className={styles.item}>
         <dt className={styles.label}>
-          <Dot kind="working" />
+          <MetricIcon kind="working" />
           {label('Working', 'working')}
         </dt>
         <dd className={styles.value}>{counts.working}</dd>
@@ -49,7 +49,7 @@ export function CountsRow({ counts, onOpenChart, openChart }: CountsRowProps) {
       </div>
       <div className={styles.item}>
         <dt className={styles.label}>
-          <Dot kind="idle" />
+          <MetricIcon kind="idle" />
           {label('Idle', 'idle')}
         </dt>
         <dd className={styles.value}>{counts.idle}</dd>
@@ -57,14 +57,14 @@ export function CountsRow({ counts, onOpenChart, openChart }: CountsRowProps) {
       </div>
       <div className={styles.item}>
         <dt className={styles.label}>
-          <Dot kind="stale" />
+          <MetricIcon kind="stale" />
           Stale
         </dt>
         <dd className={styles.value}>{counts.stale}</dd>
         <dd className={styles.detail}>idle for 24h+</dd>
       </div>
       <div className={styles.item}>
-        <dt className={styles.label}>Agents</dt>
+        <dt className={styles.label}><MetricIcon kind="agents" />Agents</dt>
         <dd className={styles.value}>{counts.total}</dd>
         <dd className={styles.detail}>
           {counts.open} open · <Dot kind="finished" />
@@ -80,5 +80,18 @@ export function CountsRow({ counts, onOpenChart, openChart }: CountsRowProps) {
         </dd>
       </div>
     </dl>
+  )
+}
+
+function MetricIcon({ kind }: { kind: 'working' | 'idle' | 'stale' | 'agents' }) {
+  return (
+    <span className={styles.metricIcon} data-kind={kind} aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        {kind === 'working' && <path d="m7 3 14 9-14 9V3Z" />}
+        {kind === 'idle' && <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>}
+        {kind === 'stale' && <><path d="m12 3 10 18H2L12 3Z" /><path d="M12 9v5m0 3h.01" /></>}
+        {kind === 'agents' && <><path d="m12 3 10 5-10 5L2 8l10-5Zm-10 9 10 5 10-5M2 16l10 5 10-5" /></>}
+      </svg>
+    </span>
   )
 }
