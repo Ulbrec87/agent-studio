@@ -486,6 +486,7 @@ export function InputBar({
           onClick={(e) => setCursorPosition(e.currentTarget.selectionStart ?? value.length)}
           onKeyUp={(e) => setCursorPosition(e.currentTarget.selectionStart ?? value.length)}
           onSelect={(e) => setCursorPosition(e.currentTarget.selectionStart ?? value.length)}
+          aria-label="Message to agent"
           placeholder={placeholder}
           disabled={disabled}
           rows={1}

@@ -3,7 +3,7 @@
   flex-direction: row;
   height: 100%;
   overflow: hidden;
-  background: var(--color-bg);
+  background: var(--color-code-bg);
 }
 
 .fileTreeSide {

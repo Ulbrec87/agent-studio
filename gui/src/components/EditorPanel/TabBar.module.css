@@ -80,7 +80,7 @@
   height: 16px;
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
-  opacity: 0;
+  opacity: .65;
   transition: all var(--transition-fast);
 }
 
@@ -92,3 +92,5 @@
   background: var(--color-surface-hover);
   color: var(--color-text-primary);
 }
+
+.tab:focus-within .closeBtn { opacity: 1; }

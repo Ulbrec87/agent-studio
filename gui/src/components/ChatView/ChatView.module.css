@@ -10,8 +10,9 @@
 .splitContainer {
   display: flex;
   flex-direction: row;
-  height: 100%;
-  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   background: var(--color-bg);
 }
 
@@ -21,6 +22,7 @@
   height: 100%;
   overflow: hidden;
   min-width: 300px;
+  flex: 1;
 }
 
 .editorSide {
@@ -60,9 +62,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-5);
+  padding: 16px 20px;
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
+  background: transparent;
   flex-shrink: 0;
 }
 
@@ -73,7 +75,7 @@
 }
 
 .agentName {
-  font-size: var(--font-size-md);
+  font-size: 20px;
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
 }
@@ -92,8 +94,8 @@
   align-items: center;
   gap: 6px;
   padding: 3px 10px 3px 5px;
-  border-radius: var(--radius-full);
-  background: var(--color-surface-hover);
+  border-radius: var(--radius-md);
+  background: var(--workspace-control-bg);
   border: 1px solid color-mix(in srgb, var(--color-border) 78%, var(--color-accent) 22%);
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
@@ -200,8 +202,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 9px;
+  gap: 7px;
   border-radius: var(--radius-full);
   background: var(--color-surface-hover);
   border: 1px solid var(--color-border);
@@ -344,10 +348,8 @@
   opacity: 0;
   transform: translateY(100%);
   overflow: hidden;
-  transition:
-    max-height 220ms ease,
-    transform 220ms ease,
-    opacity 180ms ease;
+  /* Terminal boxes resize immediately; only the visual fade is animated. */
+  transition: opacity 120ms ease;
 }
 
 .freeTerminalSliderOpen {
@@ -379,3 +381,19 @@
   background: var(--color-action-bg);
   opacity: 0.4;
 }
+
+.agentHeader { flex-wrap: wrap; gap: 12px; }
+.agentTitle { display: flex; align-items: center; gap: 12px; }
+.agentInfo { min-width: 0; }
+.agentMeta { min-height: 24px; }
+.agentName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projectPath { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+.statusBadge { color: var(--color-text-secondary); background: var(--color-accent-subtle); font-size: 11px; border-radius: var(--radius-sm); padding: 3px 7px; }
+.actionLabel { font-size: var(--font-size-sm); }
+.modelPill { border: 0; padding-left: 0; background: transparent; border-radius: var(--radius-sm); }
+.terminalWrapper, .idleEmptyState { margin: 12px 12px 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+.editorSide { margin: 12px 12px 12px 0; height: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--workspace-panel-bg); }
+.bottomDock { min-width: 0; }
+.removeBtn { color: var(--color-text-secondary); border-color: var(--color-border); background: var(--workspace-control-bg); }
+.freeTerminalSlider { margin-inline: 12px; }
+@media (max-width: 1100px) { .actionLabel { display: none; } .agentHeader { padding: 12px; } }
