@@ -1,3 +1,4 @@
+import { THEME_MAP } from '../../lib/monacoThemes'
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import type { GitPrDiff, GitPrFile, ProviderId, ModelId } from '@shared/types'
 import { PROVIDER_LABELS } from '@shared/types'
@@ -272,7 +273,12 @@ export function PrReviewTab({
                       height="100%"
                       value={selectedFile.patch}
                       language="diff"
-                      theme={theme === 'light' ? 'vs' : 'vs-dark'}
+                      theme={THEME_MAP[theme]?.name ?? (theme === 'light' ? 'vs' : 'vs-dark')}
+                      beforeMount={(monaco) => {
+                        for (const entry of Object.values(THEME_MAP)) {
+                          monaco.editor.defineTheme(entry.name, entry.data)
+                        }
+                      }}
                       options={{
                         readOnly: true,
                         fontSize: 13,

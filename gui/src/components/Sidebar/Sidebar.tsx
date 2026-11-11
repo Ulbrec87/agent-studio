@@ -271,6 +271,19 @@ export function Sidebar({
       <div
         className={`${styles.resizeHandle} ${isDragging ? styles.resizeHandleActive : ''}`}
         onPointerDown={handlePointerDown}
+        role="separator"
+        aria-label="Resize sidebar"
+        aria-orientation="vertical"
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={MAX_WIDTH}
+        aria-valuenow={width}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault()
+            onWidthChange(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width + (e.key === 'ArrowLeft' ? -20 : 20))))
+          }
+        }}
       />
     </aside>
   )

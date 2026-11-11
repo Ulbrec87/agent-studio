@@ -68,7 +68,7 @@ export function OpenInButton({ projectDir, defaultEditor, onSetDefaultEditor }: 
   return (
     <div className={styles.container} ref={containerRef}>
       <Tooltip content={`Open in ${defaultLabel}`}>
-        <button className={styles.mainBtn} onClick={handleMainClick}>
+        <button className={styles.mainBtn} onClick={handleMainClick} aria-label={`Open in ${defaultLabel}`}>
           <EditorIcon editor={defaultEditor} size={14} />
           <span className={styles.label}>Open</span>
         </button>
@@ -77,6 +77,8 @@ export function OpenInButton({ projectDir, defaultEditor, onSetDefaultEditor }: 
         <button
           className={`${styles.chevronBtn} ${open ? styles.chevronBtnOpen : ''}`}
           onClick={() => setOpen(!open)}
+          aria-label="Choose editor"
+          aria-expanded={open}
         >
           <ChevronIcon />
         </button>

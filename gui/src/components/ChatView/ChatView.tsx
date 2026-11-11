@@ -337,7 +337,7 @@ export function ChatView({
             )}
             <span className={styles.iconActionsDivider} aria-hidden="true" />
             <Tooltip content="Restart">
-              <button className={styles.actionBtn} onClick={onRestartAgent}>
+              <button className={styles.actionBtn} onClick={onRestartAgent} aria-label="Restart agent">
                 <RestartIcon />
               </button>
             </Tooltip>
@@ -437,7 +437,7 @@ function StatusBadge({ status }: { status: string }) {
   }
 
   return (
-    <span className={styles.statusBadge}>
+    <span className={styles.statusBadge} data-status={status}>
       <span className={styles.statusDot} style={{ background: colors[status] }} />
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
@@ -487,6 +487,14 @@ function VerticalResizeHandle({
       onPointerDown={handlePointerDown}
       role="separator"
       aria-orientation="horizontal"
+      aria-label="Resize terminal height"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault()
+          onDrag(e.key === 'ArrowUp' ? -20 : 20)
+        }
+      }}
     />
   )
 }

@@ -31,10 +31,12 @@
 }
 
 @keyframes tooltipIn {
+
   from {
     opacity: 0;
     transform: translateY(2px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -46,10 +48,12 @@
 }
 
 @keyframes tooltipInBottom {
+
   from {
     opacity: 0;
     transform: translateY(-2px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);

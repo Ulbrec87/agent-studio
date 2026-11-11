@@ -721,36 +721,36 @@ export default function App() {
       />
 
       <div className={styles.body}>
-            <Sidebar
-              projectGroups={projectGroups}
-              selectedAgentId={selectedAgentId}
-              onSelectAgent={handleJumpToAgent}
-              onNewAgent={() => {
-                void handleOpenNewAgent()
-              }}
-              onNewAgentForProject={(projectDir) => {
-                void handleNewAgentForProject(projectDir)
-              }}
-              onRenameAgent={(agentId, newName) => {
-                void renameAgent(agentId, newName)
-              }}
-              onRemoveAgent={(agentId) => {
-                void handleRemoveAgent(agentId)
-              }}
-              onStopAgent={(agentId) => {
-                void killAgent(agentId)
-              }}
-              width={sidebarWidth}
-              onWidthChange={setSidebarWidth}
-              sessionMaxAgeDays={config.sessionMaxAgeDays}
-              defaultEditor={config.defaultEditor}
-              claudeProfileByProject={config.claudeProfileByProject}
-              onSetClaudeProfile={(projectDir, configDir) => {
-                void updateConfig({
-                  claudeProfileByProject: withClaudeProfile(config.claudeProfileByProject ?? {}, projectDir, configDir)
-                })
-              }}
-            />
+        <Sidebar
+          projectGroups={projectGroups}
+          selectedAgentId={selectedAgentId}
+          onSelectAgent={handleJumpToAgent}
+          onNewAgent={() => {
+            void handleOpenNewAgent()
+          }}
+          onNewAgentForProject={(projectDir) => {
+            void handleNewAgentForProject(projectDir)
+          }}
+          onRenameAgent={(agentId, newName) => {
+            void renameAgent(agentId, newName)
+          }}
+          onRemoveAgent={(agentId) => {
+            void handleRemoveAgent(agentId)
+          }}
+          onStopAgent={(agentId) => {
+            void killAgent(agentId)
+          }}
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+          sessionMaxAgeDays={config.sessionMaxAgeDays}
+          defaultEditor={config.defaultEditor}
+          claudeProfileByProject={config.claudeProfileByProject}
+          onSetClaudeProfile={(projectDir, configDir) => {
+            void updateConfig({
+              claudeProfileByProject: withClaudeProfile(config.claudeProfileByProject ?? {}, projectDir, configDir)
+            })
+          }}
+        />
 
         <main className={styles.main}>
           {isViewSwitchPending ? (

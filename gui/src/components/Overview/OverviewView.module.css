@@ -62,8 +62,7 @@
 .grid {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  grid-template-areas:
-    'usage usage'
+  grid-template-areas: 'usage usage'
     'needs lastHour'
     'sessions events'
     'timeline timeline'
@@ -72,10 +71,10 @@
 }
 
 @container overview (max-width: 850px) {
+
   .grid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      'usage'
+    grid-template-areas: 'usage'
       'needs'
       'lastHour'
       'sessions'
@@ -85,13 +84,33 @@
   }
 }
 
-.usage { grid-area: usage; }
-.needs { grid-area: needs; }
-.lastHour { grid-area: lastHour; }
-.sessions { grid-area: sessions; }
-.events { grid-area: events; }
-.timeline { grid-area: timeline; }
-.waits { grid-area: waits; }
+.usage {
+  grid-area: usage;
+}
+
+.needs {
+  grid-area: needs;
+}
+
+.lastHour {
+  grid-area: lastHour;
+}
+
+.sessions {
+  grid-area: sessions;
+}
+
+.events {
+  grid-area: events;
+}
+
+.timeline {
+  grid-area: timeline;
+}
+
+.waits {
+  grid-area: waits;
+}
 
 .card {
   background: var(--workspace-panel-bg);
@@ -218,8 +237,26 @@
   border-radius: var(--radius-sm);
 }
 
-.summaryBlock { margin-bottom: 16px; }
-.cardHeader { min-height: 48px; flex-wrap: wrap; }
-.cardHeaderEnd { flex-wrap: wrap; }
-.select { padding: 8px 12px; }
-@media (max-width: 1050px) { .overview { padding: 16px; } }
+.summaryBlock {
+  margin-bottom: 16px;
+}
+
+.cardHeader {
+  min-height: 48px;
+  flex-wrap: wrap;
+}
+
+.cardHeaderEnd {
+  flex-wrap: wrap;
+}
+
+.select {
+  padding: 8px 12px;
+}
+
+@media (max-width: 1050px) {
+
+  .overview {
+    padding: 16px;
+  }
+}

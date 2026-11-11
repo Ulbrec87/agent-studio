@@ -77,4 +77,6 @@
   pointer-events: none;
 }
 
-.input { min-width: 0; }
+.input {
+  min-width: 0;
+}

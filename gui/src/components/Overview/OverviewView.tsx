@@ -247,18 +247,18 @@ export function OverviewView({ onOpenNewAgent, onJumpToAgent, overview, usage, o
       </div>
 
       <section className={styles.summaryBlock} aria-label="Agent statistics">
-            <CountsRow counts={counts} onOpenChart={toggleChart} openChart={chartKey} />
-            {chartKey && (
-              <CountHistory
-                key={chartKey}
-                metric={chartKey}
-                points={historyPoints ?? noPoints}
-                starts={historyStarts ?? noPoints}
-                now={now}
-                agentFilter={agentFilter}
-                onClose={closeChart}
-              />
-            )}
+        <CountsRow counts={counts} onOpenChart={toggleChart} openChart={chartKey} />
+        {chartKey && (
+          <CountHistory
+            key={chartKey}
+            metric={chartKey}
+            points={historyPoints ?? noPoints}
+            starts={historyStarts ?? noPoints}
+            now={now}
+            agentFilter={agentFilter}
+            onClose={closeChart}
+          />
+        )}
       </section>
 
       <div className={styles.grid}>

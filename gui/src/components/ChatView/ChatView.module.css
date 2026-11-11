@@ -7,6 +7,7 @@
 }
 
 /* Split layout: terminal + editor side by side */
+
 .splitContainer {
   display: flex;
   flex-direction: row;
@@ -58,6 +59,7 @@
 }
 
 /* Agent header */
+
 .agentHeader {
   display: flex;
   align-items: center;
@@ -244,6 +246,7 @@
 }
 
 /* Idle empty state — centered vertically and horizontally */
+
 .idleEmptyState {
   flex: 1;
   min-height: 0;
@@ -304,10 +307,14 @@
 }
 
 @keyframes idleSpin {
-  to { transform: rotate(360deg); }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Terminal */
+
 .terminalWrapper {
   flex: 1;
   min-height: 0;
@@ -336,6 +343,7 @@
 }
 
 /* Bottom dock: input + terminal slider */
+
 .bottomDock {
   flex-shrink: 0;
   display: flex;
@@ -348,6 +356,7 @@
   opacity: 0;
   transform: translateY(100%);
   overflow: hidden;
+
   /* Terminal boxes resize immediately; only the visual fade is animated. */
   transition: opacity 120ms ease;
 }
@@ -382,18 +391,108 @@
   opacity: 0.4;
 }
 
-.agentHeader { flex-wrap: wrap; gap: 12px; }
-.agentTitle { display: flex; align-items: center; gap: 12px; }
-.agentInfo { min-width: 0; }
-.agentMeta { min-height: 24px; }
-.agentName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.projectPath { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
-.statusBadge { color: var(--color-text-secondary); background: var(--color-accent-subtle); font-size: 11px; border-radius: var(--radius-sm); padding: 3px 7px; }
-.actionLabel { font-size: var(--font-size-sm); }
-.modelPill { border: 0; padding-left: 0; background: transparent; border-radius: var(--radius-sm); }
-.terminalWrapper, .idleEmptyState { margin: 12px 12px 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
-.editorSide { margin: 12px 12px 12px 0; height: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--workspace-panel-bg); }
-.bottomDock { min-width: 0; }
-.removeBtn { color: var(--color-text-secondary); border-color: var(--color-border); background: var(--workspace-control-bg); }
-.freeTerminalSlider { margin-inline: 12px; }
-@media (max-width: 1100px) { .actionLabel { display: none; } .agentHeader { padding: 12px; } }
+.agentHeader {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.agentTitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.agentInfo {
+  min-width: 0;
+}
+
+.agentMeta {
+  min-height: 24px;
+}
+
+.agentName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectPath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.statusBadge {
+  color: var(--color-text-secondary);
+  background: var(--color-accent-subtle);
+  font-size: 11px;
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+}
+
+.actionLabel {
+  font-size: var(--font-size-sm);
+}
+
+.modelPill {
+  border: 0;
+  padding-left: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+}
+
+.terminalWrapper, .idleEmptyState {
+  margin: 12px 12px 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.editorSide {
+  margin: 12px 12px 12px 0;
+  height: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--workspace-panel-bg);
+}
+
+.bottomDock {
+  min-width: 0;
+}
+
+.removeBtn {
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+  background: var(--workspace-control-bg);
+}
+
+.freeTerminalSlider {
+  margin-inline: 12px;
+}
+
+@media (max-width: 1100px) {
+
+  .actionLabel {
+    display: none;
+  }
+
+  .agentHeader {
+    padding: 12px;
+  }
+}
+
+.statusBadge[data-status='running'] {
+  color: var(--color-status-running);
+  background: color-mix(in srgb, var(--color-status-running) 12%, transparent);
+}
+
+.statusBadge[data-status='errored'] {
+  color: var(--color-status-error);
+  background: color-mix(in srgb, var(--color-status-error) 12%, transparent);
+}
+
+.statusBadge[data-status='starting'] {
+  color: var(--color-status-starting);
+  background: color-mix(in srgb, var(--color-status-starting) 12%, transparent);
+}

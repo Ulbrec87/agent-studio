@@ -137,6 +137,7 @@
 }
 
 /* Native select stretched invisibly over the chip so the OS menu opens on click. */
+
 .profileSelect {
   position: absolute;
   inset: 0;
@@ -145,8 +146,26 @@
   cursor: pointer;
 }
 
-.group { margin-bottom: 8px; }
-.groupRow { border-radius: var(--radius-md); }
-.groupRow:focus-within { background: var(--color-sidebar-hover); }
-.addBtn { width: 26px; height: 26px; border: 1px solid var(--color-border-subtle); }
-.count { border-radius: var(--radius-full); padding: 1px 5px; font-size: 10px; }
+.group {
+  margin-bottom: 8px;
+}
+
+.groupRow {
+  border-radius: var(--radius-md);
+}
+
+.groupRow:focus-within {
+  background: var(--color-sidebar-hover);
+}
+
+.addBtn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--color-border-subtle);
+}
+
+.count {
+  border-radius: var(--radius-full);
+  padding: 1px 5px;
+  font-size: 10px;
+}

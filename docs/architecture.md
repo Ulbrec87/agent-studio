@@ -220,6 +220,11 @@ The daemon is the same binary as the app (`agent-studio daemon --home <dir>`, hi
 `crates/as-gui` (member of the root workspace, `agent-studio` binary) is the only client. It hosts `gui/` (Hydra's React
 renderer) in a webview. The only seam between UI and backend is `gui/src/bridge`; see its README for the method table.
 
+The Modern Workspace layout is common to all color themes. `useAppearance` owns the DOM theme and the optional
+`agentStudio.appearance:v1` webview-local override for Modern Workspace Soft. Without that override the renderer follows
+`AppConfig.theme`; the three daemon theme identifiers and wire contracts are unchanged. Soft is never sent in an update-config request.
+
+
 * **Shell (Rust, generic).** `as_gui::link::DaemonLink` owns one shared `DaemonClient`. Commands: `app_info`, `daemon_request`
   (JSON of `Request` in, JSON of `Response` out, daemon errors as the rejection text, no per-method code) and `daemon_status`. At
   start, in the background (never blocking the window), it runs `ensure_daemon` (the GUI binary hosts the daemon: `current_exe daemon

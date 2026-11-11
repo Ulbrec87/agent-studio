@@ -3,6 +3,7 @@ import {
   DndContext,
   closestCenter,
   PointerSensor,
+  KeyboardSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -11,7 +12,8 @@ import {
 import {
   SortableContext,
   rectSortingStrategy,
-  useSortable
+  useSortable,
+  sortableKeyboardCoordinates
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { TerminalTile } from './TerminalTile'
@@ -219,7 +221,8 @@ export function GridView({
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 }
-    })
+    }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
   const [, setActiveDragId] = useState<string | null>(null)

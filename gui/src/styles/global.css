@@ -121,11 +121,13 @@ select:focus-visible {
 }
 
 /* xterm positions its helper textarea over the cursor. Do not outline that layer. */
+
 .xterm-helper-textarea:focus-visible {
   outline: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
@@ -136,6 +138,7 @@ select:focus-visible {
 
 /* WebKitGTK / WKWebView draw the popup of a native <select> themselves: without explicit colors it is white on white in dark
    themes (together with `color-scheme` in tokens.css). */
+
 select option,
 select optgroup {
   background-color: var(--color-input-bg);

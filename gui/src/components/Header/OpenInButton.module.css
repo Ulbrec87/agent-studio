@@ -117,5 +117,21 @@
   margin-left: var(--space-2);
 }
 
-.container { min-height: 36px; }
-@media (max-width: 1250px) { .label { display: none; } .mainBtn { padding-inline: 9px; } .chevronBtn { padding-inline: 7px; } }
+.container {
+  min-height: 36px;
+}
+
+@media (max-width: 1250px) {
+
+  .label {
+    display: none;
+  }
+
+  .mainBtn {
+    padding-inline: 9px;
+  }
+
+  .chevronBtn {
+    padding-inline: 7px;
+  }
+}

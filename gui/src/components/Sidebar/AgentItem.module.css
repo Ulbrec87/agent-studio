@@ -23,7 +23,6 @@
   border-left-color: var(--color-accent);
 }
 
-
 .statusDot {
   display: flex;
   align-items: center;
@@ -145,5 +144,12 @@
   background: color-mix(in srgb, var(--color-status-error) 10%, transparent);
 }
 
-.providerIcon { width: 17px; height: 17px; opacity: .9; }
-.contextMenuItem { min-height: 32px; }
+.providerIcon {
+  width: 17px;
+  height: 17px;
+  opacity: .9;
+}
+
+.contextMenuItem {
+  min-height: 32px;
+}

@@ -10,27 +10,155 @@
   flex-shrink: 0;
   z-index: 20;
 }
-.macHeader { padding-left: 84px; }
-.left, .right { display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; }
-.right { justify-content: flex-end; }
-.center { display: flex; flex-shrink: 0; }
-.logoMark { display: flex; align-items: center; color: var(--color-accent); flex-shrink: 0; margin-right: 4px; }
-.logoMark svg { pointer-events: none; }
-.brand { display: flex; flex-direction: column; white-space: nowrap; }
-.logo { font-size: 17px; font-weight: 600; letter-spacing: -.025em; color: var(--color-text-primary); }
-.subtitle { font-size: 11px; color: var(--color-text-secondary); }
-.projectName { font-size: var(--font-size-xs); color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.projectAddBtn, .settingsBtn { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--workspace-control-bg); color: var(--color-text-secondary); transition: background var(--transition-fast), color var(--transition-fast); }
-.projectAddBtn { width: 26px; height: 26px; margin-left: 8px; }
-.projectAddBtn:hover, .settingsBtn:hover { color: var(--color-text-primary); border-color: var(--color-text-muted); }
-.updateBtn { min-height: 36px; padding: 6px 12px; font-size: var(--font-size-xs); font-weight: 500; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--workspace-control-bg); color: var(--color-text-secondary); white-space: nowrap; }
-.updateBtn:hover { color: var(--color-text-primary); border-color: var(--color-text-muted); }
-.updateAvailable { border-color: var(--color-status-starting); }
-.updateReady { background: var(--color-action-bg); color: var(--color-accent-text); }
-@media (max-width: 1350px) { .projectName, .projectAddBtn { display: none; } .header { gap: 12px; padding-right: 12px; } }
+
+.macHeader {
+  padding-left: 84px;
+}
+
+.left, .right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.right {
+  justify-content: flex-end;
+}
+
+.center {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.logoMark {
+  display: flex;
+  align-items: center;
+  color: var(--color-accent);
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.logoMark svg {
+  pointer-events: none;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+}
+
+.logo {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.025em;
+  color: var(--color-text-primary);
+}
+
+.subtitle {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.projectName {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectAddBtn, .settingsBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--workspace-control-bg);
+  color: var(--color-text-secondary);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.projectAddBtn {
+  width: 26px;
+  height: 26px;
+  margin-left: 8px;
+}
+
+.projectAddBtn:hover, .settingsBtn:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-text-muted);
+}
+
+.updateBtn {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--workspace-control-bg);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.updateBtn:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-text-muted);
+}
+
+.updateAvailable {
+  border-color: var(--color-status-starting);
+}
+
+.updateReady {
+  background: var(--color-action-bg);
+  color: var(--color-accent-text);
+}
+
+@media (max-width: 1350px) {
+
+  .projectName, .projectAddBtn {
+    display: none;
+  }
+
+  .header {
+    gap: 12px;
+    padding-right: 12px;
+  }
+}
+
 @media (max-width: 1050px) {
-  .header { height: auto; min-height: 100px; display: grid; grid-template-columns: 1fr auto; padding-top: 8px; padding-bottom: 8px; gap: 6px 12px; }
-  .center { grid-row: 2; grid-column: 1 / -1; justify-content: center; }
-  .brand { flex-direction: row; gap: 10px; align-items: baseline; }
-  .logoMark svg { width: 24px; height: 28px; }
+
+  .header {
+    height: auto;
+    min-height: 100px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    gap: 6px 12px;
+  }
+
+  .center {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .brand {
+    flex-direction: row;
+    gap: 10px;
+    align-items: baseline;
+  }
+
+  .logoMark svg {
+    width: 24px;
+    height: 28px;
+  }
 }

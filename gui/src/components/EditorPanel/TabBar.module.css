@@ -93,4 +93,6 @@
   color: var(--color-text-primary);
 }
 
-.tab:focus-within .closeBtn { opacity: 1; }
+.tab:focus-within .closeBtn {
+  opacity: 1;
+}

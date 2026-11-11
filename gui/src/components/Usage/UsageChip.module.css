@@ -78,10 +78,14 @@
 }
 
 /* The header's right half runs out of room on narrower windows: keep the numbers, drop the bars. */
+
 @media (max-width: 1400px) {
+
   .track {
     display: none;
   }
 }
 
-.chip { min-height: 36px; }
+.chip {
+  min-height: 36px;
+}

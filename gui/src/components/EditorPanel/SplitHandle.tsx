@@ -43,6 +43,19 @@ export function SplitHandle({ onDrag, onDoubleClick }: SplitHandleProps) {
       className={`${styles.handle} ${isDragging ? styles.handleActive : ''}`}
       onPointerDown={handlePointerDown}
       onDoubleClick={onDoubleClick}
+      role="separator"
+      aria-label="Resize editor split"
+      aria-orientation="vertical"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          e.preventDefault()
+          onDrag(e.key === 'ArrowLeft' ? -20 : 20)
+        } else if (e.key === 'Home') {
+          e.preventDefault()
+          onDoubleClick()
+        }
+      }}
     />
   )
 }

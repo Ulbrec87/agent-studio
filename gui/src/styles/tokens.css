@@ -1,7 +1,9 @@
 /* ── Agent Studio Design Tokens ─────────────────────────────────────────────────── */
+
 /* Shared workspace geometry; color palettes remain independently selectable. */
 
 :root {
+
   /* Native widgets (select popups, scrollbars, form controls) follow this, not our CSS, in WebKit. */
   color-scheme: light;
 
@@ -93,7 +95,6 @@
   --color-surface-hover: #303e4e;
   --color-sidebar: #19212a;
   --color-sidebar-hover: #253344;
-
   --color-accent: #94b8df;
   --color-accent-hover: #b1ccea;
   --color-accent-text: #f5f8fc;
@@ -102,12 +103,11 @@
   --color-provider-codex: #89b3e0;
   --color-text-primary: #e8edf4;
   --color-text-secondary: #b1bdcd;
-  --color-text-muted: #94a2b5;
+  --color-text-muted: #9eacbf;
   --color-text-inverse: #151b22;
   --color-border: #354353;
   --color-border-subtle: #2a3643;
   --color-divider: #303d4b;
-
   --color-status-running: #85c89a;
   --color-status-idle: #a4aebb;
   --color-status-error: #ed9b9d;
@@ -117,7 +117,6 @@
   --color-yolo: #ed9b9d;
   --color-yolo-bg: rgba(237, 155, 157, 0.09);
   --color-yolo-border: rgba(237, 155, 157, 0.4);
-
   --color-input-bg: #202a35;
   --color-input-border: #435368;
   --color-input-focus: #94b8df;
@@ -129,14 +128,13 @@
   --color-terminal-text: #e0e7ef;
   --color-terminal-cursor: #a8c7e8;
   --color-terminal-selection: #344d69;
-
   --workspace-panel-bg: linear-gradient(145deg, #202a35, #1b232d);
   --workspace-control-bg: linear-gradient(180deg, #2a3746, #253140);
   --workspace-selected-bg: linear-gradient(135deg, #49688d, #3b5675);
   --workspace-selected-text: #f5f8fc;
   --workspace-focus: #a8c7e8;
   --color-action-bg: #4e6d92;
-  --color-action-hover: #5c7ba0;
+  --color-action-hover: #537296;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.16);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.32);
@@ -153,7 +151,6 @@
   --color-surface-hover: #F5F0EA;
   --color-sidebar: #F0EBE4;
   --color-sidebar-hover: #E8E2DA;
-
   --color-accent: #D97757;
   --color-accent-hover: #C4623F;
   --color-accent-text: #FFFFFF;
@@ -162,37 +159,29 @@
   /* Usage providers (Claude stays terracotta in every theme) */
   --color-provider-claude: #D97757;
   --color-provider-codex: #4A86D9;
-
   --color-text-primary: #2D2420;
   --color-text-secondary: #7A6F66;
   --color-text-muted: #B0A79E;
   --color-text-inverse: #FAF6F1;
-
   --color-border: #E5DFD8;
   --color-border-subtle: #EDE8E2;
   --color-divider: #E5DFD8;
-
   --color-status-running: #4CAF50;
   --color-status-idle: #9E9E9E;
   --color-status-error: #E53935;
   --color-status-starting: #FF9800;
   --color-status-finished: #4A86D9;
   --color-status-not-running: #B8B2AB;
-
   --color-yolo: #E53935;
   --color-yolo-bg: rgba(229, 57, 53, 0.08);
   --color-yolo-border: rgba(229, 57, 53, 0.3);
-
   --color-input-bg: #FFFFFF;
   --color-input-border: #E5DFD8;
   --color-input-focus: #D97757;
-
   --color-code-bg: #F5F0EA;
   --color-code-border: #E5DFD8;
-
   --color-scrollbar: rgba(45, 36, 32, 0.15);
   --color-scrollbar-hover: rgba(45, 36, 32, 0.25);
-
   --shadow-sm: 0 1px 2px rgba(45, 36, 32, 0.06);
   --shadow-md: 0 2px 8px rgba(45, 36, 32, 0.08);
   --shadow-lg: 0 4px 16px rgba(45, 36, 32, 0.12);
@@ -209,7 +198,6 @@
   --color-surface-hover: #46463f;
   --color-sidebar: #2b2b29;
   --color-sidebar-hover: #30302e;
-
   --color-accent: #E08B6D;
   --color-accent-hover: #D97757;
   --color-accent-text: #262624;
@@ -218,37 +206,29 @@
   /* Usage providers (Claude stays terracotta in every theme) */
   --color-provider-claude: #E08B6D;
   --color-provider-codex: #64A6F0;
-
   --color-text-primary: #E8E4E0;
   --color-text-secondary: #A8A49E;
   --color-text-muted: #6B6760;
   --color-text-inverse: #262624;
-
   --color-border: #3b3b38;
   --color-border-subtle: #353532;
   --color-divider: #3b3b38;
-
   --color-status-running: #66BB6A;
   --color-status-idle: #757575;
   --color-status-error: #EF5350;
   --color-status-starting: #FFA726;
   --color-status-finished: #64A6F0;
   --color-status-not-running: #6B6660;
-
   --color-yolo: #FF5252;
   --color-yolo-bg: rgba(255, 82, 82, 0.1);
   --color-yolo-border: rgba(255, 82, 82, 0.35);
-
   --color-input-bg: #30302e;
   --color-input-border: #3b3b38;
   --color-input-focus: #E08B6D;
-
   --color-code-bg: #2a2a28;
   --color-code-border: #3b3b38;
-
   --color-scrollbar: rgba(232, 224, 216, 0.12);
   --color-scrollbar-hover: rgba(232, 224, 216, 0.2);
-
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
@@ -265,7 +245,6 @@
   --color-surface-hover: #252525;
   --color-sidebar: #191919;
   --color-sidebar-hover: #212121;
-
   --color-accent: #FFFFFF;
   --color-accent-hover: #D4D4D4;
   --color-accent-text: #191919;
@@ -274,34 +253,27 @@
   /* Usage providers (Claude stays terracotta in every theme) */
   --color-provider-claude: #E08B6D;
   --color-provider-codex: #79B8FF;
-
   --color-text-primary: #E8E8E8;
   --color-text-secondary: #A0A0A0;
   --color-text-muted: #666666;
   --color-text-inverse: #191919;
-
   --color-border: #2a2a2a;
   --color-border-subtle: #222222;
   --color-divider: #252525;
-
   --color-status-running: #7EE787;
   --color-status-idle: #777777;
   --color-status-error: #FF6B6B;
   --color-status-starting: #FFD166;
   --color-status-finished: #79B8FF;
   --color-status-not-running: #5C5852;
-
   --color-yolo: #FFFFFF;
   --color-yolo-bg: rgba(255, 255, 255, 0.08);
   --color-yolo-border: rgba(255, 255, 255, 0.25);
-
   --color-input-bg: #191919;
   --color-input-border: #2a2a2a;
   --color-input-focus: #404040;
-
   --color-code-bg: #191919;
   --color-code-border: #333333;
-
   --color-scrollbar: rgba(255, 255, 255, 0.12);
   --color-scrollbar-hover: rgba(255, 255, 255, 0.2);
 
@@ -310,7 +282,6 @@
   --color-terminal-text: #E8E8E8;
   --color-terminal-cursor: #E8E8E8;
   --color-terminal-selection: rgba(255, 255, 255, 0.15);
-
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.44);
   --shadow-lg: 0 6px 20px rgba(0, 0, 0, 0.5);

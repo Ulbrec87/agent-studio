@@ -155,9 +155,17 @@
   flex-shrink: 0;
 }
 
-.statusStaged { color: var(--color-status-running); }
-.statusModified { color: #E6A23C; }
-.statusUntracked { color: var(--color-text-muted); }
+.statusStaged {
+  color: var(--color-status-running);
+}
+
+.statusModified {
+  color: #E6A23C;
+}
+
+.statusUntracked {
+  color: var(--color-text-muted);
+}
 
 .fileName {
   overflow: hidden;

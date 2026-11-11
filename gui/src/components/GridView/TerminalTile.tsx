@@ -124,6 +124,9 @@ function TerminalTileInner({
         <div className={styles.badges}>
           {projectName && <span className={styles.projectBadge}>{projectName}</span>}
           <span className={styles.modelBadge}>{modelLabel}</span>
+          <span className={styles.stateBadge} style={{ color: STATUS_COLORS[agent.status] }}>
+            {agent.status === 'errored' ? 'Disconnected' : agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}
+          </span>
           {agent.yolo && <span className={styles.yoloBadge}>YOLO</span>}
         </div>
 

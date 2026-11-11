@@ -71,7 +71,7 @@ const THEMES: Array<{ id: AppearanceThemeId; label: string; description: string;
   {
     id: 'dark',
     label: 'Terracotta',
-    description: 'Current warm dark palette with terracotta accents.',
+    description: 'Warm dark palette with terracotta accents.',
     swatches: ['#262624', '#30302e']
   },
   {

@@ -198,6 +198,7 @@
 }
 
 @media (max-width: 760px) {
+
   .meta {
     grid-template-columns: 1fr;
   }
@@ -207,4 +208,3 @@
     justify-content: flex-start;
   }
 }
-
