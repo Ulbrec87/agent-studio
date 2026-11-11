@@ -82,26 +82,26 @@ export const workspaceSoft: editor.IStandaloneThemeData = {
   base: 'vs-dark',
   inherit: true,
   rules: [
-    { token: 'comment', foreground: '94A2B5', fontStyle: 'italic' },
+    { token: 'comment', foreground: 'A5AFBD', fontStyle: 'italic' },
     { token: 'keyword', foreground: 'C3A5D8' },
     { token: 'string', foreground: 'D6B08B' },
     { token: 'number', foreground: 'A6C6A3' },
     { token: 'type', foreground: '92BECE' }
   ],
   colors: {
-    'editor.background': '#10161D',
-    'editor.foreground': '#E0E7EF',
-    'editor.lineHighlightBackground': '#1D2835',
-    'editor.selectionBackground': '#344D69',
-    'editor.inactiveSelectionBackground': '#293A4D',
-    'editorLineNumber.foreground': '#94A2B5',
-    'editorLineNumber.activeForeground': '#E0E7EF',
-    'editorCursor.foreground': '#A8C7E8',
-    'editorIndentGuide.background1': '#2A3643',
-    'editorIndentGuide.activeBackground1': '#546B84',
-    'editorWidget.background': '#202A35',
-    'editorWidget.border': '#435368',
-    'editorGutter.background': '#10161D'
+    'editor.background': '#12171D',
+    'editor.foreground': '#E2E6EC',
+    'editor.lineHighlightBackground': '#232C36',
+    'editor.selectionBackground': '#36495E',
+    'editor.inactiveSelectionBackground': '#2E3B49',
+    'editorLineNumber.foreground': '#A5AFBD',
+    'editorLineNumber.activeForeground': '#E2E6EC',
+    'editorCursor.foreground': '#B2C8E1',
+    'editorIndentGuide.background1': '#2E3741',
+    'editorIndentGuide.activeBackground1': '#5B6B7D',
+    'editorWidget.background': '#242C35',
+    'editorWidget.border': '#46515F',
+    'editorGutter.background': '#12171D'
   }
 }
 

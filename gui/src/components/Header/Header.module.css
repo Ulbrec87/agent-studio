@@ -5,7 +5,7 @@
   gap: var(--space-4);
   height: var(--header-height);
   padding: 0 var(--space-5);
-  background: var(--workspace-panel-bg);
+  background: var(--workspace-header-bg);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
   z-index: 20;

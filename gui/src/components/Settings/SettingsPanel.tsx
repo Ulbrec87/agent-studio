@@ -65,8 +65,8 @@ const THEMES: Array<{ id: AppearanceThemeId; label: string; description: string;
   {
     id: 'modern-workspace-soft',
     label: 'Modern Workspace Soft',
-    description: 'Blue-slate surfaces with soft, desaturated accents.',
-    swatches: ['#171d25', '#54749a']
+    description: 'Neutral anthracite surfaces with soft blue accents.',
+    swatches: ['#1c222a', '#526b88']
   },
   {
     id: 'dark',
