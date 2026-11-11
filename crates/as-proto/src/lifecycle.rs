@@ -197,7 +197,7 @@ fn terminate_pid(pid: u32) {
 
 #[cfg(not(unix))]
 fn terminate_pid(pid: u32) {
-    let _ = std::process::Command::new("taskkill")
+    let _ = as_core::process::background_command("taskkill")
         .args(["/PID", &pid.to_string(), "/F"])
         .output();
 }

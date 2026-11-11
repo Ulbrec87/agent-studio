@@ -18,7 +18,6 @@ use chrono::SecondsFormat;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
-use tokio::process::Command;
 use tokio::sync::{Notify, broadcast};
 
 use crate::agents::env::{EnvOverrides, build_agent_env_from_process, claude_profile_env};
@@ -219,7 +218,7 @@ impl HeadlessOrchestrator {
         cwd: &str,
     ) -> std::io::Result<tokio::process::Child> {
         let launch = |cmd: &str, args: &[String]| {
-            let mut c = Command::new(cmd);
+            let mut c = crate::process::background_tokio_command(cmd);
             c.args(args)
                 .env_clear()
                 .envs(env)
@@ -231,11 +230,6 @@ impl HeadlessOrchestrator {
             }
             #[cfg(unix)]
             c.process_group(0); // own group: cancel stops the whole tree
-            #[cfg(windows)]
-            {
-                // CREATE_NO_WINDOW
-                c.creation_flags(0x0800_0000);
-            }
             c.spawn()
         };
         match launch(&spec.cmd, &spec.args) {
@@ -643,7 +637,7 @@ fn terminate_tree(pid: Option<u32>, force: bool) {
     #[cfg(windows)]
     {
         let _ = force;
-        let _ = std::process::Command::new("taskkill")
+        let _ = crate::process::background_command("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())

@@ -8,8 +8,8 @@ Update the row (and add new rows) in the same commit that ports the code.
 | `shared/types.ts` (Agent*, Provider*, AppConfig, DEFAULT_CONFIG) | `as-core::types`, `as-core::usage_settings` | P1 | done (minus Electron-only terminal keys) |
 | `electron/config/ConfigStore.ts` | `as-core::config::ConfigStore` | P1 | done |
 | `electron/config/KeybindingStore.ts`, `shared/keybindings.ts`, `useKeybindings.ts` | TUI prefix-key catalog removed in step B; the GUI uses Hydra's own (`gui/shared/keybindings.ts`, `as-core::gui_keybindings`) | P5 | removed (TUI dropped) |
-| `electron/agents/providers.ts` | `as-core::agents::providers` | P1 | done |
-| `electron/agents/ProviderModelCatalog.ts` | `as-core::agents::model_catalog` (+ `ListProviderModels`) | P4 | done (discovered list replaces the built-in one, which stays the fallback; failures cached 30 s) |
+| `electron/agents/providers.ts` | `as-core::agents::providers` | P1 | done (version checks suppress Windows console windows) |
+| `electron/agents/ProviderModelCatalog.ts` | `as-core::agents::model_catalog` (+ `ListProviderModels`) | P4 | done (discovered list replaces the built-in one, which stays the fallback; failures cached 30 s; background discovery suppresses Windows console windows) |
 | `electron/agents/shellWrapper.ts` | `as-core::agents::shell` | P1 | done |
 | `electron/agents/agentEnv.ts` | `as-core::agents::env` | P1 | done |
 | `electron/util/fix-path.ts` | `as-core::agents::shell` (login-shell PATH) | P1 | done (`shell::fixed_path` returns the PATH; daemon applies it in P2) |
@@ -42,9 +42,9 @@ Update the row (and add new rows) in the same commit that ports the code.
 | usage routes/events of `electron/daemon/{DaemonServer,protocol}.ts`, `USAGE_*` IPC | `as-proto` `GetUsageState`/`GetUsageSummary`/`GetUsageReport`/`RefreshUsage`/`UsageVisible` + `Event::UsageChanged`, `NotificationKind::UsageLimit` | P7 | done |
 | `src/components/Usage/*`, `UsageDashboard`, `Overview/UsageCard.tsx`, `hooks/useUsage.ts` | — | P7 | removed (TUI dropped in step B of the GUI-only plan; the Hydra renderer in `gui/` replaces it) |
 | `electron/mcp/{McpServer,manager-workspace}.ts` | `as-daemon::mcp::{mod (server, bearer auth), tools (`studio_*`), workspace, text}` (rmcp 3.8 streamable HTTP + axum) | P8 | done (7 tools like Hydra; `hydra_get_notifications` and the `/notifications` endpoints not ported; bearer token added; `create_agent` also checks the folder and `maxAgents`) |
-| `electron/headless/HeadlessOrchestrator.ts` (+ test) | `as-core::headless::{mod (orchestrator), log (tail), types}`; protocol `StartHeadlessRun`/`ListHeadlessRuns`/`GetHeadlessRun`/`CancelHeadlessRun`/`GetHeadlessRunLog`, events `HeadlessRunEvent`/`HeadlessRunChanged`, notifications `HeadlessCompleted`/`HeadlessErrored` | P8 | done (shell wrapping + profile env reused, process-group/`taskkill /T` cancel, stderr kept in the log, runs left `running` by a dead daemon become `errored`; no retention, like Hydra; Claude gets `--verbose`) |
+| `electron/headless/HeadlessOrchestrator.ts` (+ test) | `as-core::headless::{mod (orchestrator), log (tail), types}`; protocol `StartHeadlessRun`/`ListHeadlessRuns`/`GetHeadlessRun`/`CancelHeadlessRun`/`GetHeadlessRunLog`, events `HeadlessRunEvent`/`HeadlessRunChanged`, notifications `HeadlessCompleted`/`HeadlessErrored` | P8 | done (shell wrapping + profile env reused, process-group/`taskkill /T` cancel, stderr kept in the log, runs left `running` by a dead daemon become `errored`; no retention, like Hydra; Claude gets `--verbose`; launches and `taskkill` suppress Windows console windows) |
 | `src/components/Headless/HeadlessPanel.tsx`, manager toggle of `NewAgentDialog.tsx`, MCP status of Settings | — | P8 | removed (TUI dropped in step B of the GUI-only plan; the Hydra renderer in `gui/` replaces it) |
-| `electron/git/GitService.ts` | `as-core::git` | P9 | done |
+| `electron/git/GitService.ts` | `as-core::git` | P9 | done (Git/gh background commands suppress Windows console windows) |
 | `src/components/GitPanel/*` | — | P9 | removed (TUI dropped in step B of the GUI-only plan; the Hydra renderer in `gui/` replaces it) |
 | `electron/fs/FileSystemService.ts` | `as-core::fs` (gitignore-aware fuzzy search with `ignore` + `nucleo-matcher`; read-only; no watcher: mtime polled every 1 s) | P9 | done (no write: editing opens `$EDITOR`) |
 | `src/components/EditorPanel/*`, `FileSearchPopup` | — | P9 | removed (TUI dropped in step B of the GUI-only plan; the Hydra renderer in `gui/` replaces it) |
@@ -81,3 +81,7 @@ Plan: [docs/plans/2026-11-05-gui-tauri-plan.md](plans/2026-11-05-gui-tauri-plan.
 | `electron/git/GitService.ts`, `fs/FileSystemService.ts` (IPC side), clipboard/dialog/open-in/free-terminal/test-terminal IPC | `gui/src/bridge/{gitApi,filesApi,terminalsApi,nativeApi}.ts` + `FsWriteFile`/`FsListDirs` in `as-proto`/`as-daemon`/`as-core::fs` + Tauri dialog/opener plugins | G2a | done (see the bridge README, "G2a"; the file watcher is a 1 s `FsMtime` poller) |
 | `electron-builder.yml`, installers | `crates/as-gui/tauri.conf.json` (`bundle.targets`: appimage, deb, dmg, msi) + `.github/workflows/release.yml` | G4 | done (unsigned; built by the release workflow, step B of the GUI-only plan) |
 | `src/components/ChatView/InputBar.tsx` (slash menu: `/clear`, `/rename` for Claude, `/model` for Codex) | `gui/src/components/ChatView/{InputBar.tsx,slashCommands.ts}` | — | changed: the menu floats above the input card (Hydra put it in the flow and grew the chat box); each CLI's built-in commands are listed (static lists); custom commands (`.claude/commands`) not yet |
+
+Windows startup follow-up: the G1 bridge waits for an observed daemon status before reporting it to the banner, preventing repeated reloads with delayed native IPC. The global preflight gate accepts any installed supported provider; provider-specific checks remain strict.
+
+Windows PATH fallbacks also include the Codex installer's `Programs/OpenAI/Codex/bin` under LOCALAPPDATA.

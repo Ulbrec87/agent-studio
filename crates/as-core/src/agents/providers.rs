@@ -6,7 +6,6 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use regex::Regex;
-use tokio::process::Command;
 
 use crate::types::{AgentState, ModelId, ProviderId};
 
@@ -210,7 +209,7 @@ async fn read_version(path: &str, command: &str) -> Option<String> {
 }
 
 async fn run_version(target: &str) -> Option<String> {
-    let mut cmd = Command::new(target);
+    let mut cmd = crate::process::background_tokio_command(target);
     cmd.arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
