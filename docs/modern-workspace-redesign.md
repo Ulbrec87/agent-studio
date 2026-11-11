@@ -32,7 +32,7 @@ Frontend validation after the redesign:
 
 The browser inventory exposed no usable browser surface. Opening the integrated browser first timed out during automatic permission review; the retry returned `Browser is not available: iab`. Consequently no real application screenshots or visual comparisons were captured. The implementation must remain a draft until visual and native checks are completed; unit tests do not establish pixel fidelity or real PTY behavior.
 
-The current environment lacks Rust and WebKit/GTK development libraries. Native Tauri/PTY verification requires a suitable desktop environment; the existing CI checks Rust on Linux, macOS and Windows. Browser mock previews are not evidence of a real agent process.
+The host lacks Rust and WebKit/GTK development headers. A dedicated Debian 12 Docker builder now supplies those build prerequisites without installing tools on the host. The resulting Linux release binary was exercised on the host through the native dev bridge: daemon ping, empty isolated profile, a real PTY command, resize to 100 × 32 and clean shutdown all passed. Interactive Tauri window behavior and visual fidelity still require a desktop check; the existing CI covers Linux, macOS and Windows.
 
 ## Desktop acceptance checklist
 
@@ -51,3 +51,19 @@ The following manual checks remain open:
 - Git continues using its existing split/overlay placements.
 - The renewed layout is shared by every color theme. No legacy layout switch is maintained.
 - Keep Midnight as the default color theme; Soft is opt-in.
+
+
+## Local Linux preview
+
+A follow-up palette revision reduces blue saturation in large surfaces, uses neutral anthracite/slate tones sampled from the approved references, and reserves blue for selected controls and accents. Header and sidebar use separate surface treatments; Chat toolbar controls use compact rounded rectangles. Monaco follows the revised palette. Existing themes retain their palettes.
+
+The local Linux x86_64 build of commit `679faf83186a94482398552be0d5aac20aa7471a` is in the ignored `target/local-release/` directory:
+
+- `run-preview.sh`: starts the real desktop app with the regular Agent Studio data directory, projects, sessions and settings.
+- `run-isolated-preview.sh`: optional separate data directory for an independent trial. Automated smoke checks use an isolated temporary profile.
+- `agent-studio`: stripped release executable.
+- `agent-studio_0.1.2_amd64.deb`: optional installable Debian/Ubuntu/Mint package.
+- `agent-studio-modern-workspace-linux-x64.tar.gz`: executable and launchers for running without installation.
+- `SHA256SUMS`, `build-info.json`, and `native-smoke.json`: integrity and build/check metadata.
+
+Build validation: frontend production build passed; 18 targeted appearance/Chat/xterm tests passed; lint retains only its three existing warnings; Rust formatting passed; native release and Debian packaging passed; host dynamic linking reports no missing libraries; native daemon/PTY smoke passed. The package retains version 0.1.2 and no GitHub release or tag was created.
