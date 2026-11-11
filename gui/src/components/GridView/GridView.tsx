@@ -283,6 +283,7 @@ export function GridView({
           <button
             className={`${styles.projectTab} ${isRunning ? styles.activeTab : ''}`}
             onClick={() => onSelectProject(RUNNING_PROJECT_ID)}
+            aria-pressed={isRunning}
           >
             Running
             <span className={styles.tabCount}>{runningCount}</span>
@@ -296,6 +297,7 @@ export function GridView({
                 key={g.projectDir}
                 className={`${styles.projectTab} ${g.projectDir === selectedProject ? styles.activeTab : ''}`}
                 onClick={() => onSelectProject(g.projectDir)}
+                aria-pressed={g.projectDir === selectedProject}
               >
                 {g.projectName}
                 <span className={styles.tabCount}>{displayCount}</span>
@@ -308,10 +310,11 @@ export function GridView({
           <button
             className={`${styles.runningFilter} ${showOnlyRunning ? styles.runningFilterActive : ''}`}
             onClick={() => setShowOnlyRunning((v) => !v)}
+            aria-pressed={showOnlyRunning}
             title={showOnlyRunning ? 'Showing only running agents — click to show all' : 'Show only running agents'}
           >
             <span className={styles.runningDot} aria-hidden="true" />
-            {showOnlyRunning ? 'Running only' : 'All'}
+            Running only
           </button>
         )}
 
@@ -323,8 +326,11 @@ export function GridView({
               className={`${styles.columnBtn} ${gridColumns === opt.value ? styles.columnBtnActive : ''}`}
               onClick={() => onGridColumnsChange(opt.value)}
               title={opt.label}
+              aria-label={opt.label}
+              aria-pressed={gridColumns === opt.value}
             >
               {opt.icon}
+              <span>{opt.value === 'auto' ? 'Auto' : opt.value}</span>
             </button>
           ))}
         </div>
