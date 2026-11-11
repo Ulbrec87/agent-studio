@@ -221,7 +221,7 @@
 }
 
 .commitBtnPrimary {
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
   border-color: var(--color-accent);
 }

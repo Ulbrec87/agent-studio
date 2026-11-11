@@ -232,7 +232,7 @@
 
 .segmentBtnActive {
   color: var(--color-accent-text);
-  background: var(--color-accent);
+  background: var(--color-action-bg);
 }
 
 .trendBody {

@@ -19,7 +19,7 @@
 }
 
 .chip:hover {
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
 }
 

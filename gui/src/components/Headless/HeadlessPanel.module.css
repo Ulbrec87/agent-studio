@@ -91,7 +91,7 @@
 }
 
 .startBtn {
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
   border-color: transparent;
 }

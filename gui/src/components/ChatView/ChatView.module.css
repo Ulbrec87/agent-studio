@@ -376,6 +376,6 @@
 
 .terminalResizeHandle:hover,
 .terminalResizeHandleActive {
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   opacity: 0.4;
 }

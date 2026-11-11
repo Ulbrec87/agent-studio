@@ -152,7 +152,7 @@ export default function App() {
 
   const editorPanel = useEditorPanel(selectedAgentId, selectedAgent?.state.projectDir)
 
-  const [sidebarWidth, setSidebarWidth] = useState(persistedUi.sidebarWidth ?? 260)
+  const [sidebarWidth, setSidebarWidth] = useState(persistedUi.sidebarWidth ?? 280)
 
   const [showSettings, setShowSettings] = useState(false)
   const [showNewAgent, setShowNewAgent] = useState(false)
@@ -721,22 +721,10 @@ export default function App() {
       />
 
       <div className={styles.body}>
-        {viewMode === 'chat' && (
-          isViewSwitchPending ? (
-            <aside className={styles.sidebarLoading} aria-hidden="true">
-              <div className={styles.sidebarLoadingSearch} />
-              <div className={styles.sidebarLoadingSection} />
-              <div className={styles.sidebarLoadingList}>
-                <div className={styles.sidebarLoadingItem} />
-                <div className={styles.sidebarLoadingItem} />
-                <div className={styles.sidebarLoadingItem} />
-              </div>
-            </aside>
-          ) : (
             <Sidebar
               projectGroups={projectGroups}
               selectedAgentId={selectedAgentId}
-              onSelectAgent={setSelectedAgentId}
+              onSelectAgent={handleJumpToAgent}
               onNewAgent={() => {
                 void handleOpenNewAgent()
               }}
@@ -763,8 +751,6 @@ export default function App() {
                 })
               }}
             />
-          )
-        )}
 
         <main className={styles.main}>
           {isViewSwitchPending ? (

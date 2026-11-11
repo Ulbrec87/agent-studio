@@ -173,7 +173,7 @@
 
 .primaryBtn {
   margin-top: var(--space-2);
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
   border-radius: var(--radius-md);
   padding: 6px var(--space-4);
@@ -182,7 +182,7 @@
 }
 
 .primaryBtn:hover {
-  background: var(--color-accent-hover);
+  background: var(--color-action-hover);
 }
 
 .needsBody {

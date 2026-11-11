@@ -48,7 +48,7 @@ type SectionId =
   | 'import'
 
 const SECTIONS: Array<{ id: SectionId; label: string; keywords: string[] }> = [
-  { id: 'appearance', label: 'Appearance', keywords: ['appearance', 'theme', 'color', 'view', 'chat', 'grid', 'sound', 'dark', 'light', 'midnight', 'terracotta', 'overlay', 'split', 'git panel', 'editor panel', 'side loader'] },
+  { id: 'appearance', label: 'Appearance', keywords: ['appearance', 'theme', 'color', 'view', 'chat', 'grid', 'sound', 'dark', 'light', 'midnight', 'terracotta', 'modern', 'workspace', 'soft', 'slate', 'overlay', 'split', 'git panel', 'editor panel', 'side loader'] },
   { id: 'agents', label: 'Agent Defaults', keywords: ['agent', 'provider', 'model', 'claude', 'codex', 'opencode', 'concurrent', 'max', 'yolo', 'project', 'directory'] },
   { id: 'profiles', label: 'Claude Profiles', keywords: ['claude', 'profile', 'account', 'config dir', 'claude_config_dir', 'work', 'project'] },
   { id: 'sessions', label: 'Session Import', keywords: ['session', 'import', 'limit', 'age', 'prefix', 'hidden'] },

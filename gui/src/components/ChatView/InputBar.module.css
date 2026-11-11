@@ -192,14 +192,14 @@
   width: 30px;
   height: 30px;
   border-radius: var(--radius-full);
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
   transition: all var(--transition-fast);
   flex-shrink: 0;
 }
 
 .sendBtn:hover:not(:disabled) {
-  background: var(--color-accent-hover);
+  background: var(--color-action-hover);
 }
 
 .sendBtn:disabled {

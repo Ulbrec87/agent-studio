@@ -208,7 +208,7 @@ export function Sidebar({
   }, [selectionMode, numberedAgentMap, onSelectAgent])
 
   return (
-    <aside className={styles.sidebar} style={{ width }}>
+    <aside className={styles.sidebar} style={{ width }} aria-label="Projects and agents">
       <div className={styles.searchWrapper}>
         <SearchBar
           value={searchQuery}
@@ -220,7 +220,7 @@ export function Sidebar({
       <FilterChips chips={chips} onDismiss={dismissChip} />
 
       <div className={styles.sectionHeader}>
-        <span className={styles.sectionLabel}>PROJECTS</span>
+        <span className={styles.sectionLabel}>Projects</span>
         <div className={styles.sectionActions}>
           <SortDropdown value={sortKey} onChange={setSortKey} />
           <FilterDropdown

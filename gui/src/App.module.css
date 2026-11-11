@@ -218,13 +218,13 @@
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--color-accent-text);
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
 }
 
 .primaryBtn:hover:not(:disabled) {
-  background: var(--color-accent-hover);
+  background: var(--color-action-hover);
 }
 
 .primaryBtn:disabled {

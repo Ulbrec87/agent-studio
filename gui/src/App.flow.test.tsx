@@ -79,8 +79,11 @@ vi.mock('./components/Header/Header', () => ({
 }))
 
 vi.mock('./components/Sidebar/Sidebar', () => ({
-  Sidebar: (props: { onNewAgent: () => void }) => (
-    <button onClick={props.onNewAgent}>new-agent</button>
+  Sidebar: (props: { onNewAgent: () => void; onSelectAgent: (id: string) => void }) => (
+    <aside aria-label="Projects and agents">
+      <button onClick={props.onNewAgent}>new-agent</button>
+      <button onClick={() => props.onSelectAgent('agent-jump')}>sidebar-open-agent</button>
+    </aside>
   )
 }))
 
@@ -430,6 +433,19 @@ describe('App flow behavior', () => {
     expect(currentViewMode).toBe('chat')
     rerender(<App />)
     expect(await screen.findByText('chat-view')).toBeTruthy()
+  })
+
+  it.each(['grid', 'overview'] as const)('keeps sidebar navigation available in %s', async (mode) => {
+    window.localStorage.setItem('agentStudio.workspace-ui:v1', JSON.stringify({ viewMode: mode }))
+    currentViewMode = mode
+    setupViewModeMock()
+    const state = buildAgentsState()
+    mockUseAgents.mockReturnValue(state)
+    render(<App />)
+    expect(screen.getByRole('complementary', { name: 'Projects and agents' })).toBeTruthy()
+    fireEvent.click(await screen.findByText('sidebar-open-agent'))
+    expect(state.setSelectedAgentId).toHaveBeenCalledWith('agent-jump')
+    expect(currentViewMode).toBe('chat')
   })
 
   it('restores a persisted Overview view mode', async () => {

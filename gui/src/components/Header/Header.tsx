@@ -54,7 +54,10 @@ export function Header({
         <div className={styles.logoMark} data-tauri-drag-region>
           <AgentStudioLogo />
         </div>
-        <span className={styles.logo} data-tauri-drag-region>AGENT STUDIO</span>
+        <div className={styles.brand} data-tauri-drag-region>
+          <span className={styles.logo} data-tauri-drag-region>Agent Studio</span>
+          <span className={styles.subtitle} data-tauri-drag-region>Modern Workspace</span>
+        </div>
         {viewMode === 'grid' && selectedProjectName && (
           <>
             <button
@@ -92,7 +95,7 @@ export function Header({
         {/* Headless button hidden — functionality preserved, just not exposed in header for now */}
         <UsageMenu state={usage} onOpenReport={onOpenUsage} />
         <Tooltip content="Settings">
-          <button className={styles.settingsBtn} onClick={onOpenSettings}>
+          <button className={styles.settingsBtn} onClick={onOpenSettings} aria-label="Settings">
             <SettingsIcon />
           </button>
         </Tooltip>
@@ -112,9 +115,11 @@ function PlusIcon() {
 
 function AgentStudioLogo() {
   return (
-    <svg width="22" height="22" viewBox="0 0 28 28" fill="none">
-      <path d="M5.5 23 L14 4 L22.5 23" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="14" cy="16.5" r="2" fill="currentColor" />
+    <svg width="32" height="36" viewBox="0 0 32 36" fill="none" aria-hidden="true">
+      <path d="M16 1 30 9 16 17 2 9Z" fill="currentColor" opacity=".85" />
+      <path d="M2 11 14 18v15L2 26Z" fill="currentColor" opacity=".55" />
+      <path d="m30 11-12 7v15l12-7Z" fill="currentColor" opacity=".7" />
+      <path d="m16 7 7 4-7 4-7-4Zm-8 9 6 3.5v7L8 23Zm16 0-6 3.5v7l6-3.5Z" fill="var(--color-bg)" />
     </svg>
   )
 }
