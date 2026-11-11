@@ -5,7 +5,6 @@ import type {
   ProviderId,
   TerminalCursorStyle,
   TerminalShellMode,
-  ThemeId,
   ViewMode
 } from '@shared/types'
 import type { KeybindingRule } from '@shared/keybindings'
@@ -14,6 +13,7 @@ import {
   MAX_CONCURRENT_AGENTS_HARD_LIMIT
 } from '@shared/types'
 import { useRuntimeProviderModels } from '../../hooks/useRuntimeProviderModels'
+import type { AppearanceThemeId } from '../../hooks/useAppearance'
 import { useClaudeProfiles } from '../../hooks/useClaudeProfiles'
 import { withClaudeProfile } from '@shared/claudeProfiles'
 import { ClaudeProfileOptions } from '../shared/ClaudeProfileOptions'
@@ -61,7 +61,13 @@ const SECTIONS: Array<{ id: SectionId; label: string; keywords: string[] }> = [
 ]
 
 const PROVIDERS: ProviderId[] = ['claude', 'codex', 'opencode']
-const THEMES: Array<{ id: ThemeId; label: string; description: string; swatches: [string, string] }> = [
+const THEMES: Array<{ id: AppearanceThemeId; label: string; description: string; swatches: [string, string] }> = [
+  {
+    id: 'modern-workspace-soft',
+    label: 'Modern Workspace Soft',
+    description: 'Blue-slate surfaces with soft, desaturated accents.',
+    swatches: ['#171d25', '#54749a']
+  },
   {
     id: 'dark',
     label: 'Terracotta',
@@ -84,6 +90,9 @@ const THEMES: Array<{ id: ThemeId; label: string; description: string; swatches:
 
 interface SettingsPanelProps {
   config: AppConfig
+  appearanceTheme?: AppearanceThemeId
+  onSelectAppearanceTheme?: (theme: AppearanceThemeId) => void
+  appearanceError?: string | null
   keybindings: KeybindingRule[]
   keybindingsPath: string
   onUpdate: (partial: Partial<AppConfig>) => void
@@ -105,6 +114,9 @@ function matchesSearch(query: string, ...keywords: string[]): boolean {
 
 export function SettingsPanel({
   config,
+  appearanceTheme = config.theme,
+  onSelectAppearanceTheme,
+  appearanceError,
   keybindings,
   keybindingsPath,
   onUpdate,
@@ -198,8 +210,12 @@ export function SettingsPanel({
                 {THEMES.map((theme) => (
                   <button
                     key={theme.id}
-                    className={`${styles.themeOption} ${config.theme === theme.id ? styles.themeOptionActive : ''}`}
-                    onClick={() => onUpdate({ theme: theme.id })}
+                    className={`${styles.themeOption} ${appearanceTheme === theme.id ? styles.themeOptionActive : ''}`}
+                    aria-pressed={appearanceTheme === theme.id}
+                    onClick={() => {
+                      if (onSelectAppearanceTheme) onSelectAppearanceTheme(theme.id)
+                      else if (theme.id !== 'modern-workspace-soft') onUpdate({ theme: theme.id })
+                    }}
                   >
                     <span className={styles.themeSwatches}>
                       <span className={styles.themeSwatch} style={{ background: theme.swatches[0] }} />
@@ -212,6 +228,7 @@ export function SettingsPanel({
                   </button>
                 ))}
               </div>
+              {appearanceError && <p role="alert">{appearanceError}</p>}
             </div>
 
             <div className={styles.field}>

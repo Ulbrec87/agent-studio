@@ -19,6 +19,7 @@ import { EditorOverlay } from './components/EditorPanel/EditorOverlay'
 import { PreflightTestModal } from './components/PreflightTestModal/PreflightTestModal'
 import { useAgents } from './hooks/useAgents'
 import { useConfig } from './hooks/useConfig'
+import { useAppearance } from './hooks/useAppearance'
 import { UsageSettingsProvider } from './components/Usage/UsageSettingsContext'
 import { TerminalConfigContext, deriveTerminalConfig } from './hooks/useTerminalConfig'
 import { useKeybindings } from './hooks/useKeybindings'
@@ -104,6 +105,7 @@ function writeWorkspaceUiState(state: PersistedWorkspaceUiState): void {
 export default function App() {
   const persistedUi = useMemo(() => readWorkspaceUiState(), [])
   const { config, updateConfig } = useConfig()
+  const appearance = useAppearance(config.theme, updateConfig)
   const { keybindings, keybindingsPath } = useKeybindings()
   const { notifications, dismiss: dismissNotification } = useNotifications(config.enableSoundEffects)
   const {
@@ -804,7 +806,7 @@ export default function App() {
               onEditorSelectTab={editorPanel.selectTab}
               onEditorContentChange={editorPanel.updateContent}
               onEditorSaveFile={(path) => { void editorPanel.saveFile(path) }}
-              theme={config.theme}
+              theme={appearance.theme}
               freeTerminalOpen={freeTerminalOpen}
               onToggleFreeTerminal={() => setFreeTerminalOpen((prev) => !prev)}
               chatInputHidden={chatInputHidden}
@@ -875,7 +877,7 @@ export default function App() {
         {showGitPanel && selectedAgent?.state.projectDir && config.gitPanelDisplayMode === 'split' && (
           <GitPanel
             projectDir={selectedAgent.state.projectDir}
-            theme={config.theme}
+            theme={appearance.theme}
             defaultProvider={config.defaultProvider}
             defaultModel={config.defaultModel}
             onClose={() => setShowGitPanel(false)}
@@ -888,6 +890,9 @@ export default function App() {
       {showSettings && (
         <SettingsPanel
           config={config}
+          appearanceTheme={appearance.theme}
+          onSelectAppearanceTheme={appearance.selectTheme}
+          appearanceError={appearance.error}
           keybindings={keybindings}
           keybindingsPath={keybindingsPath}
           onUpdate={updateConfig}
@@ -1095,7 +1100,7 @@ export default function App() {
       {showGitPanel && selectedAgent?.state.projectDir && config.gitPanelDisplayMode === 'overlay' && (
         <GitPanel
           projectDir={selectedAgent.state.projectDir}
-          theme={config.theme}
+          theme={appearance.theme}
           defaultProvider={config.defaultProvider}
           defaultModel={config.defaultModel}
           onClose={() => setShowGitPanel(false)}
@@ -1107,7 +1112,7 @@ export default function App() {
         <EditorOverlay
           agentId={selectedAgent.state.id}
           projectDir={selectedAgent.state.projectDir}
-          theme={config.theme}
+          theme={appearance.theme}
           tabs={editorPanel.tabs}
           activeTabPath={editorPanel.activeTabPath}
           fileContents={editorPanel.fileContents ?? new Map()}

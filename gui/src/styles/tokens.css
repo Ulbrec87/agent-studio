@@ -1,5 +1,5 @@
 /* ── Agent Studio Design Tokens ─────────────────────────────────────────────────── */
-/* Claude-inspired warm palette with terracotta accents                       */
+/* Shared workspace geometry; color palettes remain independently selectable. */
 
 :root {
   /* Native widgets (select popups, scrollbars, form controls) follow this, not our CSS, in WebKit. */
@@ -33,9 +33,10 @@
   --space-12: 48px;
 
   /* Radius */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
   --radius-xl: 12px;
   --radius-full: 9999px;
 
@@ -50,12 +51,22 @@
   --transition-slow: 300ms ease;
 
   /* Layout */
-  --sidebar-width: 260px;
+  --sidebar-width: 280px;
   --sidebar-min-width: 200px;
   --sidebar-max-width: 480px;
-  --header-height: 48px;
+  --header-height: 64px;
   --input-bar-height: 56px;
-  --tile-header-height: 36px;
+  --tile-header-height: 44px;
+
+  /* Semantic workspace treatments: every palette uses the same layout. */
+  --workspace-panel-bg: var(--color-surface);
+  --workspace-control-bg: var(--color-surface-raised);
+  --workspace-selected-bg: var(--color-accent-subtle);
+  --workspace-selected-text: var(--color-accent);
+  --workspace-focus: var(--color-accent);
+  --color-action-bg: var(--color-accent);
+  --color-action-hover: var(--color-accent-hover);
+  --color-text: var(--color-text-primary);
 
   /* Editor panel */
   --editor-panel-min-width: 300px;
@@ -69,6 +80,66 @@
   --color-terminal-text: #E8E4E0;
   --color-terminal-cursor: #D97757;
   --color-terminal-selection: rgba(217, 119, 87, 0.3);
+}
+
+/* ── Modern Workspace Soft ─────────────────────────────────────────────── */
+
+[data-theme='modern-workspace-soft'] {
+  color-scheme: dark;
+  --color-bg: #151b22;
+  --color-surface: #1d252f;
+  --color-surface-raised: #252f3b;
+  --color-surface-elevated: #283340;
+  --color-surface-hover: #303e4e;
+  --color-sidebar: #19212a;
+  --color-sidebar-hover: #253344;
+
+  --color-accent: #94b8df;
+  --color-accent-hover: #b1ccea;
+  --color-accent-text: #f5f8fc;
+  --color-accent-subtle: rgba(123, 158, 198, 0.16);
+  --color-provider-claude: #d6a084;
+  --color-provider-codex: #89b3e0;
+  --color-text-primary: #e8edf4;
+  --color-text-secondary: #b1bdcd;
+  --color-text-muted: #94a2b5;
+  --color-text-inverse: #151b22;
+  --color-border: #354353;
+  --color-border-subtle: #2a3643;
+  --color-divider: #303d4b;
+
+  --color-status-running: #85c89a;
+  --color-status-idle: #a4aebb;
+  --color-status-error: #ed9b9d;
+  --color-status-starting: #e9bf72;
+  --color-status-finished: #94b8df;
+  --color-status-not-running: #94a2b5;
+  --color-yolo: #ed9b9d;
+  --color-yolo-bg: rgba(237, 155, 157, 0.09);
+  --color-yolo-border: rgba(237, 155, 157, 0.4);
+
+  --color-input-bg: #202a35;
+  --color-input-border: #435368;
+  --color-input-focus: #94b8df;
+  --color-code-bg: #151d26;
+  --color-code-border: #354353;
+  --color-scrollbar: rgba(177, 189, 205, 0.22);
+  --color-scrollbar-hover: rgba(177, 189, 205, 0.38);
+  --color-terminal-bg: #10161d;
+  --color-terminal-text: #e0e7ef;
+  --color-terminal-cursor: #a8c7e8;
+  --color-terminal-selection: #344d69;
+
+  --workspace-panel-bg: linear-gradient(145deg, #202a35, #1b232d);
+  --workspace-control-bg: linear-gradient(180deg, #2a3746, #253140);
+  --workspace-selected-bg: linear-gradient(135deg, #49688d, #3b5675);
+  --workspace-selected-text: #f5f8fc;
+  --workspace-focus: #a8c7e8;
+  --color-action-bg: #4e6d92;
+  --color-action-hover: #5c7ba0;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.16);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.32);
 }
 
 /* ── Light Theme ────────────────────────────────────────────────────────── */
