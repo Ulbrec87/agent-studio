@@ -78,6 +78,11 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
   const storage = options.storage === undefined ? defaultStorage() : options.storage
   const listeners = new Set<(e: unknown) => void>()
   let status: DaemonStatus = { connected: false, error: 'connecting to the daemon' }
+  // The placeholder above is not an observed disconnect. Wait for native IPC before
+  // exposing it, otherwise DaemonBanner reloads on every page load on WebView2.
+  let receivedStatus = false
+  let markStatusReady: () => void = () => undefined
+  const statusReady = new Promise<void>((resolve) => { markStatusReady = resolve })
   let knownIds = new Set<string>()
   let appInfo = options.appInfo
 
@@ -299,7 +304,10 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
     dismissNotification: (() => undefined) as never,
 
     // Agent Studio extensions
-    getDaemonStatus: (() => ({ ...status })) as never
+    getDaemonStatus: (async () => {
+      await statusReady
+      return { ...status }
+    }) as never
   }
   for (const group of groups) Object.assign(methods, group.methods)
 
@@ -380,6 +388,8 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
   const onStatus = (next: DaemonStatus): void => {
     const was = status.connected
     status = next
+    receivedStatus = true
+    markStatusReady()
     if (!next.connected) {
       streams.reset()
       for (const group of groups) group.onDisconnect?.()
@@ -391,7 +401,10 @@ export function createDaemonTransport(options: DaemonTransportOptions): DaemonTr
   const offEvent = raw.onEvent(onProtoEvent)
   const offStatus = raw.onStatus(onStatus)
   void raw.status().then((s) => {
-    if (s.connected !== status.connected || s.error !== status.error) onStatus(s)
+    // A live event is newer than the snapshot requested at startup.
+    if (!receivedStatus) onStatus(s)
+  }).catch((err) => {
+    if (!receivedStatus) onStatus({ connected: false, error: toError(err).message })
   })
   const onFocus = (): void => {
     if (status.connected) reportFocus(true)

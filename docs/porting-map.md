@@ -81,3 +81,7 @@ Plan: [docs/plans/2026-11-05-gui-tauri-plan.md](plans/2026-11-05-gui-tauri-plan.
 | `electron/git/GitService.ts`, `fs/FileSystemService.ts` (IPC side), clipboard/dialog/open-in/free-terminal/test-terminal IPC | `gui/src/bridge/{gitApi,filesApi,terminalsApi,nativeApi}.ts` + `FsWriteFile`/`FsListDirs` in `as-proto`/`as-daemon`/`as-core::fs` + Tauri dialog/opener plugins | G2a | done (see the bridge README, "G2a"; the file watcher is a 1 s `FsMtime` poller) |
 | `electron-builder.yml`, installers | `crates/as-gui/tauri.conf.json` (`bundle.targets`: appimage, deb, dmg, msi) + `.github/workflows/release.yml` | G4 | done (unsigned; built by the release workflow, step B of the GUI-only plan) |
 | `src/components/ChatView/InputBar.tsx` (slash menu: `/clear`, `/rename` for Claude, `/model` for Codex) | `gui/src/components/ChatView/{InputBar.tsx,slashCommands.ts}` | — | changed: the menu floats above the input card (Hydra put it in the flow and grew the chat box); each CLI's built-in commands are listed (static lists); custom commands (`.claude/commands`) not yet |
+
+Windows startup follow-up: the G1 bridge waits for an observed daemon status before reporting it to the banner, preventing repeated reloads with delayed native IPC. The global preflight gate accepts any installed supported provider; provider-specific checks remain strict.
+
+Windows PATH fallbacks also include the Codex installer's `Programs/OpenAI/Codex/bin` under LOCALAPPDATA.
