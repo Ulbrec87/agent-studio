@@ -11,7 +11,7 @@ workspace = true
 [dependencies]
 ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
 anyhow = "1.0.104"
-as-core = { version = "0.1.2", path = "../as-core" }
+as-core = { version = "0.1.3", path = "../as-core" }
 base64 = "0.23.1"
 bytes = "1.12.1"
 chrono = "0.4.45"
