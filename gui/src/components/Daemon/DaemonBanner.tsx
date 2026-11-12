@@ -29,14 +29,23 @@ export function DaemonBanner() {
         if (!everConnected.current) renderedWithoutDaemon.current = true
       } else {
         everConnected.current = true
-        if (renderedWithoutDaemon.current) window.location.reload()
+        if (renderedWithoutDaemon.current) {
+          renderedWithoutDaemon.current = false
+          window.location.reload()
+        }
       }
     }
     // Both are Agent Studio extensions of the Hydra API: absent in partial `window.hydra` test doubles.
     const api = window.hydra
     if (!api.getDaemonStatus || !api.onDaemonStatus) return
-    void api.getDaemonStatus().then(apply).catch(() => undefined)
-    const off = api.onDaemonStatus(apply)
+    let receivedEvent = false
+    const off = api.onDaemonStatus((next) => {
+      receivedEvent = true
+      apply(next)
+    })
+    void api.getDaemonStatus().then((next) => {
+      if (!receivedEvent) apply(next)
+    }).catch(() => undefined)
     return () => {
       cancelled = true
       off()

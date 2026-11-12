@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
@@ -112,7 +112,7 @@ impl GitRunner {
             return Err(GitError::NotARepo(dir.display().to_string()));
         }
         let exe = self.resolve(program, dir)?;
-        let mut cmd = Command::new(exe);
+        let mut cmd = crate::process::background_command(exe);
         match program {
             Program::Git => {
                 cmd.arg("-C")

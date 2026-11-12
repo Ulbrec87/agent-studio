@@ -124,6 +124,12 @@ pub fn fallback_dirs(platform: Platform, env: &FallbackEnv) -> Vec<PathBuf> {
         Platform::Windows => {
             dirs.push(under(env.appdata.as_deref(), &["npm"]));
             dirs.push(under(env.local_appdata.as_deref(), &["Programs", "nodejs"]));
+            // The Windows Codex installer exposes its CLI here. Explorer may still
+            // carry the PATH from before installation when launching the desktop app.
+            dirs.push(under(
+                env.local_appdata.as_deref(),
+                &["Programs", "OpenAI", "Codex", "bin"],
+            ));
             dirs.push(under(home, &["scoop", "shims"]));
             dirs.push(under(home, &[".bun", "bin"]));
             dirs.push(under(home, &[".cargo", "bin"]));
@@ -315,7 +321,9 @@ mod tests {
         assert!(dirs.contains(&Path::new("local").join("Programs").join("nodejs")));
         assert!(dirs.contains(&Path::new("home").join("scoop").join("shims")));
         assert!(dirs.contains(&PathBuf::from(r"C:\Program Files\nodejs")));
-        assert_eq!(dirs.len(), 10);
+        let codex = PathBuf::from_iter(["local", "Programs", "OpenAI", "Codex", "bin"]);
+        assert!(dirs.contains(&codex));
+        assert_eq!(dirs.len(), 11);
     }
 
     #[test]

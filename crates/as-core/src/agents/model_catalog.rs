@@ -101,11 +101,11 @@ impl ProviderModelCatalog {
 /// `command args...`, through `cmd.exe /c` on Windows so `.cmd` shims work.
 fn cli_command(command: &str, args: &[&str], env: &EnvOverrides) -> Command {
     let mut cmd = if cfg!(windows) {
-        let mut c = Command::new("cmd.exe");
+        let mut c = crate::process::background_tokio_command("cmd.exe");
         c.arg("/c").arg(command).args(args);
         c
     } else {
-        let mut c = Command::new(command);
+        let mut c = crate::process::background_tokio_command(command);
         c.args(args);
         c
     };
