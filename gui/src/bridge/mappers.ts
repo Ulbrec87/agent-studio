@@ -19,8 +19,9 @@ export function compact<T extends Record<string, unknown>>(value: T): Partial<T>
 
 /** `Preflight` answers one entry per provider with `path`; Hydra wants one result with `claudePath`. */
 export function mapPreflight(entries: ProtoPreflight[], provider?: ProviderId): PreflightResult {
-  const wanted = provider ?? 'claude'
-  const found = entries.find((e) => e.provider === wanted) ?? entries[0]
+  const found = provider
+    ? entries.find((e) => e.provider === provider)
+    : entries.find((e) => e.result.ok) ?? entries[0]
   if (!found) return { ok: false, claudePath: null, version: null, error: 'Preflight returned no result' }
   return { ok: found.result.ok, claudePath: found.result.path ?? null, version: found.result.version ?? null, error: found.result.error ?? null }
 }

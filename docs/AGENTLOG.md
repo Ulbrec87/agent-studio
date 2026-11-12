@@ -518,3 +518,28 @@ included, so a test reading "the next frame" can get an event instead of its res
 ## Keep the Chat terminal parent stable when toggling the editor
 
 Use one Chat body with an optional editor sibling. Switching between separate split/non-split React trees remounts xterm and replays its buffer; cosmetic layout changes must preserve the terminal's parent and key. Theme colors update through the existing DOM theme observer, not by adding the theme to xterm's creation-effect dependencies.
+
+## Windows: background commands flashing console windows (2026-11-10)
+
+- **Piped or null stdio does not suppress a Windows console.** Git/gh, provider version checks and model discovery
+  must use `as_core::process::{background_command, background_tokio_command}`, which set `CREATE_NO_WINDOW`.
+  Headless launches and the `taskkill` cleanup helpers use the same constructors. Keep PTY/ConPTY and explicit
+  "Open in Terminal" launches on their existing paths; the detached daemon keeps its own lifecycle flags.
+- **Verify the child has no console, not just captured output.** The Windows-only process tests ask a PowerShell
+  child for `GetConsoleWindow()` and require a null handle while checking both stdout and stderr still work.
+
+## Startup reload loop with delayed native IPC (2026-11-11)
+
+- **An uninitialized bridge status is not a disconnected daemon.** On Windows the `daemon_status` invoke can return after
+  React mounts. `getDaemonStatus` used to return the bridge's synthetic disconnected placeholder immediately, causing
+  `DaemonBanner` to reload on the real connected response. Each fresh page repeated the same sequence. Native logs showed
+  one stable daemon connection while `renderer.app.start` repeated several times a second.
+- `getDaemonStatus` now waits for the first real snapshot or status event. A later snapshot cannot overwrite a newer event;
+  a failed status lookup becomes a visible error. The banner consumes its startup reload once and ignores stale snapshots.
+  `daemonStartup.test.tsx` tests the real bridge plus banner with delayed IPC, remounts, duplicate events and failure recovery.
+- **The global CLI gate must accept any supported provider.** An unspecified provider selects the first successful preflight;
+  an explicit provider still requires that provider. Previously Claude's absence blocked Codex/OpenCode-only installations.
+
+- **A launcher can retain a PATH from before Codex was installed.** The Windows installer exposes the working CLI under
+  `%LOCALAPPDATA%/Programs/OpenAI/Codex/bin`. Include it in the startup PATH fallbacks so both preflight and spawned agents
+  can find it without requiring Explorer or the user session to restart.

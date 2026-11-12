@@ -308,3 +308,5 @@ renderer state; the daemon dismisses nothing).
 Notes: `enableRemoteControl`, `disableRemoteControl`, `getRemoteControlState`, `onRemoteStateChange` are deferred to P11 (kept
 so the API shape matches; the UI is removed: no component calls them, and the only remote-flavoured setting left in the UI is Hydra's
 "remote error reporting" checkbox, a config flag nothing reads). Hydra's preload has no window-control methods, so there is nothing else Electron-only to stub.
+
+Startup status: `getDaemonStatus` waits for the first real native status snapshot or event; the initial bridge placeholder is never returned as a disconnect. Live events take precedence over a delayed snapshot. This prevents the daemon banner from reloading an already-connected app repeatedly on Windows.

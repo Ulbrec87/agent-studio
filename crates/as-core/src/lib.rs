@@ -13,6 +13,7 @@ pub mod hydra_import;
 pub mod open_in;
 pub mod overview;
 pub mod paths;
+pub mod process;
 pub mod sessions;
 pub mod shell_env;
 pub mod skills;
