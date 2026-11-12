@@ -4,9 +4,10 @@
   flex-direction: column;
   min-width: var(--sidebar-min-width);
   max-width: var(--sidebar-max-width);
-  background: var(--color-sidebar);
+  background: var(--workspace-sidebar-bg);
   border-right: 1px solid var(--color-border);
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .resizeHandle {
@@ -34,14 +35,13 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
 }
 
 .sectionLabel {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
+  color: var(--color-text-primary);
 }
 
 .sectionActions {
@@ -90,4 +90,20 @@
 .newAgentBtn:hover {
   background: var(--color-sidebar-hover);
   color: var(--color-accent);
+}
+
+.newAgentBtn {
+  justify-content: center;
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  background: var(--workspace-control-bg);
+  color: var(--color-text-primary);
+}
+
+@media (max-width: 1050px) {
+
+  .sidebar {
+    max-width: min(280px, 30vw);
+    min-width: 200px;
+  }
 }

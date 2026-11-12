@@ -107,7 +107,7 @@
 }
 
 .jump {
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
   border-radius: var(--radius-md);
   padding: 4px var(--space-3);
@@ -117,7 +117,7 @@
 }
 
 .jump:hover {
-  background: var(--color-accent-hover);
+  background: var(--color-action-hover);
 }
 
 /* ── All clear ─────────────────────────────────────────────────────────── */
@@ -147,6 +147,7 @@
 }
 
 /* A target ring: a dot inside a circle. */
+
 .clearIcon {
   width: 22px;
   height: 22px;

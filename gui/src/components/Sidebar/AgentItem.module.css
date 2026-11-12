@@ -3,11 +3,11 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-1) var(--space-2);
+  padding: 10px var(--space-2);
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   border-radius: var(--radius-sm);
-  border-left: 3px solid transparent;
+  border-left: 2px solid transparent;
   transition: all var(--transition-fast);
   text-align: left;
 }
@@ -18,11 +18,10 @@
 }
 
 .selected {
-  background: var(--color-sidebar-hover);
+  background: var(--color-accent-subtle);
   color: var(--color-text-primary);
   border-left-color: var(--color-accent);
 }
-
 
 .statusDot {
   display: flex;
@@ -143,4 +142,14 @@
 
 .contextMenuItemDanger:hover {
   background: color-mix(in srgb, var(--color-status-error) 10%, transparent);
+}
+
+.providerIcon {
+  width: 17px;
+  height: 17px;
+  opacity: .9;
+}
+
+.contextMenuItem {
+  min-height: 32px;
 }

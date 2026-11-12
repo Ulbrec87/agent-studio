@@ -183,12 +183,12 @@
 
 .primaryBtn {
   border: 1px solid transparent;
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
 }
 
 .primaryBtn:hover:not(:disabled) {
-  background: var(--color-accent-hover);
+  background: var(--color-action-hover);
 }
 
 .secondaryBtn:disabled,
@@ -198,6 +198,7 @@
 }
 
 @media (max-width: 760px) {
+
   .meta {
     grid-template-columns: 1fr;
   }
@@ -207,4 +208,3 @@
     justify-content: flex-start;
   }
 }
-

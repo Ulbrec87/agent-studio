@@ -2,7 +2,9 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   background: var(--color-bg);
+  container: agent-grid / inline-size;
 }
 
 .empty {
@@ -12,113 +14,139 @@
   justify-content: center;
   height: 100%;
   gap: var(--space-4);
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
 }
 
 .createBtn {
-  padding: var(--space-2) var(--space-4);
-  background: var(--color-accent);
+  padding: 9px 16px;
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  transition: background var(--transition-fast);
+  font-weight: 500;
 }
 
 .createBtn:hover {
-  background: var(--color-accent-hover);
+  background: var(--color-action-hover);
 }
 
-/* Project selector bar — wrapper holds scrollable tabs + pinned picker */
 .projectSelectorBar {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
+  gap: 8px;
+  padding: 16px 16px 4px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .projectSelector {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
+  gap: 8px;
   overflow-x: auto;
   flex: 1;
-  min-width: 0;
+  min-width: 180px;
+  padding: 2px 0 8px;
 }
 
 .projectTab {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-3);
+  gap: 8px;
+  padding: 8px 12px;
+  min-height: 36px;
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-fast);
+  background: var(--workspace-control-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast), color var(--transition-fast);
   white-space: nowrap;
 }
 
 .projectTab:hover {
-  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-text-muted);
+}
+
+.projectTab svg {
+  flex-shrink: 0;
 }
 
 .activeTab {
-  background: var(--color-accent-subtle);
-  color: var(--color-accent);
-  font-weight: var(--font-weight-medium);
+  background: var(--workspace-selected-bg);
+  color: var(--workspace-selected-text);
+  font-weight: 500;
 }
 
 .tabCount {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  min-width: 22px;
+  text-align: center;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 20px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-text-primary) 10%, transparent);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Running-only toggle — sits between tabs and column picker */
 .runningFilter {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: 4px 10px;
-  margin-left: var(--space-2);
+  gap: 8px;
+  padding: 7px 8px;
+  margin-bottom: 8px;
+  min-height: 36px;
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-muted);
-  background: var(--color-surface-hover);
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-fast);
+  color: var(--color-text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .runningFilter:hover {
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
+  color: var(--color-text-primary);
 }
 
 .runningFilterActive {
-  background: var(--color-accent-subtle);
-  color: var(--color-accent);
+  color: var(--color-text-primary);
 }
 
 .runningDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  display: inline-block;
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
 }
 
-/* Column picker — pinned outside scrollable tabs */
+.runningDot::after {
+  content: '';
+  position: absolute;
+  inset: 3px auto 3px 3px;
+  width: 12px;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+  transition: transform var(--transition-fast);
+}
+
+.runningFilterActive .runningDot {
+  background: var(--color-action-bg);
+}
+
+.runningFilterActive .runningDot::after {
+  transform: translateX(12px);
+  background: var(--color-text-primary);
+}
+
 .columnPicker {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
-  margin: 0 var(--space-3);
-  background: var(--color-surface-hover);
-  border-radius: var(--radius-sm);
+  padding: 3px;
+  margin-bottom: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   flex-shrink: 0;
 }
 
@@ -126,82 +154,77 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 24px;
-  border-radius: var(--radius-xs);
+  gap: 5px;
+  min-width: 32px;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-muted);
-  transition: all var(--transition-fast);
+  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 
 .columnBtn:hover {
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
 }
 
 .columnBtnActive {
-  background: var(--color-surface);
-  color: var(--color-text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  background: var(--workspace-selected-bg);
+  color: var(--workspace-selected-text);
+  box-shadow: var(--shadow-sm);
 }
 
-/* Grid layouts */
 .gridBase {
   flex: 1;
+  min-height: 0;
   display: grid;
-  gap: var(--space-3);
-  padding: var(--space-3);
+  gap: 12px;
+  padding: 8px 16px 16px;
   overflow: auto;
   align-content: stretch;
 }
 
 .gridBase > * {
   min-width: 0;
+  min-height: 0;
 }
 
-/* Auto columns (default) */
 .gridAuto {
-  grid-template-columns: repeat(auto-fit, minmax(min(480px, 100%), 1fr));
-  grid-auto-rows: minmax(300px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr));
+  grid-auto-rows: minmax(280px, 1fr);
 }
 
-/* Fixed 2-column */
 .grid2 {
-  grid-template-columns: repeat(2, 1fr);
-  grid-auto-rows: minmax(300px, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(280px, 1fr);
 }
 
-/* Fixed 3-column */
 .grid3 {
-  grid-template-columns: repeat(3, 1fr);
-  grid-auto-rows: minmax(300px, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: minmax(280px, 1fr);
 }
 
-/* Expanded (single tile) */
 .gridExpanded {
   grid-template-columns: 1fr;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: minmax(280px, 1fr);
 }
 
-/* When only 2 columns fit (auto mode), stretch a lone last tile to fill the row. */
-@media (max-width: 1320px) and (min-width: 961px) {
-  .gridAuto > :last-child:nth-child(odd):nth-child(n + 3) {
-    grid-column: 1 / -1;
+.gridExpanded > :empty {
+  display: none;
+}
+
+@container agent-grid (max-width: 760px) {
+
+  .gridAuto, .grid2, .grid3 {
+    grid-template-columns: minmax(0, 1fr);
   }
-}
 
-@media (max-width: 1320px) {
-  .gridAuto {
-    grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
-    grid-auto-rows: minmax(280px, 1fr);
+  .projectSelector {
+    flex-basis: 100%;
   }
-}
 
-@media (max-width: 960px) {
-  .gridAuto,
-  .grid2,
-  .grid3 {
-    grid-template-columns: 1fr;
+  .columnPicker {
+    margin-left: auto;
   }
 }

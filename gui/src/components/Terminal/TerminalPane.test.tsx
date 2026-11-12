@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPane } from './TerminalPane'
 
@@ -70,6 +70,21 @@ vi.mock('@xterm/addon-web-links', () => ({
 }))
 
 describe('TerminalPane', () => {
+  it('updates theme colors in place without recreating xterm', async () => {
+    const view = render(<TerminalPane rawOutput="" autoFocus={false} />)
+    const term = terminalState.instances[0]
+    await act(async () => {
+      document.documentElement.style.setProperty('--color-terminal-bg', '#10161d')
+      document.documentElement.dataset.theme = 'modern-workspace-soft'
+    })
+    expect((term.options.theme as Record<string, string>).background).toBe('#10161d')
+    expect(terminalState.instances).toHaveLength(1)
+    expect(term.dispose).not.toHaveBeenCalled()
+    view.unmount()
+    document.documentElement.style.removeProperty('--color-terminal-bg')
+    delete document.documentElement.dataset.theme
+  })
+
   beforeEach(() => {
     terminalState.instances = []
     vi.clearAllMocks()

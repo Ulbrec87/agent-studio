@@ -15,6 +15,7 @@
 }
 
 /* Input section */
+
 .inputSection {
   display: flex;
   flex-direction: column;
@@ -49,7 +50,7 @@
   padding: 8px var(--space-4);
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
@@ -68,6 +69,7 @@
 }
 
 /* PR metadata card */
+
 .prCard {
   display: flex;
   flex-direction: column;
@@ -161,6 +163,7 @@
 }
 
 /* Files section */
+
 .filesSection {
   display: flex;
   flex-direction: column;
@@ -224,9 +227,17 @@
   flex-shrink: 0;
 }
 
-.statusAdded { color: var(--color-status-running); }
-.statusRemoved { color: var(--color-status-error); }
-.statusModified { color: #E6A23C; }
+.statusAdded {
+  color: var(--color-status-running);
+}
+
+.statusRemoved {
+  color: var(--color-status-error);
+}
+
+.statusModified {
+  color: #E6A23C;
+}
 
 .fileName {
   flex: 1;
@@ -248,6 +259,7 @@
 }
 
 /* Review controls */
+
 .reviewSection {
   display: flex;
   flex-direction: column;
@@ -289,7 +301,7 @@
   padding: 8px var(--space-4);
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
@@ -303,6 +315,7 @@
 }
 
 /* Reviewing state */
+
 .reviewingSection {
   display: flex;
   align-items: center;
@@ -313,6 +326,7 @@
 }
 
 /* Review result */
+
 .resultSection {
   display: flex;
   flex-direction: column;
@@ -343,6 +357,7 @@
 }
 
 /* Reset button */
+
 .resetBtn {
   padding: 8px var(--space-4);
   border: 1px solid var(--color-border);
@@ -361,6 +376,7 @@
 }
 
 /* Loading / spinner */
+
 .loading {
   display: flex;
   align-items: center;
@@ -383,10 +399,14 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Error */
+
 .error {
   color: var(--color-status-error);
   font-size: var(--font-size-sm);

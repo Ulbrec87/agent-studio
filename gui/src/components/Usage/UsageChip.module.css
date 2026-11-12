@@ -6,9 +6,9 @@
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   padding: 6px 12px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
-  background: var(--color-surface-hover);
+  background: var(--workspace-control-bg);
   border: 1px solid var(--color-border);
   transition: all var(--transition-fast);
   white-space: nowrap;
@@ -78,8 +78,14 @@
 }
 
 /* The header's right half runs out of room on narrower windows: keep the numbers, drop the bars. */
+
 @media (max-width: 1400px) {
+
   .track {
     display: none;
   }
+}
+
+.chip {
+  min-height: 36px;
 }

@@ -3,11 +3,11 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
   margin: 0;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border-subtle);
+  padding: 0;
 }
 
-@media (max-width: 600px) {
+@container overview (max-width: 720px) {
+
   .row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -15,6 +15,11 @@
 
 .item {
   min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--workspace-panel-bg);
+  box-shadow: var(--shadow-sm);
 }
 
 .label {
@@ -22,14 +27,13 @@
   align-items: center;
   gap: 6px;
   font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
+  margin-bottom: 10px;
 }
 
 .value {
   margin: 0;
-  font-size: var(--font-size-lg);
+  font-size: 28px;
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
@@ -77,4 +81,41 @@
   height: 6px;
   margin-right: 3px;
   vertical-align: 1px;
+}
+
+.detail {
+  margin-top: 4px;
+}
+
+.metricIcon {
+  width: 30px;
+  height: 30px;
+  padding: 6px;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.metricIcon[data-kind='working'] {
+  color: var(--color-status-running);
+  background: color-mix(in srgb, var(--color-status-running) 12%, transparent);
+}
+
+.metricIcon[data-kind='idle'] {
+  color: var(--color-status-idle);
+}
+
+.metricIcon[data-kind='stale'] {
+  color: var(--color-status-starting);
+  background: color-mix(in srgb, var(--color-status-starting) 12%, transparent);
+}
+
+.metricIcon svg {
+  width: 18px;
+  height: 18px;
 }

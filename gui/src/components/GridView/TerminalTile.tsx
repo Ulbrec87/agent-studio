@@ -103,13 +103,15 @@ function TerminalTileInner({
       {/* Tile header */}
       <div className={styles.header} onClick={onOpenInChat} title="Open in Chat">
         {dragListeners && (
-          <span
+          <button
+            type="button"
+            aria-label={`Reorder ${agent.name}`}
             className={styles.dragHandle}
             {...dragListeners}
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
             ⠿
-          </span>
+          </button>
         )}
         <span
           className={styles.statusDot}
@@ -117,11 +119,14 @@ function TerminalTileInner({
         >
           {agent.status === 'running' ? '●' : agent.status === 'errored' ? '✖' : '○'}
         </span>
-        <span className={styles.name}>{agent.name}</span>
+        <button className={styles.name} onClick={(e) => { e.stopPropagation(); onOpenInChat() }}>{agent.name}</button>
 
         <div className={styles.badges}>
           {projectName && <span className={styles.projectBadge}>{projectName}</span>}
           <span className={styles.modelBadge}>{modelLabel}</span>
+          <span className={styles.stateBadge} style={{ color: STATUS_COLORS[agent.status] }}>
+            {agent.status === 'errored' ? 'Disconnected' : agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}
+          </span>
           {agent.yolo && <span className={styles.yoloBadge}>YOLO</span>}
         </div>
 
@@ -167,7 +172,7 @@ function TerminalTileInner({
       {/* Terminal */}
       <div className={styles.terminalWrapper}>
         {agent.status !== 'running' && (
-          <div className={styles.statusNotice}>
+          <div className={`${styles.statusNotice} ${rawOutput.length === 0 && agent.status !== 'starting' ? styles.statusEmpty : ''}`}>
             <span>
               {agent.status === 'starting' && 'Starting...'}
               {agent.status === 'idle' && 'Idle'}

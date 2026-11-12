@@ -6,6 +6,16 @@ Agent Studio is a desktop app (Rust + [Tauri 2](https://tauri.app), React front 
 side, each in its own pseudo-terminal and grouped by project. A background daemon (hosted by the same binary) owns the agents, so they
 keep working while the window is closed. It is a port of the desktop app [Hydra](https://github.com/jpdlr/hydra).
 
+## Modern Workspace
+
+Chat, Grid and Overview share the Modern Workspace layout, including persistent project navigation, compact toolbars, framed terminals and dashboard cards. All existing agent, editor, Git and terminal controls remain available.
+
+Choose a color palette in **Settings → Appearance → Color Theme**: Light, Terracotta, Midnight (the default), or **Modern Workspace Soft**, a desaturated blue-slate palette. Changing colors keeps the same layout. Soft is stored locally in this webview; existing themes continue to use the daemon configuration. Returning to an existing theme clears the local Soft override after saving the selection.
+
+At smaller window sizes, Grid stacks its toolbar and tiles. When several docked panels need more space than the window provides, the workspace can scroll horizontally so controls stay reachable. The editor and terminal split handles also support arrow keys; Home resets the editor split.
+
+See [redesign notes and validation](docs/modern-workspace-redesign.md) for implementation boundaries and manual desktop checks.
+
 ## Features
 
 - **Three views**: *Chat* (one agent, full terminal), *Grid* (tiles per project, with a broadcast bar that sends one message to every

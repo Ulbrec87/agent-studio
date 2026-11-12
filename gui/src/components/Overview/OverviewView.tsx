@@ -246,6 +246,21 @@ export function OverviewView({ onOpenNewAgent, onJumpToAgent, overview, usage, o
         </label>
       </div>
 
+      <section className={styles.summaryBlock} aria-label="Agent statistics">
+        <CountsRow counts={counts} onOpenChart={toggleChart} openChart={chartKey} />
+        {chartKey && (
+          <CountHistory
+            key={chartKey}
+            metric={chartKey}
+            points={historyPoints ?? noPoints}
+            starts={historyStarts ?? noPoints}
+            now={now}
+            agentFilter={agentFilter}
+            onClose={closeChart}
+          />
+        )}
+      </section>
+
       <div className={styles.grid}>
         {usage !== undefined && <UsageCard state={usage} projectDir={filter} onOpenReport={onOpenUsageReport} />}
 
@@ -267,18 +282,7 @@ export function OverviewView({ onOpenNewAgent, onJumpToAgent, overview, usage, o
               lastWait={lastWait}
             />
             {waited && <WaitedOnYou bars={waited.bars} from={waited.from} unmeasuredMs={waited.unmeasuredMs} />}
-            <CountsRow counts={counts} onOpenChart={toggleChart} openChart={chartKey} />
-            {chartKey && (
-              <CountHistory
-                key={chartKey}
-                metric={chartKey}
-                points={historyPoints ?? noPoints}
-                starts={historyStarts ?? noPoints}
-                now={now}
-                agentFilter={agentFilter}
-                onClose={closeChart}
-              />
-            )}
+
           </div>
         </Card>
 

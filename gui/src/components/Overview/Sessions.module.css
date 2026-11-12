@@ -24,7 +24,7 @@
 
 .segmentActive,
 .segmentActive:hover {
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
 }
 
@@ -39,14 +39,40 @@
 }
 
 /* Filled dots are live states; hollow rings are starting up or gone stale. */
-.dot_needs_you { background: var(--color-status-starting); }
-.dot_working { background: var(--color-status-running); }
-.dot_idle { background: var(--color-status-idle); }
-.dot_stale { background: transparent; box-shadow: inset 0 0 0 2px var(--color-status-idle); }
-.dot_starting { background: transparent; box-shadow: inset 0 0 0 2px var(--color-status-starting); }
-.dot_finished { background: var(--color-status-finished); }
-.dot_not_running { background: var(--color-status-not-running); }
-.dot_failed { background: var(--color-status-error); }
+
+.dot_needs_you {
+  background: var(--color-status-starting);
+}
+
+.dot_working {
+  background: var(--color-status-running);
+}
+
+.dot_idle {
+  background: var(--color-status-idle);
+}
+
+.dot_stale {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--color-status-idle);
+}
+
+.dot_starting {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--color-status-starting);
+}
+
+.dot_finished {
+  background: var(--color-status-finished);
+}
+
+.dot_not_running {
+  background: var(--color-status-not-running);
+}
+
+.dot_failed {
+  background: var(--color-status-error);
+}
 
 .mono {
   font-family: var(--font-mono);
@@ -114,7 +140,7 @@
 }
 
 .jump {
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
   border-radius: var(--radius-md);
   padding: 4px var(--space-3);
@@ -124,7 +150,7 @@
 }
 
 .jump:hover {
-  background: var(--color-accent-hover);
+  background: var(--color-action-hover);
 }
 
 .selected {
@@ -132,6 +158,7 @@
 }
 
 /* "Show N more" / "Show less" under a capped group. */
+
 .showMore {
   align-self: flex-start;
   padding: 2px var(--space-3);
@@ -149,6 +176,7 @@
 /* ── List and Repos ────────────────────────────────────────────────────── */
 
 /* Long lists scroll inside the card instead of stretching the page. */
+
 .listWrap,
 .boardWrap {
   max-height: min(560px, 65vh);
@@ -250,19 +278,24 @@
 }
 
 /* Narrow: drop the folder and branch column first, then the agent column. */
+
 @container (max-width: 620px) {
+
   .rowMain {
     grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.4fr);
   }
+
   .colWhere {
     display: none;
   }
 }
 
 @container (max-width: 420px) {
+
   .rowMain {
     grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.4fr);
   }
+
   .colAgent {
     display: none;
   }
@@ -281,12 +314,14 @@
 }
 
 @container (max-width: 900px) {
+
   .board {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @container (max-width: 520px) {
+
   .board {
     grid-template-columns: minmax(0, 1fr);
   }

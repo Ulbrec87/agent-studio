@@ -10,12 +10,10 @@ export function useConfig() {
     window.hydra.getConfig().then((c) => {
       setConfig(c)
       setLoading(false)
-      document.documentElement.setAttribute('data-theme', c.theme)
     })
 
     const unsub = window.hydra.onConfigChange((updated) => {
       setConfig(updated)
-      document.documentElement.setAttribute('data-theme', updated.theme)
     })
 
     return unsub

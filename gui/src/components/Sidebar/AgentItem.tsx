@@ -116,6 +116,7 @@ export function AgentItem({ agent, isSelected, onSelect, onRename, onRemove, onS
         onClick={onSelect}
         onContextMenu={handleContextMenu}
         title={`${agent.name} — ${agent.status}`}
+        aria-current={isSelected ? 'true' : undefined}
       >
         {hotkeyNumber !== undefined ? (
           <span className={styles.hotkeyBadge} aria-label={`Hotkey ${hotkeyNumber}`}>
@@ -186,9 +187,7 @@ function StatusIcon({ status }: { status: string }) {
     return (
       <svg width="10" height="10" viewBox="0 0 10 10">
         <circle cx="5" cy="5" r="3.5" fill={color} />
-        {status === 'running' && <circle cx="5" cy="5" r="3.5" fill={color}>
-          <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite" />
-        </circle>}
+
       </svg>
     )
   }

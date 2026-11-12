@@ -78,7 +78,35 @@ export const hydraMidnight: editor.IStandaloneThemeData = {
   }
 }
 
+export const workspaceSoft: editor.IStandaloneThemeData = {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [
+    { token: 'comment', foreground: 'A5AFBD', fontStyle: 'italic' },
+    { token: 'keyword', foreground: 'C3A5D8' },
+    { token: 'string', foreground: 'D6B08B' },
+    { token: 'number', foreground: 'A6C6A3' },
+    { token: 'type', foreground: '92BECE' }
+  ],
+  colors: {
+    'editor.background': '#12171D',
+    'editor.foreground': '#E2E6EC',
+    'editor.lineHighlightBackground': '#232C36',
+    'editor.selectionBackground': '#36495E',
+    'editor.inactiveSelectionBackground': '#2E3B49',
+    'editorLineNumber.foreground': '#A5AFBD',
+    'editorLineNumber.activeForeground': '#E2E6EC',
+    'editorCursor.foreground': '#B2C8E1',
+    'editorIndentGuide.background1': '#2E3741',
+    'editorIndentGuide.activeBackground1': '#5B6B7D',
+    'editorWidget.background': '#242C35',
+    'editorWidget.border': '#46515F',
+    'editorGutter.background': '#12171D'
+  }
+}
+
 export const THEME_MAP: Record<string, { name: string; data: editor.IStandaloneThemeData }> = {
+  'modern-workspace-soft': { name: 'workspace-soft', data: workspaceSoft },
   light: { name: 'hydra-light', data: hydraLight },
   dark: { name: 'hydra-dark', data: hydraDark },
   midnight: { name: 'hydra-midnight', data: hydraMidnight }

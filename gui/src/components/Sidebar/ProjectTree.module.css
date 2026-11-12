@@ -13,7 +13,7 @@
   gap: var(--space-1);
   flex: 1;
   min-width: 0;
-  padding: var(--space-1) var(--space-2);
+  padding: 10px var(--space-2);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
@@ -33,7 +33,7 @@
   height: 22px;
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
-  opacity: 0;
+  opacity: 1;
   transition: all var(--transition-fast);
   flex-shrink: 0;
   margin-right: var(--space-1);
@@ -137,10 +137,35 @@
 }
 
 /* Native select stretched invisibly over the chip so the OS menu opens on click. */
+
 .profileSelect {
   position: absolute;
   inset: 0;
   width: 100%;
   opacity: 0;
   cursor: pointer;
+}
+
+.group {
+  margin-bottom: 8px;
+}
+
+.groupRow {
+  border-radius: var(--radius-md);
+}
+
+.groupRow:focus-within {
+  background: var(--color-sidebar-hover);
+}
+
+.addBtn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--color-border-subtle);
+}
+
+.count {
+  border-radius: var(--radius-full);
+  padding: 1px 5px;
+  font-size: 10px;
 }

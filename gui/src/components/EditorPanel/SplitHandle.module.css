@@ -18,5 +18,5 @@
 
 .handle:hover,
 .handleActive {
-  background: var(--color-accent);
+  background: var(--color-action-bg);
 }

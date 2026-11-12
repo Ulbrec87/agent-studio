@@ -161,75 +161,6 @@ export function ChatView({
 
   const terminalSide = (
     <div className={styles.terminalSide} style={editorOpen ? { flex: `0 0 ${splitRatio * 100}%` } : undefined}>
-      {/* Agent header */}
-      <div className={styles.agentHeader}>
-        <div className={styles.agentInfo}>
-          <h3 className={styles.agentName}>{agent.name}</h3>
-          <div className={styles.agentMeta}>
-            <ProviderModelPill provider={agent.provider} model={agent.model} />
-            <span className={styles.separator}>&middot;</span>
-            <StatusBadge status={agent.status} />
-            {agent.isManager && <span className={styles.managerBadge}>Manager</span>}
-            {agent.yolo && <span className={styles.yoloBadge}>YOLO</span>}
-            <DiffStats projectDir={agent.worktreePath ?? agent.projectDir} />
-          </div>
-        </div>
-        <div className={styles.agentActions}>
-          <div className={styles.iconActions}>
-            {onToggleEditor && (
-              <Tooltip content="Toggle Code Editor  ⌘E">
-                <button
-                  className={`${styles.actionBtn} ${(editorActiveAnyMode ?? editorOpen) ? styles.actionBtnActive : ''}`}
-                  onClick={onToggleEditor}
-                >
-                  <CodeBracketIcon />
-                </button>
-              </Tooltip>
-            )}
-            {onToggleFreeTerminal && (
-              <Tooltip content="Toggle Terminal  ⌘J">
-                <button
-                  className={`${styles.actionBtn} ${freeTerminalOpen ? styles.actionBtnActive : ''}`}
-                  onClick={onToggleFreeTerminal}
-                >
-                  <TermShellIcon />
-                </button>
-              </Tooltip>
-            )}
-            {onOpenGitPanel && (
-              <Tooltip content="Open Git Panel  ⌘G">
-                <button
-                  className={`${styles.actionBtn} ${gitPanelOpen ? styles.actionBtnActive : ''}`}
-                  onClick={onOpenGitPanel}
-                >
-                  <GitIcon />
-                </button>
-              </Tooltip>
-            )}
-            <span className={styles.iconActionsDivider} aria-hidden="true" />
-            <Tooltip content="Restart">
-              <button className={styles.actionBtn} onClick={onRestartAgent}>
-                <RestartIcon />
-              </button>
-            </Tooltip>
-            <Tooltip content="Stop">
-              <button className={styles.actionBtn} onClick={onKillAgent}>
-                <StopIcon />
-              </button>
-            </Tooltip>
-            {onRemoveAgent && (
-              <Tooltip content="Close session  ⌘W">
-                <button
-                  className={`${styles.actionBtn} ${styles.removeBtn}`}
-                  onClick={onRemoveAgent}
-                >
-                  <TrashIcon />
-                </button>
-              </Tooltip>
-            )}
-          </div>
-        </div>
-      </div>
 
       {agent.status !== 'running' && rawOutput.length > 0 && (
         <div
@@ -238,12 +169,12 @@ export function ChatView({
           }`}
         >
           <span>
-            {agent.status === 'starting' && 'Starting Claude session...'}
+            {agent.status === 'starting' && 'Starting agent session...'}
             {agent.status === 'idle' && 'Session is idle. Start or send a prompt to resume.'}
             {agent.status === 'errored' && 'Session disconnected. Restart to reconnect.'}
           </span>
           {agent.status !== 'starting' && (
-            <button className={styles.bannerBtn} onClick={onRestartAgent}>
+            <button className={styles.bannerBtn} onClick={onRestartAgent} aria-label="Restart agent">
               {agent.status === 'errored' ? 'Reconnect' : 'Start'}
             </button>
           )}
@@ -351,32 +282,107 @@ export function ChatView({
     </div>
   )
 
-  if (!editorOpen) {
-    return (
-      <div className={styles.container} ref={containerRef} onScroll={handleContainerScroll}>
-        {terminalSide}
-      </div>
-    )
-  }
-
   return (
-    <div className={styles.splitContainer} ref={outerRef}>
-      {terminalSide}
-      <SplitHandle onDrag={handleSplitDrag} onDoubleClick={handleSplitDoubleClick} />
-      <div className={styles.editorSide}>
-        <EditorPanel
-          agentId={agent.id}
-          projectDir={agent.projectDir}
-          theme={theme}
-          tabs={editorTabs}
-          activeTabPath={editorActiveTabPath}
-          fileContents={editorFileContents ?? new Map()}
-          onOpenFile={onEditorOpenFile ?? (() => {})}
-          onCloseTab={onEditorCloseTab ?? (() => {})}
-          onSelectTab={onEditorSelectTab ?? (() => {})}
-          onContentChange={onEditorContentChange ?? (() => {})}
-          onSaveFile={onEditorSaveFile ?? (() => {})}
-        />
+    <div className={styles.container} ref={containerRef} onScroll={handleContainerScroll}>
+      {/* Agent header */}
+      <div className={styles.agentHeader}>
+        <div className={styles.agentInfo}>
+          <div className={styles.agentTitle}><h3 className={styles.agentName}>{agent.name}</h3><StatusBadge status={agent.status} /></div>
+          <div className={styles.agentMeta}>
+            <ProviderModelPill provider={agent.provider} model={agent.model} />
+            <span className={styles.separator}>&middot;</span>
+            <span className={styles.projectPath} title={agent.projectDir}>{agent.projectDir.replace(/\\/g, '/').split('/').filter(Boolean).pop()}</span>
+            {agent.isManager && <span className={styles.managerBadge}>Manager</span>}
+            {agent.yolo && <span className={styles.yoloBadge}>YOLO</span>}
+            <DiffStats projectDir={agent.worktreePath ?? agent.projectDir} />
+          </div>
+        </div>
+        <div className={styles.agentActions}>
+          <div className={styles.iconActions}>
+            {onToggleEditor && (
+              <Tooltip content="Toggle Code Editor  ⌘E">
+                <button
+                  className={`${styles.actionBtn} ${(editorActiveAnyMode ?? editorOpen) ? styles.actionBtnActive : ''}`}
+                  onClick={onToggleEditor}
+                  aria-label="Toggle code editor"
+                  aria-pressed={editorActiveAnyMode ?? editorOpen}
+                >
+                  <CodeBracketIcon /><span className={styles.actionLabel}>Editor</span>
+                </button>
+              </Tooltip>
+            )}
+            {onToggleFreeTerminal && (
+              <Tooltip content="Toggle Terminal  ⌘J">
+                <button
+                  className={`${styles.actionBtn} ${freeTerminalOpen ? styles.actionBtnActive : ''}`}
+                  onClick={onToggleFreeTerminal}
+                  aria-label="Toggle terminal"
+                  aria-pressed={freeTerminalOpen}
+                >
+                  <TermShellIcon />
+                </button>
+              </Tooltip>
+            )}
+            {onOpenGitPanel && (
+              <Tooltip content="Open Git Panel  ⌘G">
+                <button
+                  className={`${styles.actionBtn} ${gitPanelOpen ? styles.actionBtnActive : ''}`}
+                  onClick={onOpenGitPanel}
+                  aria-label="Open Git panel"
+                  aria-pressed={gitPanelOpen}
+                >
+                  <GitIcon /><span className={styles.actionLabel}>Git</span>
+                </button>
+              </Tooltip>
+            )}
+            <span className={styles.iconActionsDivider} aria-hidden="true" />
+            <Tooltip content="Restart">
+              <button className={styles.actionBtn} onClick={onRestartAgent} aria-label="Restart agent">
+                <RestartIcon />
+              </button>
+            </Tooltip>
+            <Tooltip content="Stop">
+              <button className={styles.actionBtn} onClick={onKillAgent} aria-label="Stop agent">
+                <StopIcon />
+              </button>
+            </Tooltip>
+            {onRemoveAgent && (
+              <Tooltip content="Close session  ⌘W">
+                <button
+                  className={`${styles.actionBtn} ${styles.removeBtn}`}
+                  onClick={onRemoveAgent}
+                  aria-label="Close session"
+                >
+                  <TrashIcon />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className={styles.splitContainer} ref={outerRef}>
+        {terminalSide}
+        {editorOpen && (
+          <>
+            <SplitHandle onDrag={handleSplitDrag} onDoubleClick={handleSplitDoubleClick} />
+            <div className={styles.editorSide}>
+              <EditorPanel
+                agentId={agent.id}
+                projectDir={agent.projectDir}
+                theme={theme}
+                tabs={editorTabs}
+                activeTabPath={editorActiveTabPath}
+                fileContents={editorFileContents ?? new Map()}
+                onOpenFile={onEditorOpenFile ?? (() => {})}
+                onCloseTab={onEditorCloseTab ?? (() => {})}
+                onSelectTab={onEditorSelectTab ?? (() => {})}
+                onContentChange={onEditorContentChange ?? (() => {})}
+                onSaveFile={onEditorSaveFile ?? (() => {})}
+              />
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -431,7 +437,7 @@ function StatusBadge({ status }: { status: string }) {
   }
 
   return (
-    <span className={styles.statusBadge}>
+    <span className={styles.statusBadge} data-status={status}>
       <span className={styles.statusDot} style={{ background: colors[status] }} />
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
@@ -481,6 +487,14 @@ function VerticalResizeHandle({
       onPointerDown={handlePointerDown}
       role="separator"
       aria-orientation="horizontal"
+      aria-label="Resize terminal height"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault()
+          onDrag(e.key === 'ArrowUp' ? -20 : 20)
+        }
+      }}
     />
   )
 }

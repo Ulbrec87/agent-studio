@@ -1,11 +1,11 @@
 .body {
-  container-type: inline-size;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-5);
 }
 
-@container (max-width: 760px) {
+@container overview (max-width: 850px) {
+
   .body {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -39,7 +39,7 @@
   gap: 6px;
   padding: var(--space-3);
   border-radius: var(--radius-md);
-  background: var(--color-surface-hover);
+  background: var(--color-bg);
   border: 1px solid var(--color-border-subtle);
   min-width: 0;
 }

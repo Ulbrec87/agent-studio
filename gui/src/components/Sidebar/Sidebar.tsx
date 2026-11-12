@@ -208,7 +208,7 @@ export function Sidebar({
   }, [selectionMode, numberedAgentMap, onSelectAgent])
 
   return (
-    <aside className={styles.sidebar} style={{ width }}>
+    <aside className={styles.sidebar} style={{ width }} aria-label="Projects and agents">
       <div className={styles.searchWrapper}>
         <SearchBar
           value={searchQuery}
@@ -220,7 +220,7 @@ export function Sidebar({
       <FilterChips chips={chips} onDismiss={dismissChip} />
 
       <div className={styles.sectionHeader}>
-        <span className={styles.sectionLabel}>PROJECTS</span>
+        <span className={styles.sectionLabel}>Projects</span>
         <div className={styles.sectionActions}>
           <SortDropdown value={sortKey} onChange={setSortKey} />
           <FilterDropdown
@@ -271,6 +271,19 @@ export function Sidebar({
       <div
         className={`${styles.resizeHandle} ${isDragging ? styles.resizeHandleActive : ''}`}
         onPointerDown={handlePointerDown}
+        role="separator"
+        aria-label="Resize sidebar"
+        aria-orientation="vertical"
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={MAX_WIDTH}
+        aria-valuenow={width}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault()
+            onWidthChange(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width + (e.key === 'ArrowLeft' ? -20 : 20))))
+          }
+        }}
       />
     </aside>
   )

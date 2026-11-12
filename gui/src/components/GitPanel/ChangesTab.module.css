@@ -155,9 +155,17 @@
   flex-shrink: 0;
 }
 
-.statusStaged { color: var(--color-status-running); }
-.statusModified { color: #E6A23C; }
-.statusUntracked { color: var(--color-text-muted); }
+.statusStaged {
+  color: var(--color-status-running);
+}
+
+.statusModified {
+  color: #E6A23C;
+}
+
+.statusUntracked {
+  color: var(--color-text-muted);
+}
 
 .fileName {
   overflow: hidden;
@@ -221,7 +229,7 @@
 }
 
 .commitBtnPrimary {
-  background: var(--color-accent);
+  background: var(--color-action-bg);
   color: var(--color-accent-text);
   border-color: var(--color-accent);
 }

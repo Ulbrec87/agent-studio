@@ -5,7 +5,9 @@
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   overflow: hidden;
-  background: var(--color-terminal-bg);
+  background: var(--workspace-panel-bg);
+  padding: 5px;
+  box-shadow: var(--shadow-sm);
   transition: border-color var(--transition-fast);
   min-height: 0;
 }
@@ -20,13 +22,14 @@
 }
 
 /* Header */
+
 .header {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  padding: 5px 6px 9px;
+  background: transparent;
+  border-bottom: none;
   cursor: pointer;
   flex-shrink: 0;
   transition: background var(--transition-fast);
@@ -90,7 +93,7 @@
   color: var(--color-text-secondary);
   background: var(--color-accent-subtle);
   padding: 2px 6px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -104,7 +107,7 @@
   background: var(--color-surface-hover);
   border: 1px solid var(--color-border);
   padding: 2px 6px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-sm);
   white-space: nowrap;
 }
 
@@ -115,10 +118,11 @@
   background: var(--color-yolo-bg);
   border: 1px solid var(--color-yolo-border);
   padding: 1px 5px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-sm);
 }
 
 /* Action buttons — pill-shaped circles matching ChatView */
+
 .actions {
   display: inline-flex;
   align-items: center;
@@ -132,7 +136,7 @@
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-sm);
   background: var(--color-surface-hover);
   border: 1px solid var(--color-border);
   color: var(--color-text-secondary);
@@ -165,6 +169,7 @@
 }
 
 /* Terminal area */
+
 .terminalWrapper {
   flex: 1;
   min-height: 0;
@@ -184,8 +189,8 @@
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  background: rgba(26, 23, 20, 0.88);
-  border: 1px solid rgba(232, 224, 216, 0.15);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 
 .statusNoticeBtn {
@@ -199,4 +204,100 @@
 
 .statusNoticeBtn:hover {
   background: var(--color-surface-hover);
+}
+
+.header {
+  flex-wrap: wrap;
+  min-height: 40px;
+  gap: 6px;
+}
+
+.header:hover {
+  background: transparent;
+}
+
+.name {
+  text-align: left;
+  min-width: 64px;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.name:hover {
+  color: var(--color-accent);
+}
+
+.badges {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.modelBadge {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.modelBadge img {
+  width: 14px;
+  height: 14px;
+}
+
+.actions {
+  margin-left: auto;
+}
+
+.actionBtn {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border-color: transparent;
+}
+
+.actionBtn:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border);
+}
+
+.removeBtn {
+  color: var(--color-text-secondary);
+}
+
+.removeBtn:hover {
+  color: var(--color-status-error);
+}
+
+.terminalWrapper {
+  background: var(--color-terminal-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.statusEmpty {
+  inset: 0;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  gap: 16px;
+  background: var(--workspace-panel-bg);
+  border: 0;
+  font-size: var(--font-size-md);
+}
+
+.statusEmpty .statusNoticeBtn {
+  padding: 9px 24px;
+  background: var(--color-action-bg);
+  color: var(--color-accent-text);
+  border-radius: var(--radius-md);
+}
+
+.stateBadge {
+  font-size: 10px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-subtle);
+  white-space: nowrap;
 }

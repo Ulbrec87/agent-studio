@@ -10,8 +10,8 @@ interface ViewSwitcherProps {
 
 export function ViewSwitcher({ viewMode, onSelect, needsYouCount = 0 }: ViewSwitcherProps) {
   const tabs: { mode: ViewMode; label: string; icon: JSX.Element }[] = [
-    { mode: 'grid', label: 'Grid', icon: <GridIcon /> },
     { mode: 'chat', label: 'Chat', icon: <ChatIcon /> },
+    { mode: 'grid', label: 'Grid', icon: <GridIcon /> },
     { mode: 'overview', label: 'Overview', icon: <OverviewIcon /> }
   ]
   return (

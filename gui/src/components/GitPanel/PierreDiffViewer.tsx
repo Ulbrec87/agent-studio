@@ -18,6 +18,7 @@ function mapTheme(theme: string): DiffsThemeNames {
     case 'midnight':
       return 'github-dark-default'
     case 'dark':
+    case 'modern-workspace-soft':
     default:
       return 'github-dark-dimmed'
   }

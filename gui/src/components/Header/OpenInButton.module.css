@@ -2,9 +2,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  background: var(--color-surface-hover);
+  background: var(--workspace-control-bg);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
   transition: border-color var(--transition-fast);
 }
 
@@ -19,7 +19,7 @@
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   padding: 6px 8px 6px 14px;
-  border-radius: var(--radius-full) 0 0 var(--radius-full);
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
   color: var(--color-text-secondary);
   background: transparent;
   border: none;
@@ -41,7 +41,7 @@
   align-items: center;
   justify-content: center;
   padding: 6px 10px 6px 8px;
-  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   color: var(--color-text-secondary);
   background: transparent;
   border: none;
@@ -115,4 +115,23 @@
   padding: 0 4px;
   border-radius: var(--radius-sm);
   margin-left: var(--space-2);
+}
+
+.container {
+  min-height: 36px;
+}
+
+@media (max-width: 1250px) {
+
+  .label {
+    display: none;
+  }
+
+  .mainBtn {
+    padding-inline: 9px;
+  }
+
+  .chevronBtn {
+    padding-inline: 7px;
+  }
 }

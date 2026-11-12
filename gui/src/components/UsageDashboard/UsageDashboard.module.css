@@ -137,7 +137,10 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .empty {
@@ -232,7 +235,7 @@
 
 .segmentBtnActive {
   color: var(--color-accent-text);
-  background: var(--color-accent);
+  background: var(--color-action-bg);
 }
 
 .trendBody {
@@ -389,6 +392,7 @@
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 
 @media (max-width: 1180px) {
+
   .summaryGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -407,6 +411,7 @@
 }
 
 @media (max-width: 760px) {
+
   .controls {
     flex-direction: column;
     align-items: stretch;

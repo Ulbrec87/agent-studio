@@ -514,6 +514,11 @@ included, so a test reading "the next frame" can get an event instead of its res
   build loads `devUrl` (`http://localhost:1420`), so run Vite there. For terminal sizing, a fake `claude` script on `PATH` (with
   `AGENT_STUDIO_NO_FIX_PATH=1`) that draws a frame of `tput cols`x`tput lines` and redraws on `SIGWINCH` shows both the PTY size and what xterm renders.
 
+
+## Keep the Chat terminal parent stable when toggling the editor
+
+Use one Chat body with an optional editor sibling. Switching between separate split/non-split React trees remounts xterm and replays its buffer; cosmetic layout changes must preserve the terminal's parent and key. Theme colors update through the existing DOM theme observer, not by adding the theme to xterm's creation-effect dependencies.
+
 ## Windows: background commands flashing console windows (2026-11-10)
 
 - **Piped or null stdio does not suppress a Windows console.** Git/gh, provider version checks and model discovery
